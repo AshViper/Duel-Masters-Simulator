@@ -120,6 +120,8 @@ export type GameEvent =
   /** 手札を捨てた（効果で手札から墓地へ） */
   | { type: 'CARD_DISCARDED'; player: PlayerId; iid: string }
   | { type: 'CARD_MOVED'; iid: string; from: ZoneName; to: ZoneName }
+  /** クリーチャー（iid）の下にあったカード（card）が、その下を離れた */
+  | { type: 'UNDER_LEFT'; iid: string; card: string }
   | { type: 'GAME_OVER'; winner: PlayerId | null; reason: string };
 
 export type AttackTarget = { kind: 'player' } | { kind: 'creature'; iid: string };
@@ -240,6 +242,8 @@ export interface GameState {
   turnStatics: TurnStatic[];
   /** このターンに使った「各ターンに1度」の能力（カードID:能力の番号） */
   usedThisTurn?: string[];
+  /** 効果で選んだ数字（「数字を1つ選ぶ」） */
+  chosenNumber?: number;
   /** 効果で直前に選んだ（動かした）カード（「それ」「その捨てたカード」で指す） */
   lastChosen?: string[];
   log: LogEntry[];

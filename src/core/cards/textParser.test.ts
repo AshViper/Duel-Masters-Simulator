@@ -96,7 +96,7 @@ describe('能力テキストの読み取り', () => {
     // 能力語つきの文は読まない
     expect(creature('鬼タイム：自分と相手のシールドの数が合計６つ以下で、自分のターンなら、このクリーチャーは破壊されない。').manualLines).toHaveLength(1);
     // 一部だけ読める文も丸ごと手動にする
-    const partial = creature('このクリーチャーがバトルゾーンに出た時、カードを1枚引く。その後、相手の手札を見る。');
+    const partial = creature('このクリーチャーがバトルゾーンに出た時、カードを1枚引く。その後、相手とじゃんけんする。');
     expect(partial.abilities[0].effects[0].type).toBe('manual');
   });
 });

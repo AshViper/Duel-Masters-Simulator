@@ -29,7 +29,7 @@ const CARDS = {
     detailUrl: '',
     faces: [{ ...face, name: 'シャコ', type: 'クリーチャー', power: '13000', abilities: ['T・ブレイカー', 'このクリーチャーがバトルゾーンに出た時、自分の墓地にあるカードをすべて山札に加え、シャッフルする。', '相手のターンのはじめに、カードを５枚引き、その後、自分の手札を３枚捨てる。', '自分の山札の最後の１枚を引く時、ゲームに負けるかわりに勝つ。'] }],
   }),
-  odd: convertOfficialCard({ id: 'd-14', detailUrl: '', faces: [{ ...face, name: '謎', type: 'クリーチャー', power: '1000', abilities: ['このクリーチャーが出た時、相手の手札を見る。'] }] }),
+  odd: convertOfficialCard({ id: 'd-14', detailUrl: '', faces: [{ ...face, name: '謎', type: 'クリーチャー', power: '1000', abilities: ['このクリーチャーが出た時、相手とじゃんけんする。'] }] }),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(CARDS)]);
 const filler = Array.from({ length: 40 }, () => 'S01-043'); // 自然のクリーチャー
@@ -162,7 +162,7 @@ describe('デッキのカードがすべて自動処理になる', () => {
     const c = put(s, 0, 'dm:d-14', 'hand');
     put(s, 0, 'S01-011', 'mana');
     s = act(s, { type: 'PLAY_CARD', player: 0, iid: c });
-    expect(s.pending).toMatchObject({ kind: 'manualStep', player: 0, source: c, text: expect.stringContaining('相手の手札を見る') });
+    expect(s.pending).toMatchObject({ kind: 'manualStep', player: 0, source: c, text: expect.stringContaining('じゃんけん') });
     // 止まっている間も手動操作はできる
     s = act(s, { type: 'MANUAL_DRAW', player: 0, target: 0 });
     expect(s.pending?.kind).toBe('manualStep');

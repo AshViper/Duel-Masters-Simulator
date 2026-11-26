@@ -67,6 +67,18 @@ const C = {
   revealAny: spell('m-45', ['自分の山札の上から１枚を表向きにする。それが呪文または名前に《m-2》とあるカードなら、手札に加える。']),
   topBottom: spell('m-46', ['自分の山札の上から２枚を見る。その後、それらを好きな順序で山札の上または下に置く。']),
   shuffleLook: spell('m-47', ['自分の山札をシャッフルし、上から３枚を表向きにする。その中からクリーチャーを１体出し、残りを好きな順序で山札の下に置く。']),
+  number: spell('m-50', ['数字を１つ選ぶ。次の自分のターンのはじめまで、その数字と同じコストの相手のクリーチャーは攻撃もブロックもできない。']),
+  both: spell('m-51', ['次のうちいずれかひとつを選ぶ。バトルゾーンに自分の闇のクリーチャーと火のクリーチャーがそれぞれ１体以上あれば、両方選んでもよい。\n▶カードを１枚引く。\n▶自分の山札の上から１枚目をマナゾーンに置く。その後、カードを１枚、自分のマナゾーンから手札に戻してもよい。']),
+  tapAll: mk('m-52', ['このクリーチャーがバトルゾーンに出た時、相手のクリーチャーをすべてタップする。次の相手のターンのはじめに、それらはアンタップしない。']),
+  toggle: mk('m-53', ['このクリーチャーが出た時、クリーチャーを１体選び、タップまたはアンタップする。']),
+  discardDraw: mk('m-54', ['このクリーチャーが出た時、自分の手札を２枚まで捨て、その枚数より１枚多くカードを引く。']),
+  power13: mk('m-55', ['このクリーチャーをバトルゾーンに出した時、パワーの合計が7000以下になるよう、相手のクリーチャーを好きな数選び、破壊する。']),
+  evoCond: mk('m-56', ['このクリーチャーが出た時、カードを１枚引く。これが進化クリーチャーなら、カードをもう１枚引く。']),
+  underLeft: mk(
+    'm-60',
+    ['進化：自分の火のクリーチャー１体の上に置く。', 'メテオバーン：このクリーチャーが攻撃する時、このクリーチャーの下にあるカードを１枚墓地に置いてもよい。', 'カードがこのクリーチャーの下を離れた時、次のうちいずれかひとつを選ぶ。\n▶自分の山札の上から１枚をシールド化する。\n▶相手のクリーチャーを１体選び、破壊する。'],
+    { type: '進化クリーチャー', power: '6000' },
+  ),
   plus: mk('m-15', ['{STP} S・トリガー・プラス（このクリーチャーを自分のシールドゾーンから手札に加える時、コストを支払わずにすぐ召喚してもよい）', '{x+}このクリーチャーが出た時、相手のクリーチャーをすべてタップする。']),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
@@ -515,5 +527,120 @@ describe('山札を見る効果', () => {
 
   it('「山札をシャッフルし、上から3枚を表向きにする」：シャッフルしてから見る', () => {
     expect(C.shuffleLook.twin ?? C.shuffleLook.abilities?.[0].effects.map((e) => e.type)).toEqual(['shuffleDeck', 'lookAtTop']);
+  });
+});
+
+describe('数字を選ぶ・次のうちいずれかを選ぶ・出た時の能力', () => {
+  const cast = (s: GameState, cardId: string) => {
+    const sp = put(s, 0, cardId, 'hand');
+    mana(s, 1);
+    return { s: act(s, { type: 'PLAY_CARD', player: 0, iid: sp }), iid: sp };
+  };
+
+  it('数字を1つ選ぶ：その数字と同じコストの相手のクリーチャーは攻撃もブロックもできない', () => {
+    let s = newGame();
+    const one = put(s, 1, C.vanilla.id, 'battle');
+    const five = put(s, 1, C.cost5.id, 'battle');
+    s = cast(s, C.number.id).s;
+    expect(s.pending).toMatchObject({ kind: 'chooseMode', player: 0 });
+    s = act(s, { type: 'RESPOND', player: 0, selected: ['5'] });
+    expect(keywords(s, reg, five)).toMatchObject({ cannotAttack: true, cannotBlock: true });
+    expect(keywords(s, reg, one).cannotAttack).toBeFalsy();
+    // 後で別の数字を選んでも、前の効果は変わらない
+    s.chosenNumber = 1;
+    expect(keywords(s, reg, five).cannotAttack).toBe(true);
+    expect(keywords(s, reg, one).cannotAttack).toBeFalsy();
+  });
+
+  it('「次のうちいずれかひとつを選ぶ。〜があれば、両方選んでもよい」：条件を満たす時だけ両方を選べる', () => {
+    let s = newGame();
+    s = cast(s, C.both.id).s;
+    expect(s.pending?.kind === 'chooseMode' && s.pending.options).toHaveLength(2);
+
+    let s2 = newGame();
+    put(s2, 0, C.dark.id, 'battle');
+    put(s2, 0, C.vanilla.id, 'battle');
+    const hand = zone(s2, 0, 'hand');
+    const manaBefore = zone(s2, 0, 'mana');
+    s2 = cast(s2, C.both.id).s;
+    expect(s2.pending?.kind === 'chooseMode' && s2.pending.options).toHaveLength(3);
+    s2 = act(s2, { type: 'RESPOND', player: 0, selected: ['2'] });
+    // 選択肢の中の「〜してもよい」は、使うかどうかを聞く
+    expect(s2.pending?.kind).toBe('confirm');
+    s2 = act(s2, { type: 'RESPOND', player: 0, accept: false });
+    expect(s2.pending).toBeFalsy();
+    // 手札：1枚引く（唱えた呪文は手札に入れてから使うので差し引き0）
+    expect(zone(s2, 0, 'hand')).toBe(hand + 1);
+    expect(zone(s2, 0, 'mana')).toBe(manaBefore + 1 + 1);
+  });
+
+  it('「相手のクリーチャーをすべてタップする。次の相手のターンのはじめに、それらはアンタップしない」', () => {
+    let s = newGame();
+    const o = put(s, 1, C.vanilla.id, 'battle');
+    const c = put(s, 0, C.tapAll.id, 'hand');
+    mana(s, 1);
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: c });
+    expect(s.cards[o].tapped).toBe(true);
+    s = act(s, { type: 'END_TURN', player: 0 });
+    expect(s.activePlayer).toBe(1);
+    expect(s.cards[o].tapped).toBe(true);
+  });
+
+  it('「クリーチャーを1体選び、タップまたはアンタップする」', () => {
+    let s = newGame();
+    const o = put(s, 1, C.vanilla.id, 'battle');
+    const c = put(s, 0, C.toggle.id, 'hand');
+    mana(s, 1);
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: c });
+    s = act(s, { type: 'RESPOND', player: 0, selected: [o] });
+    expect(s.pending).toMatchObject({ kind: 'chooseMode', options: ['タップする', 'アンタップする'] });
+    s = act(s, { type: 'RESPOND', player: 0, selected: ['0'] });
+    expect(s.cards[o].tapped).toBe(true);
+  });
+
+  it('「手札を2枚まで捨て、その枚数より1枚多くカードを引く」', () => {
+    let s = newGame();
+    const c = put(s, 0, C.discardDraw.id, 'hand');
+    mana(s, 1);
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: c });
+    const hand = zone(s, 0, 'hand');
+    const pick = s.pending?.kind === 'selectCards' ? s.pending.candidates.slice(0, 2) : [];
+    s = act(s, { type: 'RESPOND', player: 0, selected: pick });
+    expect(s.pending).toBeFalsy();
+    expect(zone(s, 0, 'hand')).toBe(hand - 2 + 3);
+  });
+
+  it('「パワーの合計が7000以下になるよう」：合計を超える分は破壊しない', () => {
+    let s = newGame();
+    const a = put(s, 1, C.vanilla.id, 'battle');
+    const b = put(s, 1, C.vanilla.id, 'battle');
+    const c = put(s, 0, C.power13.id, 'hand');
+    mana(s, 1);
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: c });
+    s = act(s, { type: 'RESPOND', player: 0, selected: [a, b] });
+    expect([s.cards[a].zone, s.cards[b].zone]).toEqual(['graveyard', 'battle']);
+  });
+
+  it('途中の文の条件：「これが進化クリーチャーなら、カードをもう1枚引く」は進化していなければ引かない', () => {
+    let s = newGame();
+    const c = put(s, 0, C.evoCond.id, 'hand');
+    mana(s, 1);
+    const hand = zone(s, 0, 'hand');
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: c });
+    expect(zone(s, 0, 'hand')).toBe(hand - 1 + 1);
+  });
+});
+
+describe('カードがこのクリーチャーの下を離れた時', () => {
+  it('メテオバーンで下のカードを墓地に置くと誘発し、選んだ効果を処理する', () => {
+    expect(C.underLeft.support).toBe('full');
+    let s = newGame();
+    const { top } = putEvolved(s, C.underLeft.id);
+    const victim = put(s, 1, C.vanilla.id, 'battle');
+    s = act(s, { type: 'ATTACK', player: 0, attacker: top, target: { kind: 'player' } });
+    s = act(s, { type: 'RESPOND', player: 0, accept: true });
+    expect(s.pending).toMatchObject({ kind: 'chooseMode', player: 0 });
+    s = act(s, { type: 'RESPOND', player: 0, selected: ['1'] });
+    expect(s.cards[victim].zone).toBe('graveyard');
   });
 });

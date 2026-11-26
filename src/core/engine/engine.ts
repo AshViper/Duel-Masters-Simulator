@@ -17,6 +17,7 @@ import {
   type ReplacementAbility,
   type TargetSpec,
   type TriggeredAbility,
+  type StaticAbility,
   type ZoneName,
 } from '../cards/types';
 import {
@@ -1233,11 +1234,13 @@ export class Ctx {
             return false;
           }
           // G-NEO進化：かわりに下のカードすべてが離れる
-          for (const u of [...inst.under]) {
+          const shed = [...inst.under];
+          for (const u of shed) {
             s.cards[u].zone = 'battle';
             this.moveCard(u, task.to);
           }
           inst.under = [];
+          for (const u of shed) this.emit({ type: 'UNDER_LEFT', iid: task.iid, card: u });
           return false;
         }
         case 'seal': {
@@ -1432,10 +1435,14 @@ export class Ctx {
           s.cards[u].zone = 'battle';
           this.moveCard(u, 'graveyard');
           this.log(`${this.name(source)} の下の ${this.name(u)} を墓地に置いた`, controller);
+          this.emit({ type: 'UNDER_LEFT', iid: source, card: u });
         }
         s.lastChosen = picked;
         return false;
       }
+      case 'optional':
+        this.insertFront({ kind: 'confirmOptional', controller, source, effects: e.effects });
+        return false;
       case 'opponentMay':
         // 「相手は〜してもよい」：相手に聞いて、相手が行う
         this.insertFront({ kind: 'confirmOptional', controller: opp, source, effects: e.effects });
@@ -1589,10 +1596,47 @@ export class Ctx {
         });
         return false;
       }
-      case 'turnStatic':
-        s.turnStatics.push({ controller, source, static: e.static, ...(e.untilNextTurn ? { untilNextTurnOf: controller } : {}) });
+      case 'turnStatic': {
+        // 「その数字と同じコストの」：選んだ数字をこの時点で決める（後で別の数字を選んでも変わらないように）
+        const num = s.chosenNumber ?? -1;
+        const bound = JSON.parse(JSON.stringify(e.static).split('"costIsChosenNumber":true').join(`"minCost":${num},"maxCost":${num}`)) as StaticAbility;
+        s.turnStatics.push({ controller, source, static: bound, ...(e.untilNextTurn ? { untilNextTurnOf: controller } : {}) });
         this.log(`${this.name(source)} の効果が${e.untilNextTurn ? '次の自分のターンのはじめまで' : 'このターンの間'}有効`, controller);
         return false;
+      }
+      case 'chooseNumber': {
+        const r = this.takeResponse();
+        if (!r) {
+          s.pending = { kind: 'chooseMode', player: controller, source, prompt: `${this.name(source)}：数字を1つ選んでください`, options: Array.from({ length: 16 }, (_, i) => String(i)) };
+          return true;
+        }
+        s.chosenNumber = Number(r.selected?.[0] ?? 0);
+        this.log(`${this.name(source)}：数字「${s.chosenNumber}」を選んだ`, controller);
+        return false;
+      }
+      case 'lookAtHand': {
+        const hand = s.players[opp].zones.hand;
+        this.log(`${s.players[opp].name} の手札を見た：${hand.map((x) => `${this.name(x)}（コスト${def(s, this.reg, x).cost}）`).join('、') || 'なし'}`, controller);
+        return false;
+      }
+      case 'tapOrUntap': {
+        // 選んだ後、1体ずつタップするかアンタップするかを聞く
+        if (!e.iid)
+          return this.withTargets(controller, source, e.target, 'タップまたはアンタップする', false, (iid) => ({ kind: 'effect', controller, source, effect: { ...e, iid } }));
+        const inst = s.cards[e.iid];
+        if (inst?.zone !== 'battle') return false;
+        const r = this.takeResponse();
+        if (!r) {
+          s.pending = { kind: 'chooseMode', player: controller, source, prompt: `${this.name(source)}：${this.name(e.iid)} をどうしますか？`, options: ['タップする', 'アンタップする'] };
+          return true;
+        }
+        if (Number(r.selected?.[0]) === 0) this.setTapped(e.iid, controller);
+        else if (!keywords(s, this.reg, e.iid).untapOnlyAtTurnStart) {
+          inst.tapped = false;
+          this.log(`${this.name(e.iid)} をアンタップ`, controller);
+        }
+        return false;
+      }
       case 'fight': {
         // 「その2体をバトルさせる」：直前に出した（選んだ）クリーチャーがこのクリーチャーのかわりにバトルする
         const fighter = e.fighter === 'chosen' ? (s.lastChosen ?? []).find((x) => s.cards[x]?.zone === 'battle') : source;
@@ -1648,10 +1692,17 @@ export class Ctx {
         const r = this.takeResponse();
         if (!r) {
           const times = e.times && e.times > 1 ? `（あと${e.times}回）` : '';
-          s.pending = { kind: 'chooseMode', player: controller, source, prompt: `${this.name(source)}：次の中から1つ選ぶ${times}`, options: e.options.map((o) => o.label) };
+          // 「〜があれば、両方選んでもよい」：条件を満たしている時だけ、すべて選ぶ選択肢を足す
+          const both = e.bothIf && evalCondition(s, this.reg, controller, e.bothIf, false, source) ? [e.options.length === 2 ? '両方選ぶ' : 'すべて選ぶ'] : [];
+          s.pending = { kind: 'chooseMode', player: controller, source, prompt: `${this.name(source)}：次の中から1つ選ぶ${times}`, options: [...e.options.map((o) => o.label), ...both] };
           return true;
         }
         const idx = Number(r.selected?.[0]);
+        if (idx === e.options.length && e.bothIf && evalCondition(s, this.reg, controller, e.bothIf, false, source)) {
+          this.log(`${this.name(source)}：すべての選択肢を選んだ`, controller);
+          this.insertFront(...this.effectTasks(controller, source, e.options.flatMap((o) => o.effects)));
+          return false;
+        }
         const opt = e.options[idx];
         this.log(`${this.name(source)}：「${opt.label}」を選んだ`, controller);
         const left = (e.times ?? 1) - 1;
@@ -1856,6 +1907,7 @@ export class Ctx {
           const fromHand = s.cards[iid].zone === 'hand';
           const t = this.moveTo(iid, e.to, controller);
           if (fromHand && e.to === 'graveyard') this.emit({ type: 'CARD_DISCARDED', player: s.cards[iid].owner, iid });
+          if (e.faceUp && e.to === 'shield' && s.cards[iid].zone === 'shield') s.cards[iid].faceUp = true;
           if (!e.tapped) return t;
           if (t && t.kind === 'leave') return { ...t, tapped: true };
           s.cards[iid].tapped = true;
@@ -2119,7 +2171,9 @@ export class Ctx {
       } else chosen = lures;
     } else {
       const n = Math.min(spec.count, candidates.length);
-      const fitsTotal = spec.maxTotalCost === undefined || candidates.reduce((a, c) => a + def(s, this.reg, c).cost, 0) <= spec.maxTotalCost;
+      const fitsTotal =
+        (spec.maxTotalCost === undefined || candidates.reduce((a, c) => a + def(s, this.reg, c).cost, 0) <= spec.maxTotalCost) &&
+        (spec.maxTotalPower === undefined || candidates.reduce((a, c) => a + power(s, this.reg, c), 0) <= spec.maxTotalPower);
       if (!spec.upTo && candidates.length <= spec.count && fitsTotal) chosen = candidates;
       else {
         const r = this.takeResponse();
@@ -2129,7 +2183,7 @@ export class Ctx {
             kind: 'selectCards',
             player: chooser,
             source,
-            prompt: `${this.name(source)}：${spec.maxTotalCost !== undefined ? `コストの合計が${spec.maxTotalCost}以下になるように` : ''}${spec.upTo ? `${n}枚まで` : `${n}枚`}選んで${verb}`,
+            prompt: `${this.name(source)}：${spec.maxTotalPower !== undefined ? `パワーの合計が${spec.maxTotalPower}以下になるように` : ''}${spec.maxTotalCost !== undefined ? `コストの合計が${spec.maxTotalCost}以下になるように` : ''}${spec.upTo ? `${n}枚まで` : `${n}枚`}選んで${verb}`,
             candidates,
             min: spec.upTo ? 0 : n,
             max: n,
@@ -2149,6 +2203,16 @@ export class Ctx {
         const c = def(s, this.reg, iid).cost;
         if (sum + c > spec.maxTotalCost!) return false;
         sum += c;
+        return true;
+      });
+    }
+    // 「パワーの合計がN以下になるよう」：選んだ順に、合計を超えるカードは外す
+    if (spec.maxTotalPower !== undefined) {
+      let sum = 0;
+      chosen = chosen.filter((iid) => {
+        const p = power(s, this.reg, iid);
+        if (sum + p > spec.maxTotalPower!) return false;
+        sum += p;
         return true;
       });
     }
@@ -2271,6 +2335,14 @@ export class Ctx {
       case 'CREATURE_TAPPED':
         this.triggerFrom(e.iid, 'onTap');
         break;
+      // 「カードがこのクリーチャーの下を離れた時」「カードが自分のクリーチャーの下を離れた時」
+      case 'UNDER_LEFT': {
+        const host = s.cards[e.iid];
+        if (host?.zone !== 'battle') break;
+        this.triggerFrom(e.iid, 'onUnderLeft', undefined, e.card);
+        for (const b of [...s.players[host.owner].zones.battle]) this.triggerFrom(b, 'onOwnUnderLeft', undefined, e.card);
+        break;
+      }
       case 'CARD_TARGETED':
         this.triggerFrom(e.iid, 'onTargeted');
         break;

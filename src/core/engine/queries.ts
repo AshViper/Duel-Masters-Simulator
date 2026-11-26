@@ -194,6 +194,8 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   if (f.excludeSelf && iid === source) return false;
   if (f.not && matchFilter(state, reg, iid, f.not, source, noPower)) return false;
   if (f.anyOf && !f.anyOf.some((x) => matchFilter(state, reg, iid, x, source, noPower))) return false;
+  if (f.selfOnly && iid !== source) return false;
+  if (f.costIsChosenNumber && d.cost !== state.chosenNumber) return false;
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(d.type) : d.type !== f.cardType)) return false;
   if (f.civilization && !d.civilizations.includes(f.civilization)) return false;
   if (f.civilizations && !f.civilizations.some((c) => d.civilizations.includes(c))) return false;

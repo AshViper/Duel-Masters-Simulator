@@ -88,6 +88,10 @@ export interface CardFilter {
   refCost?: 'eq' | 'le';
   /** 直前に選んだ（動かした）カードと同じ文明を持つ（「その捨てたカードと同じ文明を持つ」） */
   refCivs?: boolean;
+  /** 選んだ数字と同じコスト（「数字を1つ選ぶ。その数字と同じコストの〜」） */
+  costIsChosenNumber?: boolean;
+  /** 効果の発生源自身だけ（「このクリーチャーに封印を付ける」） */
+  selfOnly?: boolean;
   /** このうちのどれかに合うもの（「呪文または名前に《X》とあるカード」） */
   anyOf?: CardFilter[];
   /** この条件に合わないもの（「闇ではない」「ドラゴンではない」「多色ではない」） */
@@ -102,6 +106,8 @@ export interface TargetSpec {
   count: number | 'all';
   /** 選んだカードのコストの合計の上限（「コストの合計がN以下になるように」） */
   maxTotalCost?: number;
+  /** 選んだカードのパワーの合計の上限（「パワーの合計がN以下になるよう」） */
+  maxTotalPower?: number;
   /** true なら 0〜count 枚の範囲で選べる（「〜まで」） */
   upTo?: boolean;
   filter?: CardFilter;
@@ -160,9 +166,9 @@ export type EffectDef =
   /**
    * カードを動かす共通の効果：対象（どこの・どのカードを・何枚）を移動先へ。
    * 手札に戻す・マナ送り・墓地送り・シールド化・山札の上/下・バトルゾーンに出す はすべてこれで表す。
-   * tapped: タップして置く。grant: バトルゾーンに出したクリーチャーに与える能力
+   * tapped: タップして置く。faceUp: 表向きで置く（シールドゾーン）。grant: バトルゾーンに出したクリーチャーに与える能力
    */
-  | { type: 'move'; target: TargetSpec; to: MoveDest; tapped?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean } }
+  | { type: 'move'; target: TargetSpec; to: MoveDest; tapped?: boolean; faceUp?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean } }
   | { type: 'tap'; target: TargetSpec }
   | { type: 'untap'; target: TargetSpec }
   /** @deprecated 旧形式（保存済みのデータ用）。エンジンが move に読み替える */
@@ -241,7 +247,10 @@ export type EffectDef =
   | { type: 'conditional'; condition: Condition; then: EffectDef[]; else?: EffectDef[] }
   /** モード選択（「次の中から1つ選ぶ」） */
   /** times: 選ぶ回数（「次の中から2回選ぶ」）。distinct: 同じものは選べない */
-  | { type: 'chooseOne'; options: { label: string; effects: EffectDef[] }[]; times?: number; distinct?: boolean }
+  /** bothIf: この条件を満たしていれば、すべての選択肢を選んでもよい（「〜があれば、両方選んでもよい」） */
+  | { type: 'chooseOne'; options: { label: string; effects: EffectDef[] }[]; times?: number; distinct?: boolean; bothIf?: Condition }
+  /** 効果の途中の「〜してもよい」：使うかどうかを聞いてから行う（選択肢の中など） */
+  | { type: 'optional'; effects: EffectDef[] }
   /**
    * このクリーチャーと選んだクリーチャーをバトルさせる。
    * fighter: chosen なら、このクリーチャーのかわりに直前に選んだ（出した）クリーチャーがバトルする
@@ -261,6 +270,12 @@ export type EffectDef =
   | { type: 'ifChosen'; then: EffectDef[]; n?: number }
   /** マジボンバーN：山札の上から1枚目を見て、コストN以下のクリーチャーを1体、手札または山札の上から出してもよい */
   | { type: 'magibomber'; maxCost: number }
+  /** 数字を1つ選ぶ（後の文の「その数字と同じコストの」で使う） */
+  | { type: 'chooseNumber' }
+  /** 相手の手札を見る */
+  | { type: 'lookAtHand' }
+  /** 選んだクリーチャーを、それぞれタップまたはアンタップする。iid: エンジン内部用（どちらにするか聞いているクリーチャー） */
+  | { type: 'tapOrUntap'; target: TargetSpec; iid?: string }
   /** エンジン内部用：山札から選んだカードの行き先を、1枚ずつ2つの中から選ぶ */
   | { type: 'chooseDest'; iids: string[]; options: ('hand' | 'battle' | 'mana' | 'shield' | 'graveyard')[] }
   /**
@@ -317,6 +332,10 @@ export const TRIGGER_EVENTS = [
   'onSpellCast',
   /** シンカパワー：このクリーチャーが進化する時（上に進化クリーチャーが置かれた時。効果は進化した後のクリーチャーが使う） */
   'onEvolved',
+  /** カードがこのクリーチャーの下を離れた時（メテオバーンなどで、下のカードだけが離れた時） */
+  'onUnderLeft',
+  /** カードが自分のクリーチャーの下を離れた時（このクリーチャー自身も含む） */
+  'onOwnUnderLeft',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
