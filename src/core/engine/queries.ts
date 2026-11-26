@@ -50,9 +50,9 @@ export function def(state: GameState, reg: CardRegistry, iid: string): CardDefin
   // 超魂X：下にあるカードの能力も持つ
   if (inst.zone === 'battle' && inst.under.length) {
     const souls = inst.under.map((u) => state.cards[u] && reg[state.cards[u].cardId]).filter((u): u is CardDefinition => !!u?.soul);
-    if (souls.length) return withSouls(base, souls);
+    if (souls.length) return withSurvivors(state, reg, iid, withSouls(base, souls));
   }
-  return base;
+  return inst.zone === 'battle' ? withSurvivors(state, reg, iid, base) : base;
 }
 
 const psychicCache = new WeakMap<CardDefinition, CardDefinition>();
@@ -86,6 +86,19 @@ function withSouls(d: CardDefinition, souls: CardDefinition[]): CardDefinition {
     m.set(key, out);
   }
   return out;
+}
+
+/** サバイバー：自分の他のサバイバーの {S} 能力も持つ */
+function withSurvivors(state: GameState, reg: CardRegistry, iid: string, d: CardDefinition): CardDefinition {
+  if (!d.races.some((r) => r.includes('サバイバー'))) return d;
+  const inst = state.cards[iid];
+  const givers: CardDefinition[] = [];
+  for (const o of state.players[inst.owner].zones.battle) {
+    if (o === iid || state.cards[o].seals?.length) continue;
+    const od = reg[state.cards[o].cardId];
+    if (od?.survivor && od.races.some((r) => r.includes('サバイバー'))) givers.push({ ...od, id: `S:${od.id}`, soul: od.survivor });
+  }
+  return givers.length ? withSouls(d, givers) : d;
 }
 
 const forbiddenCache = new WeakMap<CardDefinition, CardDefinition>();
@@ -178,6 +191,7 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   const inst = state.cards[iid];
   const d = def(state, reg, iid);
   if (f.excludeSelf && iid === source) return false;
+  if (f.not && matchFilter(state, reg, iid, f.not, source, noPower)) return false;
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(d.type) : d.type !== f.cardType)) return false;
   if (f.civilization && !d.civilizations.includes(f.civilization)) return false;
   if (f.civilizations && !f.civilizations.some((c) => d.civilizations.includes(c))) return false;
@@ -189,7 +203,7 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   if (f.hasKeyword && !(inst.zone === 'battle' && !noPower ? keywords(state, reg, iid) : (d.keywords ?? {}))[f.hasKeyword]) return false;
   if (f.multicolor && d.civilizations.length < 2) return false;
   if (f.evolution && d.type !== 'evolution') return false;
-  if (f.nameIncludes && !d.name.includes(f.nameIncludes)) return false;
+  if (f.nameIncludes && !d.name.replace(/\s/g, '').includes(f.nameIncludes.replace(/\s/g, ''))) return false;
   // 「このクリーチャーよりパワーが小さい」：効果の発生源と比べる
   if (f.relativeToSource && source && state.cards[source]) {
     const val = (x: string) => (f.relativeToSource!.stat === 'cost' ? def(state, reg, x).cost : state.cards[x].zone === 'battle' && !noPower ? power(state, reg, x) : (def(state, reg, x).power ?? 0));
@@ -206,6 +220,16 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   }
   if (f.maxCost !== undefined && d.cost > f.maxCost) return false;
   if (f.minCost !== undefined && d.cost < f.minCost) return false;
+  if (f.costAboveOwnerMana && !(d.cost > state.players[inst.owner].zones.mana.length)) return false;
+  // 「その捨てたカードと同じコストの」：直前に選んだ（動かした）カードと比べる。なければ合うものはない
+  if (f.refCost || f.refCivs) {
+    const refs = (state.lastChosen ?? []).filter((x) => state.cards[x]);
+    if (!refs.length) return false;
+    const rd = def(state, reg, refs[0]);
+    if (f.refCost === 'eq' && d.cost !== rd.cost) return false;
+    if (f.refCost === 'le' && d.cost > rd.cost) return false;
+    if (f.refCivs && !refs.some((x) => def(state, reg, x).civilizations.some((c) => c !== 'zero' && d.civilizations.includes(c)))) return false;
+  }
   if (f.tapped && !inst.tapped) return false;
   if (f.untapped && inst.tapped) return false;
   if (f.maxPower !== undefined || f.minPower !== undefined) {
@@ -219,6 +243,7 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
 /** 使う面（ツインパクトの呪文側を含む）が条件に合うか */
 function matchFace(face: PlayFace, d: CardDefinition, f: CardFilter | undefined): boolean {
   if (!f) return true;
+  if (f.not && matchFace(face, d, f.not)) return false;
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(face.type) : face.type !== f.cardType)) return false;
   if (f.civilization && !face.civilizations.includes(f.civilization)) return false;
   if (f.civilizations && !f.civilizations.some((c) => face.civilizations.includes(c))) return false;
@@ -227,6 +252,7 @@ function matchFace(face: PlayFace, d: CardDefinition, f: CardFilter | undefined)
   if (f.nonEvolution && face.type === 'evolution') return false;
   if (f.twinpact && !d.twin) return false;
   if (f.multicolor && face.civilizations.length < 2) return false;
+  if (f.nameIncludes && !face.name.replace(/\s/g, '').includes(f.nameIncludes.replace(/\s/g, ''))) return false;
   if (f.maxCost !== undefined && face.cost > f.maxCost) return false;
   if (f.minCost !== undefined && face.cost < f.minCost) return false;
   return true;
@@ -361,6 +387,8 @@ function effectiveCostImpl(state: GameState, reg: CardRegistry, player: PlayerId
     const s = a.static;
     if (s.type !== 'costMod' || !ownerMatches(s.appliesTo.owner, a.controller, player)) continue;
     if (!matchFace(face, d, s.appliesTo.filter)) continue;
+    // 「各ターン、1体目の」：このターン、条件に合うカードをまだ使っていない時だけ
+    if (s.firstPerTurn && (state.players[player].playedThisTurn ?? []).some((x) => state.cards[x] && matchFace(playFace(def(state, reg, x)), def(state, reg, x), s.appliesTo.filter))) continue;
     cost += s.amount;
     if (s.minCost !== undefined) floor = Math.min(face.cost, Math.max(floor, s.minCost));
   }
@@ -377,17 +405,30 @@ function effectiveCostImpl(state: GameState, reg: CardRegistry, player: PlayerId
     cost -= sc.amount * Math.floor(countQuantity(state, reg, player, sc.per, true, iid) / sc.unit);
     floor = Math.min(face.cost, Math.max(floor, sc.min));
   }
-  // ササゲール：破壊するクリーチャーのササゲールの数だけ少なくする（コストは0以下にならない）
-  if (sacrifice.length) {
+  // ハイパーエナジー：コストが異なるクリーチャーを1体タップするごとに2少なくする（コストは0以下にならない）
+  if (sacrifice.length && usesHyperEnergy(state, reg, iid, side)) {
+    cost -= 2 * new Set(sacrifice.map((b) => def(state, reg, b).cost)).size;
+    floor = Math.min(face.cost, Math.max(floor, 1));
+  } else if (sacrifice.length) {
+    // ササゲール：破壊するクリーチャーのササゲールの数だけ少なくする（コストは0以下にならない）
     cost -= sacrifice.reduce((a, b) => a + (keywords(state, reg, b).sasageru ?? 0), 0);
     floor = Math.min(face.cost, Math.max(floor, 1));
   }
   return Math.max(floor, cost);
 }
 
-/** ディスペクターを召喚する時に、ササゲールで破壊できる自分のクリーチャー */
+/** ハイパーエナジーを持つカードか（このカードを使う時、コストが異なる自分のクリーチャーをタップしてコストを少なくできる） */
+export function usesHyperEnergy(state: GameState, reg: CardRegistry, iid: string, side: 'main' | 'twin' = 'main'): boolean {
+  return side === 'main' && !!def(state, reg, iid).keywords?.hyperEnergy;
+}
+
+/**
+ * カードを使う時にコストを少なくするために使える自分のクリーチャー。
+ * ササゲール：ディスペクターを召喚する時に破壊できるクリーチャー／ハイパーエナジー：タップできるアンタップのクリーチャー
+ */
 export function sasageruCandidates(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): string[] {
   if (side !== 'main') return [];
+  if (usesHyperEnergy(state, reg, iid, side)) return battleCards(state, reg, player).filter((b) => b !== iid && !state.cards[b].tapped);
   const d = def(state, reg, iid);
   if (!isCreatureType(d.type) || !d.races.some((r) => r.includes('ディスペクター'))) return [];
   return battleCards(state, reg, player).filter((b) => b !== iid && (keywords(state, reg, b).sasageru ?? 0) > 0);
@@ -399,19 +440,54 @@ export function sasageruCandidates(state: GameState, reg: CardRegistry, player: 
  */
 export function minimalSacrifice(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string[] | null {
   if (choosePayment(state, reg, player, iid) !== null) return [];
+  const hyper = usesHyperEnergy(state, reg, iid);
   const cands = [...sasageruCandidates(state, reg, player, iid)].sort((a, b) => (keywords(state, reg, b).sasageru ?? 0) - (keywords(state, reg, a).sasageru ?? 0));
   const chosen: string[] = [];
   for (const c of cands) {
+    // ハイパーエナジーはコストが異なるクリーチャーだけ数える
+    if (hyper && chosen.some((x) => def(state, reg, x).cost === def(state, reg, c).cost)) continue;
     chosen.push(c);
     if (choosePayment(state, reg, player, iid, undefined, 'main', chosen) !== null) return chosen;
   }
   return null;
 }
 
+/** このプレイヤーが、このターンにこれ以上クリーチャーを出せない／呪文を唱えられないなら理由を返す（「各ターン1体までしか」） */
+export function playLimitReached(state: GameState, reg: CardRegistry, player: PlayerId, what: 'spell' | 'creature'): string | null {
+  const P = state.players[player];
+  const used = what === 'spell' ? (P.spellsThisTurn ?? 0) : (P.creaturesThisTurn ?? 0);
+  for (const a of activeStatics(state, reg)) {
+    const s = a.static;
+    if (s.type !== 'playLimit' || s.what !== what) continue;
+    const hit = s.who === 'both' || (s.who === 'self') === (a.controller === player);
+    if (hit && used >= s.max) return `${def(state, reg, a.source).name} の効果で、このターンはこれ以上${what === 'spell' ? '呪文を唱えられません' : 'クリーチャーを出せません'}`;
+  }
+  return null;
+}
+
 /** 召喚・呪文の禁止を受けているなら理由を返す */
+/** 「〜を出せない」：このクリーチャーをバトルゾーンに出せない理由（出せるなら null） */
+export function entryBlocked(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string | null {
+  for (const a of activeStatics(state, reg)) {
+    const s = a.static;
+    if (s.type !== 'cannotEnter') continue;
+    const hit = s.who === 'both' || (s.who === 'self') === (a.controller === player);
+    if (hit && a.source !== iid && matchFilter(state, reg, iid, s.filter, a.source, true)) return `${def(state, reg, a.source).name} の効果で出せません`;
+  }
+  return null;
+}
+
 export function playRestriction(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): string | null {
   const d = def(state, reg, iid);
   const face = playFace(d, side);
+  if (face.type === 'spell' || isCreatureType(face.type)) {
+    const limit = playLimitReached(state, reg, player, face.type === 'spell' ? 'spell' : 'creature');
+    if (limit) return limit;
+  }
+  if (isCreatureType(face.type)) {
+    const blocked = entryBlocked(state, reg, player, iid);
+    if (blocked) return blocked;
+  }
   for (const a of activeStatics(state, reg)) {
     const s = a.static;
     if (s.type !== 'cannotSummon' && s.type !== 'cannotCast') continue;
@@ -443,6 +519,8 @@ function canAttackWithImpl(state: GameState, reg: CardRegistry, player: PlayerId
   if (!battleCards(state, reg, player).includes(iid)) return false;
   const kw = keywords(state, reg, iid);
   if (kw.cannotAttack) return false;
+  // 「出たターンに攻撃できない」：スピードアタッカー・マッハファイターがあっても
+  if (kw.noAttackOnEnterTurn && inst.enteredTurn >= state.turn) return false;
   // マッハファイターは出たターンでもクリーチャーを攻撃できる
   return !isSummoningSick(state, reg, iid) || (!!kw.machFighter && inst.enteredTurn === state.turn);
 }
@@ -484,10 +562,23 @@ export function blockersFor(state: GameState, reg: CardRegistry, defender: Playe
 /** 効果の対象候補 */
 export function targetCandidates(state: GameState, reg: CardRegistry, controller: PlayerId, spec: TargetSpec, source?: string): string[] {
   const owners: PlayerId[] = spec.owner === 'self' ? [controller] : spec.owner === 'opponent' ? [other(controller)] : [controller, other(controller)];
+  const zones = [spec.zone, ...(spec.extraZones ?? [])];
+  // 決まった相手（誘発の原因・直前に選んだカード）：まだそのゾーンにあるものだけ
+  const fixed = spec.iids ?? (spec.ref === 'chosen' ? (state.lastChosen ?? []) : spec.ref === 'event' ? [] : null);
+  if (fixed) {
+    return fixed.filter((iid) => {
+      const inst = state.cards[iid];
+      if (!inst || !zones.includes(inst.zone as TargetSpec['zone']) || !owners.includes(inst.owner)) return false;
+      if (inst.zone === 'battle' && isIgnored(state, reg, iid)) return false;
+      return matchFilter(state, reg, iid, spec.filter, source);
+    });
+  }
   const out: string[] = [];
   for (const o of owners) {
-    for (const iid of spec.zone === 'battle' ? battleCards(state, reg, o) : state.players[o].zones[spec.zone]) {
-      if (matchFilter(state, reg, iid, spec.filter, source)) out.push(iid);
+    for (const zone of zones) {
+      for (const iid of zone === 'battle' ? battleCards(state, reg, o) : state.players[o].zones[zone]) {
+        if (matchFilter(state, reg, iid, spec.filter, source)) out.push(iid);
+      }
     }
   }
   return out;
@@ -498,7 +589,10 @@ export function countQuantity(state: GameState, reg: CardRegistry, controller: P
   const players: PlayerId[] = q.who === 'self' ? [controller] : q.who === 'opponent' ? [other(controller)] : [controller, other(controller)];
   // フィールド・タマシードを数える時はクリーチャー以外も見る
   const inBattle = (p: PlayerId) => (q.filter?.cardType && isNonCreaturePermanent(q.filter.cardType) ? battleAndFields(state, reg, p) : battleCards(state, reg, p));
-  return players.reduce<number>((sum, p) => sum + (q.zone === 'battle' ? inBattle(p) : state.players[p].zones[q.zone]).filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)).length, 0);
+  const hits = players.flatMap((p) => (q.zone === 'battle' ? inBattle(p) : state.players[p].zones[q.zone]).filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)));
+  // 「コストが異なる〜1体につき」：コストの種類の数
+  if (q.distinctCost) return new Set(hits.map((iid) => def(state, reg, iid).cost)).size;
+  return hits.length;
 }
 
 export function evalCondition(state: GameState, reg: CardRegistry, controller: PlayerId, c: Condition, noPower = false, source?: string): boolean {
@@ -514,6 +608,18 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
     }
     case 'attackedThisTurn':
       return !!source && state.cards[source]?.attackedTurn === state.turn;
+    case 'selfIsEvolution': {
+      const inst = source ? state.cards[source] : undefined;
+      if (!inst) return false;
+      // NEO進化・G-NEO進化で重ねたクリーチャーも進化クリーチャー
+      return def(state, reg, source!).type === 'evolution' || (inst.zone === 'battle' && inst.under.length > 0);
+    }
+    case 'castThisTurn':
+      return (state.players[c.who === 'self' ? controller : other(controller)].spellsThisTurn ?? 0) > 0;
+    case 'opponentTurn':
+      return state.activePlayer !== controller;
+    case 'shieldsBrokenThisTurn':
+      return (state.players[c.who === 'self' ? controller : other(controller)].shieldsBrokenThisTurn ?? 0) >= c.min;
   }
 }
 
@@ -556,7 +662,8 @@ export function choosePayment(state: GameState, reg: CardRegistry, player: Playe
   if (cost === 0) return preferred && preferred.length ? null : [];
   const civs: Civilization[] = face.civilizations.filter((cv) => cv !== 'zero');
   const untapped = state.players[player].zones.mana.filter((m) => !state.cards[m].tapped);
-  const mciv = (m: string) => manaCivilizations(def(state, reg, m));
+  // 裏向きのマナ（水晶チャージャー）は文明を持たない
+  const mciv = (m: string) => (state.cards[m].faceUp === false ? [] : manaCivilizations(def(state, reg, m)));
   if (preferred) {
     if (preferred.length !== cost || preferred.some((m) => !untapped.includes(m)) || new Set(preferred).size !== preferred.length) return null;
     return assignCivs(civs, preferred, mciv) ? preferred : null;

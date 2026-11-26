@@ -37,7 +37,7 @@ describe('能力テキストの読み取り', () => {
   it('「〜てもよい。そうしたら」は1つの任意効果にまとめる', () => {
     const p = creature('このクリーチャーがバトルゾーンに出た時、自分の手札を１枚捨ててもよい。そうしたら、カードを２枚引く。');
     expect(p.abilities).toEqual([
-      { when: 'onSummon', optional: true, effects: [{ type: 'move', to: 'graveyard', target: { owner: 'self', zone: 'hand', count: 1 } }, { type: 'draw', count: 2 }] },
+      { when: 'onSummon', optional: true, effects: [{ type: 'move', to: 'graveyard', target: { owner: 'self', zone: 'hand', count: 1 } }, { type: 'ifChosen', then: [{ type: 'draw', count: 2 }] }] },
     ]);
   });
 
@@ -198,9 +198,12 @@ describe('能力テキストの読み取り（公式の書式・キーワード�
     expect(p.keywords).toEqual({ blocker: true, breaker: 2, gStrike: true, machFighter: true, poweredBreaker: true, exLife: true });
   });
 
-  it('条件付きで得る能力（{l} {S} など）は手動のまま', () => {
+  it('条件付きで得る能力：{l} は手動のまま、{S} はサバイバーにも与える能力として読む', () => {
     expect(creature('{l} 自分のターンの終わりに、このクリーチャーをアンタップする。').manualLines).toHaveLength(1);
-    expect(creature('{S} このクリーチャーが攻撃する時、カードを１枚引いてもよい。').manualLines).toHaveLength(1);
+    const p = creature('{S} このクリーチャーが攻撃する時、カードを１枚引いてもよい。\nサバイバー（自分の他のサバイバーすべてに、上の{S}能力を与える）');
+    expect(p.manualLines).toHaveLength(0);
+    expect(p.abilities).toEqual([{ when: 'onAttack', optional: true, effects: [{ type: 'draw', count: 1 }] }]);
+    expect(p.survivor?.abilities).toEqual(p.abilities);
   });
 
   it('「または」でつないだ誘発条件', () => {

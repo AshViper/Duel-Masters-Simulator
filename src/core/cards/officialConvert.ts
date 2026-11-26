@@ -249,6 +249,7 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     selfCost: main.selfCost,
     condCost: main.condCost,
     gZero: main.gZero,
+    shieldTriggerIf: main.shieldTriggerIf,
     hyperForm: hyperParsed
       ? {
           keywords: Object.keys(hyperParsed.keywords).length ? hyperParsed.keywords : undefined,
@@ -262,6 +263,7 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     psychic,
     summonFrom: main.summonFrom,
     soul: main.soul && hasAny(main.soul) ? compact(main.soul) : undefined,
+    survivor: main.survivor && hasAny(main.survivor) ? compact(main.survivor) : undefined,
     support,
   };
 }
@@ -285,6 +287,7 @@ function twinKeywords(kw: ParsedAbilities['keywords']): TwinSide['keywords'] {
   const out: NonNullable<TwinSide['keywords']> = {};
   if (kw.shieldTrigger) out.shieldTrigger = true;
   if (kw.charger) out.charger = true;
+  if (kw.crystalCharger) out.crystalCharger = true;
   if (kw.manaTapped) out.manaTapped = true;
   return Object.keys(out).length ? out : undefined;
 }

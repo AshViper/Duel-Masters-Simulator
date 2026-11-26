@@ -82,6 +82,14 @@ export interface CardFilter {
   relativeToSource?: { stat: 'power' | 'cost'; cmp: 'less' | 'greater' };
   /** 名前にこの文字列を含む（「名前に《ボルメテウス》とある」） */
   nameIncludes?: string;
+  /** コストが持ち主のマナゾーンのカードの枚数より大きい（「相手のマナゾーンにあるカードの枚数よりコストが大きい相手のクリーチャー」） */
+  costAboveOwnerMana?: boolean;
+  /** 直前に選んだ（動かした）カードとコストを比べる：eq 同じ／le 以下（「その捨てたカードと同じコストの」「そのクリーチャー以下のコストの」） */
+  refCost?: 'eq' | 'le';
+  /** 直前に選んだ（動かした）カードと同じ文明を持つ（「その捨てたカードと同じ文明を持つ」） */
+  refCivs?: boolean;
+  /** この条件に合わないもの（「闇ではない」「ドラゴンではない」「多色ではない」） */
+  not?: CardFilter;
 }
 
 /** 効果の対象指定 */
@@ -97,6 +105,15 @@ export interface TargetSpec {
   filter?: CardFilter;
   /** 誰が選ぶか。owner は「相手は自分の〜を選ぶ」 */
   chooser?: 'controller' | 'owner';
+  /**
+   * 選ばずに決まった相手を指す：event は誘発の原因になったカード（「相手のクリーチャーが出た時、そのクリーチャーは〜」）、
+   * chosen は同じ能力で直前に選んだ（動かした）カード（「〜を1体選び、タップする。それはアンタップしない」）
+   */
+  ref?: 'event' | 'chosen';
+  /** エンジン内部用：ref: 'event' を誘発の時に決めたカード */
+  iids?: string[];
+  /** zone のほかに選べるゾーン（「自分の手札または墓地から」） */
+  extraZones?: TargetSpec['zone'][];
 }
 
 /** 数を数える式（条件判定用） */
@@ -105,6 +122,8 @@ export interface Quantity {
   who: 'self' | 'opponent' | 'any';
   zone: 'battle' | 'mana' | 'shield' | 'graveyard' | 'hand' | 'deck';
   filter?: CardFilter;
+  /** 枚数ではなく、異なるコストの種類を数える（「コストが異なる自分のクリーチャー1体につき」） */
+  distinctCost?: boolean;
 }
 
 export type Condition =
@@ -112,7 +131,15 @@ export type Condition =
   | { type: 'not'; condition: Condition }
   | { type: 'and'; conditions: Condition[] }
   /** このクリーチャーがこのターンに攻撃していた */
-  | { type: 'attackedThisTurn' };
+  | { type: 'attackedThisTurn' }
+  /** このカード自身が進化クリーチャー（「これが進化クリーチャーなら」） */
+  | { type: 'selfIsEvolution' }
+  /** このターンにそのプレイヤーが呪文を唱えていた（「そのターン自分が呪文を唱えていれば」） */
+  | { type: 'castThisTurn'; who: 'self' | 'opponent' }
+  /** このターンにそのプレイヤーのシールドが min 個以上ブレイクされた */
+  | { type: 'shieldsBrokenThisTurn'; who: 'self' | 'opponent'; min: number }
+  /** いまが相手のターン（S・トリガーで使った時の追加能力の判定用） */
+  | { type: 'opponentTurn' };
 
 /** 効果でカードを動かす先（deckTop / deckBottom は山札の上 / 下） */
 export type MoveDest = 'hand' | 'mana' | 'graveyard' | 'shield' | 'deckTop' | 'deckBottom' | 'battle';
@@ -142,15 +169,21 @@ export type EffectDef =
   | { type: 'putIntoBattle'; target: TargetSpec; grant?: { keywords: Keywords; untilNextTurn?: boolean } }
   /** ツインパクトの呪文側を唱えた後、このカードをバトルゾーンに出す（「このカードを出す」） */
   | { type: 'putSelfIntoBattle' }
-  /** 手札を見ないで選んで捨てさせる（self: 自分の手札を相手に選ばせる） */
-  | { type: 'discardRandom'; count: number; self?: boolean }
+  /** 手札を見ないで選んで捨てさせる（self: 自分の手札を相手に選ばせる。perChosen: 直前に選んだ（捨てた）カード1枚につき count 枚） */
+  | { type: 'discardRandom'; count: number; self?: boolean; perChosen?: boolean }
   /** 山札の上から count 枚を見て、条件に合うものを pickCount 枚まで pickTo へ。残りは restTo へ */
   | {
       type: 'lookAtTop';
       count: number;
       pickCount: number;
       pickFilter?: CardFilter;
-      pickTo: 'hand' | 'battle' | 'mana' | 'shield';
+      pickTo: 'hand' | 'battle' | 'mana' | 'shield' | 'graveyard';
+      /** 選んだカードをタップして置く（マナゾーン） */
+      pickTapped?: boolean;
+      /** 続けて選ぶ分（「1枚をシールド化し、1枚をマナゾーンに置き、残りを〜」の2つ目以降） */
+      more?: { pickCount: number; pickFilter?: CardFilter; pickTo: 'hand' | 'battle' | 'mana' | 'shield' | 'graveyard'; mustPick?: boolean; pickTapped?: boolean }[];
+      /** エンジン内部用：見ているカード（続けて選ぶ時の残り） */
+      from?: string[];
       /** top: 山札の上に残す */
       restTo: 'deckBottom' | 'graveyard' | 'mana' | 'shuffle' | 'top';
       /** 条件に合うものをすべて選ぶ（選択なし） */
@@ -173,8 +206,13 @@ export type EffectDef =
   | { type: 'awakenLink' }
   /** 自分の封印を count 枚まで墓地に置く（封印の付いたカードを選び、その封印から外す） */
   | { type: 'removeOwnSeals'; count: number }
-  /** 手札から条件に合うカードを1枚、コストを支払わずに使ってもよい（maxCostHandSize: コストが手札の枚数以下） */
-  | { type: 'playFromHandFree'; filter?: CardFilter; maxCostHandSize?: boolean }
+  /**
+   * 手札から条件に合うカードを1枚、コストを支払わずに使ってもよい（maxCostHandSize: コストが手札の枚数以下）。
+   * zones: 手札以外からも使える（「自分の手札または墓地から」）。spellAfter: 唱えた呪文を墓地のかわりに置く場所
+   */
+  | { type: 'playFromHandFree'; filter?: CardFilter; maxCostHandSize?: boolean; zones?: Array<'hand' | 'graveyard'>; spellAfter?: 'deckBottom' }
+  /** 同じ名前のカードが2枚以上あるものをすべて、バトルゾーンなら破壊し、マナゾーンなら持ち主の墓地に置く */
+  | { type: 'destroyDuplicates'; zone: 'battle' | 'mana' }
   /** エンジン内部用：公開したカードを出す／唱える（てもよい）。しなければそのまま */
   | { type: 'playRevealed'; iid: string; as: 'creature' | 'spell' }
   /** 相手のシールドをブレイクする（S・トリガー可） */
@@ -196,13 +234,30 @@ export type EffectDef =
   /** モード選択（「次の中から1つ選ぶ」） */
   /** times: 選ぶ回数（「次の中から2回選ぶ」）。distinct: 同じものは選べない */
   | { type: 'chooseOne'; options: { label: string; effects: EffectDef[] }[]; times?: number; distinct?: boolean }
-  /** このクリーチャーと選んだクリーチャーをバトルさせる */
-  | { type: 'fight'; target: TargetSpec }
+  /**
+   * このクリーチャーと選んだクリーチャーをバトルさせる。
+   * fighter: chosen なら、このクリーチャーのかわりに直前に選んだ（出した）クリーチャーがバトルする
+   */
+  | { type: 'fight'; target: TargetSpec; fighter?: 'chosen' }
+  /** 選んだ2体をバトルさせる（「クリーチャーを2体選ぶ。その2体をバトルさせる」） */
+  | { type: 'fightPair'; target: TargetSpec }
   /** ガチンコ・ジャッジ：互いに山札の上を公開し、自分のコストが相手以上なら勝ち（then を処理）。公開したカードは山札の下へ */
-  | { type: 'gachinko'; then: EffectDef[] }
+  /** power: パワー・ガチンコ・ジャッジ（パワーを比べる）。lose: 負けた時の処理（「自分が負けたら、〜」） */
+  | { type: 'gachinko'; then: EffectDef[]; power?: boolean; lose?: EffectDef[] }
   /** エンジンでは処理しない。ログに出してプレイヤーの手動操作に委ねる */
   /** 封印を1つ付ける（封印は、付けられるカードの持ち主の山札の上から1枚目を裏向きで重ねる） */
   | { type: 'seal'; target: TargetSpec }
+  /** メテオバーン：このクリーチャーの下にあるカードを count 枚墓地に置く（置いたカードを「選んだカード」として覚える） */
+  | { type: 'discardUnder'; count: number }
+  /** 直前の効果でカードを1枚以上選んだ（動かした）時だけ続きを処理する（「〜してもよい。そうしたら、〜」）。n: エンジン内部用（選んだ枚数） */
+  | { type: 'ifChosen'; then: EffectDef[]; n?: number }
+  /** マジボンバーN：山札の上から1枚目を見て、コストN以下のクリーチャーを1体、手札または山札の上から出してもよい */
+  | { type: 'magibomber'; maxCost: number }
+  /**
+   * 「〜1体につき、〜する」：数えた数だけ effects を行う（引く枚数・選ぶ数は掛け算にする）。
+   * per: 'chosen' は直前の効果で選んだ（動かした）カードの数（「こうして破壊したクリーチャー1体につき」）。n: エンジン内部用
+   */
+  | { type: 'repeat'; per: Quantity | 'chosen'; unit: number; effects: EffectDef[]; n?: number }
   | { type: 'manual'; text: string };
 
 export const TRIGGER_EVENTS = [
@@ -235,6 +290,16 @@ export const TRIGGER_EVENTS = [
   'onAttacked',
   /** このクリーチャーが相手に選ばれた時（相手の能力の対象として選ばれた） */
   'onTargeted',
+  /** カードがシールドゾーンに置かれた時（who で誰のシールドゾーンか） */
+  'onShieldAdded',
+  /** 手札を捨てた時（who で誰が捨てたか） */
+  'onDiscard',
+  /** カードを使った（実行した）時（who で誰が使ったか） */
+  'onPlay',
+  /** 呪文を唱えた時（who で誰が唱えたか） */
+  'onSpellCast',
+  /** シンカパワー：このクリーチャーが進化する時（上に進化クリーチャーが置かれた時。効果は進化した後のクリーチャーが使う） */
+  'onEvolved',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
@@ -257,6 +322,8 @@ export interface TriggeredAbility {
   evolvedOnNonEvolution?: boolean;
   /** Dスイッチ：ゲーム中に一度だけ（使ったら二度と聞かない） */
   dSwitch?: boolean;
+  /** このターンの時だけ誘発する（「相手のターンにこのクリーチャーが出た時」は opponent） */
+  duringTurn?: 'self' | 'opponent';
 }
 
 /** 常在効果がかかる範囲 */
@@ -273,12 +340,21 @@ export type StaticAbility = (
   /** perCount: amount を「〜1枚につき」の数だけ掛ける */
   | { type: 'powerMod'; amount: number; appliesTo: Applies; attackingOnly?: boolean; perCount?: Quantity }
   | { type: 'grantKeyword'; keywords: Keywords; appliesTo: Applies }
-  /** 手札のカードのコストを増減する。コストは minCost（既定1）未満にならない */
-  | { type: 'costMod'; amount: number; appliesTo: Applies; minCost?: number }
+  /**
+   * 手札のカードのコストを増減する。コストは minCost（既定1）未満にならない。
+   * firstPerTurn: 各ターン、条件に合うカードを使うまでの1枚目だけ（「各ターン、自分の闇のクリーチャー1体目の」）
+   */
+  | { type: 'costMod'; amount: number; appliesTo: Applies; minCost?: number; firstPerTurn?: boolean }
   | { type: 'cannotSummon'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
   | { type: 'cannotCast'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
   /** カードをマナゾーンにタップして置く（「相手はカードをマナゾーンに置く時、タップして置く」） */
   | { type: 'manaEntersTapped'; who: 'self' | 'opponent' | 'both' }
+  /** 各ターンに使える（出せる）数の上限（「相手は各ターン1回までしか呪文を唱えられない」「各ターン1体までしかクリーチャーを出せない」） */
+  | { type: 'playLimit'; who: 'self' | 'opponent' | 'both'; what: 'spell' | 'creature'; max: number }
+  /** 召喚以外の方法でクリーチャーが出る時、かわりに墓地に置く（who: そのクリーチャーを出すプレイヤー） */
+  | { type: 'nonSummonEntryToGrave'; who: 'self' | 'opponent' | 'both' }
+  /** 条件に合うクリーチャーを出せない（召喚も、効果で出すこともできない。「相手は多色ではないクリーチャーを出せない」） */
+  | { type: 'cannotEnter'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
 ) & {
   /** 有効なターン（「自分のターン中」= self）。省略時は常に有効 */
   duringTurn?: 'self' | 'opponent';
@@ -296,7 +372,8 @@ export interface ReplacementAbility {
   /** destroySelf: かわりにこのクリーチャーを破壊する（セイバー） / stay: とどまる */
   /** escape: かわりに自分のシールドを1つ手札に加える（エスケープ）。shedUnder: かわりに下のカードすべてが離れる（G-NEO進化） */
   /** seal: かわりにそのクリーチャーに封印を付ける（Dの禁断 ドキンダムエリア） */
-  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal';
+  /** destroyOther: かわりに自分の他のクリーチャーを1体破壊する */
+  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther';
   optional?: boolean;
 }
 
@@ -326,6 +403,8 @@ export interface Keywords {
   hunting?: boolean;
   /** ササゲールN：ディスペクターを召喚する時、このクリーチャーを破壊してコストをN少なくしてもよい */
   sasageru?: number;
+  /** ハイパーエナジー：このカードを使う時、コストが異なる自分のクリーチャーを好きな数タップし、1体につきコストを2少なくする */
+  hyperEnergy?: boolean;
   /** ブロックされない */
   unblockable?: boolean;
   /** アンタップされているクリーチャーも攻撃できる */
@@ -338,6 +417,8 @@ export interface Keywords {
   poweredBreaker?: boolean;
   /** チャージャー：唱えた後、墓地のかわりにマナゾーンに置く */
   charger?: boolean;
+  /** 水晶チャージャー：唱えた後、墓地のかわりに裏向きでマナゾーンに置く */
+  crystalCharger?: boolean;
   /** 相手に選ばれない */
   untargetable?: boolean;
   /** 攻撃されない */
@@ -367,6 +448,14 @@ export interface Keywords {
   untargetableBySpellCost?: number;
   /** このカードがバトルゾーン以外のゾーンにあれば、持ち主はゲームに負ける */
   loseIfNotInBattle?: boolean;
+  /** 出たターンに攻撃できない（スピードアタッカー・マッハファイターがあっても） */
+  noAttackOnEnterTurn?: boolean;
+  /** ターンのはじめ以外ではアンタップしない（効果でアンタップされない） */
+  untapOnlyAtTurnStart?: boolean;
+  /** 相手がクリーチャーを選ぶなら、可能ならこのクリーチャーを選ぶ */
+  lure?: boolean;
+  /** このクリーチャーの攻撃中、相手は「G・ストライク」を使えない */
+  noGStrikeAgainst?: boolean;
 }
 
 /** 禁断の鼓動の裏側（禁断クリーチャー） */
@@ -382,7 +471,7 @@ export interface TwinSide {
   cost: number;
   civilizations: Civilization[];
   text: string;
-  keywords?: Pick<Keywords, 'shieldTrigger' | 'charger' | 'manaTapped'>;
+  keywords?: Pick<Keywords, 'shieldTrigger' | 'charger' | 'crystalCharger' | 'manaTapped'>;
   abilities?: TriggeredAbility[];
 }
 
@@ -426,6 +515,8 @@ export interface CardDefinition {
   attackSwap?: AttackSwap;
   /** G・ゼロ：条件を満たしていればコストを支払わずに使える */
   gZero?: Condition;
+  /** 条件を満たしていれば、シールドゾーンにあるこのカードは「S・トリガー」を持つ */
+  shieldTriggerIf?: Condition;
   /** このカード自身の召喚コストを「〜1枚につきN」少なくする。コストは min 未満にならない */
   selfCost?: { amount: number; per: Quantity; unit: number; min: number };
   /** 条件を満たす時、このカード自身のコストを amount 少なくする（「〜があれば、このクリーチャーの召喚コストを3少なくする」） */
@@ -444,6 +535,8 @@ export interface CardDefinition {
   summonFrom?: { zones: Array<'graveyard' | 'mana'>; condition?: Condition };
   /** 超魂X：これがクリーチャーの下にあれば、そのクリーチャーにも与える能力 */
   soul?: Pick<CardDefinition, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
+  /** サバイバー：自分の他のサバイバーすべてにも与える能力（{S} の付いた能力） */
+  survivor?: Pick<CardDefinition, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
   /** サイキック・クリーチャー：裏面（覚醒・覚醒リンクした後のクリーチャー）と覚醒リンクの条件 */
   psychic?: PsychicSide;
   support: SupportLevel;

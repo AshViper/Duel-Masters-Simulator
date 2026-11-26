@@ -52,6 +52,14 @@ export interface PlayerState {
   extraTurns: number;
   /** このターンに引いたカードの枚数 */
   drawnThisTurn?: number;
+  /** このターンに唱えた呪文の数 */
+  spellsThisTurn?: number;
+  /** このターンに出したクリーチャーの数 */
+  creaturesThisTurn?: number;
+  /** このターンに使ったカード（「各ターン、1体目の」の判定用） */
+  playedThisTurn?: string[];
+  /** このターンにブレイクされたこのプレイヤーのシールドの数 */
+  shieldsBrokenThisTurn?: number;
 }
 
 export type Phase = 'start' | 'draw' | 'charge' | 'main' | 'attack' | 'end';
@@ -105,6 +113,10 @@ export type GameEvent =
   | { type: 'CARD_TARGETED'; iid: string; by: PlayerId }
   | { type: 'BATTLE_WON'; winner: string; loser: string }
   | { type: 'SHIELD_BROKEN'; player: PlayerId; iid: string }
+  /** カードがシールドゾーンに置かれた（player: そのシールドゾーンの持ち主） */
+  | { type: 'SHIELD_ADDED'; player: PlayerId; iid: string }
+  /** 手札を捨てた（効果で手札から墓地へ） */
+  | { type: 'CARD_DISCARDED'; player: PlayerId; iid: string }
   | { type: 'CARD_MOVED'; iid: string; from: ZoneName; to: ZoneName }
   | { type: 'GAME_OVER'; winner: PlayerId | null; reason: string };
 
@@ -120,14 +132,17 @@ export type Task =
   | { kind: 'confirmOptional'; controller: PlayerId; source: string; effects: EffectDef[] }
   | { kind: 'blockStep'; attacker: string; defender: PlayerId }
   | { kind: 'attackResolve'; attacker: string }
-  | { kind: 'breakShields'; breaker: PlayerId; source: string; defender: PlayerId; count: number }
+  /** byAttack: 攻撃によるブレイク（効果のブレイクではない） */
+  | { kind: 'breakShields'; breaker: PlayerId; source: string; defender: PlayerId; count: number; byAttack?: boolean }
   | { kind: 'shieldTrigger'; player: PlayerId; iid: string }
   | { kind: 'battle'; attacker: string; defender: string }
   | { kind: 'battleWon'; winner: string; loser: string }
-  | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin' }
-  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
+  /** after: 唱えた後、墓地のかわりに置く場所 */
+  | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin'; after?: 'deckBottom' }
+  /** summoned: 召喚で出る（効果で「出す」のではない） */
+  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
   /** 呪文を解決し終えたら墓地へ */
-  | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin' }
+  | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin'; after?: 'deckBottom' }
   | { kind: 'hyperize'; player: PlayerId; iid: string }
   /** リンク解除：表に戻ったセルのうち1枚を選んで超次元ゾーンに戻す */
   | { kind: 'linkRelease'; player: PlayerId; name: string; cells: string[]; destroyed: boolean }
@@ -138,7 +153,8 @@ export type Task =
   /** 侵略・革命チェンジを使うか聞く */
   | { kind: 'attackSwap'; player: PlayerId }
   /** バトルゾーンから離れる（置換効果をここで適用） */
-  | { kind: 'leave'; tapped?: boolean; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[] }
+  /** confirmed: 使うと答えた任意の置換効果（続けて対象を選ぶ時に、もう一度聞かない） */
+  | { kind: 'leave'; tapped?: boolean; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[]; confirmed?: string }
   /** 自動フェイズを進める（開始時誘発などを解決してから次へ） */
   | { kind: 'phase'; phase: Phase }
   /** ターン終了時の後片付けと手番の交代（追加ターンを含む） */
@@ -206,6 +222,8 @@ export interface GameState {
   turnStatics: TurnStatic[];
   /** このターンに使った「各ターンに1度」の能力（カードID:能力の番号） */
   usedThisTurn?: string[];
+  /** 効果で直前に選んだ（動かした）カード（「それ」「その捨てたカード」で指す） */
+  lastChosen?: string[];
   log: LogEntry[];
   winner: PlayerId | null;
   gameOverReason: string | null;
@@ -217,7 +235,7 @@ export type Action =
   | { type: 'NEXT_PHASE'; player: PlayerId }
   | { type: 'END_TURN'; player: PlayerId }
   | { type: 'CHARGE_MANA'; player: PlayerId; iid: string }
-  /** sacrifice：ササゲールで破壊する自分のクリーチャー（ディスペクターの召喚コストを少なくする） */
+  /** sacrifice：ササゲールで破壊する／ハイパーエナジーでタップする自分のクリーチャー（コストを少なくする） */
   | { type: 'PLAY_CARD'; player: PlayerId; iid: string; evolveOn?: string; manaIids?: string[]; side?: 'main' | 'twin'; sacrifice?: string[] }
   | { type: 'ATTACK'; player: PlayerId; attacker: string; target: AttackTarget }
   | { type: 'RESPOND'; player: PlayerId; selected?: string[]; accept?: boolean }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isNonCreaturePermanent, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
-import { attackTargets, canAttackWith, canPlay, choosePayment, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
+import { attackTargets, canAttackWith, canPlay, choosePayment, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
@@ -127,7 +127,7 @@ export function BattleScreen() {
   function play(iid: string, sacrifice?: string[]) {
     const owner = g.cards[iid].owner;
     const d = def(iid);
-    // ササゲール：破壊できるクリーチャーがいれば、先に選ぶ（使わないことも選べる）
+    // ササゲール・ハイパーエナジー：使えるクリーチャーがいれば、先に選ぶ（使わないことも選べる）
     if (!sacrifice) {
       const cands = sasageruCandidates(g, registry, owner, iid);
       if (cands.length) return setSasa({ iid, cands, chosen: minimalSacrifice(g, registry, owner, iid) ?? [] });
@@ -575,20 +575,36 @@ export function BattleScreen() {
         const cost = effectiveCost(g, registry, owner, sasa.iid, 'main', sasa.chosen);
         const payable = choosePayment(g, registry, owner, sasa.iid, undefined, 'main', sasa.chosen) !== null;
         const toggle = (b: string) => setSasa({ ...sasa, chosen: sasa.chosen.includes(b) ? sasa.chosen.filter((x) => x !== b) : [...sasa.chosen, b] });
+        const hyper = usesHyperEnergy(g, registry, sasa.iid);
+        const dupCost = hyper && new Set(sasa.chosen.map((b) => def(b).cost)).size !== sasa.chosen.length;
         return (
           <Modal onClose={() => setSasa(null)}>
-            <h3>ササゲール：{def(sasa.iid).name} を召喚する時に破壊するクリーチャー</h3>
-            <p className="muted small">選んだクリーチャーのササゲールの数だけコストが少なくなります（0以下にはなりません）。選ばずに召喚することもできます。</p>
+            {hyper ? (
+              <>
+                <h3>ハイパーエナジー：{def(sasa.iid).name} を使う時にタップするクリーチャー</h3>
+                <p className="muted small">コストが異なるクリーチャーを1体タップするごとにコストが2少なくなります（0以下にはなりません）。選ばずに使うこともできます。</p>
+              </>
+            ) : (
+              <>
+                <h3>ササゲール：{def(sasa.iid).name} を召喚する時に破壊するクリーチャー</h3>
+                <p className="muted small">選んだクリーチャーのササゲールの数だけコストが少なくなります（0以下にはなりません）。選ばずに召喚することもできます。</p>
+              </>
+            )}
             <div className="zone-cards wrap">
               {sasa.cands.map((b) => (
                 <div key={b} className={'sasa-pick' + (sasa.chosen.includes(b) ? ' on' : '')}>
                   <CardView card={def(b)} size="sm" onClick={() => toggle(b)} />
-                  <span>ササゲール{keywordsOf(b).sasageru}</span>
+                  <span>{hyper ? `コスト${def(b).cost}` : `ササゲール${keywordsOf(b).sasageru}`}</span>
                 </div>
               ))}
             </div>
-            <button className="primary" disabled={!payable} onClick={() => { const chosen = sasa.chosen; setSasa(null); play(sasa.iid, chosen); }} data-testid="sasageru-play">
-              {sasa.chosen.length ? `${sasa.chosen.length}体を破壊して召喚（コスト${cost}）` : `ササゲールを使わずに召喚（コスト${cost}）`}{payable ? '' : '：マナが足りません'}
+            <button className="primary" disabled={!payable || dupCost} onClick={() => { const chosen = sasa.chosen; setSasa(null); play(sasa.iid, chosen); }} data-testid="sasageru-play">
+              {dupCost
+                ? '同じコストのクリーチャーは1体だけ選べます'
+                : sasa.chosen.length
+                  ? `${sasa.chosen.length}体を${hyper ? 'タップして使う' : '破壊して召喚'}（コスト${cost}）`
+                  : `${hyper ? 'ハイパーエナジーを使わずに使う' : 'ササゲールを使わずに召喚'}（コスト${cost}）`}
+              {payable || dupCost ? '' : '：マナが足りません'}
             </button>
           </Modal>
         );
