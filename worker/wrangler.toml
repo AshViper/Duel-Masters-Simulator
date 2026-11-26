@@ -1,8 +1,0 @@
-# 公式カード検索の中継（GitHub Pages 版用）。公開: npx wrangler deploy --config worker/wrangler.toml
-name = "dm-card-proxy"
-main = "index.ts"
-compatibility_date = "2026-11-01"
-
-[vars]
-# 呼び出しを許すサイト（カンマ区切り）。localhost は常に許可する
-ALLOWED_ORIGINS = "https://ashviper.github.io"

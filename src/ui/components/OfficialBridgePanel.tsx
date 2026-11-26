@@ -42,9 +42,9 @@ export function OfficialBridgePanel({ compact = false }: { compact?: boolean }) 
           <a href={`${DM_ORIGIN}/card/`} target="_blank" rel="noreferrer">
             公式カード検索
           </a>
-          を開き、そのページで登録したブックマークを押す
+          で欲しいカードを検索して（またはカードの詳細ページを開いて）、登録したブックマークを押す
         </li>
-        <li>このアプリが開いて「つながっています」と出たら、ここで検索・保存できます</li>
+        <li>このアプリが開き、そのページのカードが自動で保存されます。つながっている間は、ここでの検索・保存もできます</li>
       </ol>
     </div>
   );

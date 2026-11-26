@@ -1,7 +1,7 @@
 import { fetchOfficialDetail, fetchOfficialImage, fetchOfficialOptions, resolveCardName, searchOfficial, type OfficialSearchQuery } from './dmOfficial';
 
 /**
- * 公式カード検索の中継の本体（Vite のサーバーと Cloudflare Worker で共有する）。
+ * 公式カード検索の中継の本体（Vite のサーバーと、Pages 版のブラウザ内ブリッジで共有する）。
  *   POST /dm-api/search   本文: OfficialSearchQuery(JSON)
  *   GET  /dm-api/detail?id=dm24rp1-001
  *   GET  /dm-api/resolve?name=ロジック・サークル   書かれたカード名から公式カードの候補を探す

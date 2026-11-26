@@ -2,9 +2,10 @@
 //
 // 公式サイトはほかのサイトからの読み取り（CORS）を許可していないので、アプリからは直接取得できない。
 // そこで、公式カード検索のタブでブックマークレットを押してもらい、そのタブに取得を代わりにしてもらう。
-//   1. ブックマークレットがこのアプリを別ウィンドウで開き、hello を送る
+//   1. ブックマークレットがこのアプリを別ウィンドウで開き、hello を送る（そのページに出ているカードの ID も添える）
 //   2. アプリは ack を返し、以後の公式への取得を dm-fetch としてそのタブへ頼む
 //   3. タブは同じオリジンなので取得でき、結果（バイト列）を返す
+//   4. 添えられたカードは、アプリが自動で保存する（BridgeImport.tsx）
 // 解析・キャッシュ・間隔制御はアプリ側（dmOfficial.ts）で行う。どちらもメッセージの送り主のオリジンを確かめる。
 // ブックマークレットは公式の /card/ と /wp-content/card/ 以外は取得しない。
 
@@ -57,12 +58,50 @@ const bridgeFetcher: OfficialFetcher = (url, init) =>
     bridge.postMessage({ type: 'dm-fetch', id, url, method: init.method ?? 'GET', body: init.body, headers }, DM_ORIGIN);
   });
 
+/** ブックマークレットを押したページに出ていたカード（自動で保存する） */
+export interface BridgeImportRequest {
+  nonce: string;
+  ids: string[];
+}
+let importRequest: BridgeImportRequest | null = null;
+const HANDLED_KEY = 'dm-bridge-handled';
+
+/** 同じ押下を二度保存しない（hello は ack まで繰り返し届き、再読み込みでも届く） */
+function takeNewRequest(req: unknown): BridgeImportRequest | null {
+  const r = req as Partial<BridgeImportRequest> | null;
+  if (!r || typeof r.nonce !== 'string' || !Array.isArray(r.ids)) return null;
+  const ids = r.ids.filter((id): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]+$/.test(id)).slice(0, 100);
+  if (ids.length === 0) return null;
+  const handled: string[] = JSON.parse(sessionStorage.getItem(HANDLED_KEY) ?? '[]');
+  if (handled.includes(r.nonce) || importRequest?.nonce === r.nonce) return null;
+  sessionStorage.setItem(HANDLED_KEY, JSON.stringify([...handled, r.nonce].slice(-20)));
+  return { nonce: r.nonce, ids };
+}
+
+/** まだ処理していない自動保存の依頼 */
+export function useBridgeImportRequest(): BridgeImportRequest | null {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    () => importRequest,
+  );
+}
+
+export function clearBridgeImportRequest(): void {
+  importRequest = null;
+  notify();
+}
+
 function onMessage(e: MessageEvent) {
   if (e.origin !== DM_ORIGIN || !e.source) return;
-  const m = e.data as { type?: string; id?: number; status?: number; contentType?: string; bytes?: ArrayBuffer; error?: string } | null;
+  const m = e.data as { type?: string; id?: number; status?: number; contentType?: string; bytes?: ArrayBuffer; error?: string; req?: unknown } | null;
   if (m?.type === 'dm-bridge-hello') {
     bridge = e.source as Window;
     bridge.postMessage({ type: 'dm-bridge-ack' }, DM_ORIGIN);
+    const req = takeNewRequest(m.req);
+    if (req) importRequest = req;
     notify();
     return;
   }
@@ -103,9 +142,13 @@ export function bookmarkletHref(appUrl: string = location.origin + location.path
 const A=${JSON.stringify(appOrigin)},U=${JSON.stringify(appUrl)},O=${JSON.stringify(DM_ORIGIN)};
 if(location.origin!==O){alert('デュエル・マスターズ公式カード検索（'+O+'/card/）のページで押してください');return}
 if(window.__dmBridge){window.__dmBridge.open();return}
-let w=null,ok=false,t=0;
-const hello=()=>{clearInterval(t);ok=false;t=setInterval(()=>{if(ok||!w||w.closed)return clearInterval(t);w.postMessage({type:'dm-bridge-hello'},A)},400)};
-const open=()=>{w=window.open(U,${JSON.stringify(WINDOW_NAME)});if(!w){alert('ポップアップがブロックされました。このサイトのポップアップを許可してから、もう一度押してください');return}hello()};
+const pick=()=>{const s=new Set(),q=new URLSearchParams(location.search);
+if(location.pathname.startsWith('/card/detail/')&&q.get('id'))s.add(q.get('id'));
+document.querySelectorAll('img.cardImage[data-href]').forEach(i=>{const id=new URL(i.getAttribute('data-href'),location.href).searchParams.get('id');if(id)s.add(id)});
+return[...s].filter(x=>/^[A-Za-z0-9_-]+$/.test(x)).slice(0,100)};
+let w=null,ok=false,t=0,req=null;
+const hello=()=>{clearInterval(t);ok=false;t=setInterval(()=>{if(ok||!w||w.closed)return clearInterval(t);w.postMessage({type:'dm-bridge-hello',req},A)},400)};
+const open=()=>{req={nonce:Date.now()+'-'+Math.random().toString(36).slice(2),ids:pick()};w=window.open(U,${JSON.stringify(WINDOW_NAME)});if(!w){alert('ポップアップがブロックされました。このサイトのポップアップを許可してから、もう一度押してください');return}hello()};
 window.__dmBridge={open};
 addEventListener('message',async e=>{
 if(e.origin!==A||!w||e.source!==w)return;

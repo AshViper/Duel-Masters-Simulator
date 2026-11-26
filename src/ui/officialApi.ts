@@ -1,29 +1,17 @@
 // 公式カード検索の中継（/dm-api/*）を呼ぶ小さなヘルパー
+// ローカル版（npm run dev / preview）は同じサーバーの /dm-api/ を使う。
+// サーバーのない GitHub Pages 版は、公式サイトのタブをブリッジにする（officialBridge.ts）。
 
 import { handleDmApi } from '../server/dmApi';
 import { isBridgeConnected } from './officialBridge';
 
-/**
- * 中継の場所。ローカル版（npm run dev / preview）は同じサーバーの /dm-api/ を使う。
- * ビルド時に VITE_DM_API_BASE（Cloudflare Worker などの URL）があればそれを使う。
- * どちらもない GitHub Pages 版は、公式サイトのタブをブリッジにする（officialBridge.ts）。
- */
-const API_BASE = ((import.meta.env.VITE_DM_API_BASE as string | undefined) ?? '').trim().replace(/\/+$/, '');
-
-/** 中継サーバーがない環境（中継を設定せずに静的ホスティングした版）で出すメッセージ */
+/** 中継サーバーがない環境（GitHub Pages など）で、ブリッジにつながっていない時のメッセージ */
 export const NO_PROXY_MESSAGE =
   '公式サイトとつながっていません。「公式サイトとつなぐ」の手順（公式カード検索の画面にあります）で、公式サイトのページからブックマークレットを押してください。';
 
 /** サーバーの中継がない環境か（GitHub Pages など。ブリッジの案内を出す） */
 export function needsBridge(): boolean {
-  return !API_BASE && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
-}
-
-const UNREACHABLE_MESSAGE = '公式カード検索の中継に接続できませんでした。時間をおいて再度お試しください。';
-
-/** /dm-api/... を実際に呼ぶ URL にする */
-export function apiUrl(path: string): string {
-  return API_BASE + path;
+  return !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 }
 
 /** 中継のレスポンスが JSON でなければ（静的ホスティングの 404 ページなど）中継がないと判断する */
@@ -31,7 +19,7 @@ export function isProxyMissing(res: Response): boolean {
   return !(res.headers.get('Content-Type') ?? '').includes('application/json') && !res.ok;
 }
 
-/** 中継を呼ぶ。接続できない時（Worker が止まっている・CORS で断られた）も分かるメッセージにする */
+/** 中継を呼ぶ。ブリッジにつながっていればそちらを使う */
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   if (isBridgeConnected()) {
     // 公式サイトのタブ経由で取得し、ローカル版の中継と同じ形の Response にする
@@ -41,9 +29,9 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   }
   if (needsBridge()) throw new Error(NO_PROXY_MESSAGE);
   try {
-    return await fetch(apiUrl(path), init);
+    return await fetch(path, init);
   } catch {
-    throw new Error(API_BASE ? UNREACHABLE_MESSAGE : NO_PROXY_MESSAGE);
+    throw new Error(NO_PROXY_MESSAGE);
   }
 }
 

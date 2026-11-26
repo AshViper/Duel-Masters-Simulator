@@ -8,8 +8,18 @@ import { OfficialSearchScreen } from './screens/OfficialSearch';
 import { OnlineScreen } from './screens/Online';
 import { DeckListScreen, HistoryScreen, HomeScreen, SettingsScreen } from './screens/Menus';
 import { useBridgeConnected } from './officialBridge';
+import { BridgeImport } from './components/BridgeImport';
 
 export function App() {
+  return (
+    <>
+      <BridgeImport />
+      <CurrentScreen />
+    </>
+  );
+}
+
+function CurrentScreen() {
   const { screen, ready, init, editingDeckId, go } = useApp();
   useEffect(() => {
     void init();
