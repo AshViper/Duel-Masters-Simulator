@@ -112,7 +112,18 @@ export function DeckBuilderScreen() {
       else next[id] = n;
       return next;
     });
-  const civCount = CIVILIZATIONS.map((c) => ({ c, n: entries.filter((e) => e.card?.civilizations.includes(c)).reduce((s, e) => s + e.n, 0) })).filter((x) => x.n > 0);
+  // サムネイル（デッキ一覧・ホームに出すカード）。同じカードをもう一度選ぶと自動選択に戻す
+  const isCover = (id: string) => deck.coverCardId === id && !!deck.cards[id];
+  const toggleCover = (id: string) => {
+    setDeck((d) => (d ? { ...d, coverCardId: d.coverCardId === id ? undefined : id } : d));
+    setSaved(false);
+  };
+  const coverButton = (id: string) => (
+    <button className={isCover(id) ? 'gold' : ''} onClick={() => toggleCover(id)} disabled={!deck.cards[id]} title="デッキ一覧とホームに出すカードにする" data-testid="set-cover">
+      {isCover(id) ? '★ サムネ解除' : '☆ サムネにする'}
+    </button>
+  );
+  const civCount =CIVILIZATIONS.map((c) => ({ c, n: entries.filter((e) => e.card?.civilizations.includes(c)).reduce((s, e) => s + e.n, 0) })).filter((x) => x.n > 0);
   const curve = Array.from({ length: 8 }, (_, i) => entries.filter((e) => !e.card?.psychic && (i === 7 ? (e.card?.cost ?? 0) >= 7 : e.card?.cost === i)).reduce((s, e) => s + e.n, 0));
   const curveMax = Math.max(4, ...curve);
   const info = hover ?? selected;
@@ -163,6 +174,7 @@ export function DeckBuilderScreen() {
             onHover={(on) => setHover(on ? slot.card! : null)}
             draggable
             onDragStart={dragRemove(slot.id)}
+            badge={slot.k === 0 && isCover(slot.id) ? <span className="cover-badge" title="サムネイル">★</span> : undefined}
             title={`${slot.card.name}（クリックで1枚減らす・右クリックで拡大）`}
           />
         ) : (
@@ -311,6 +323,7 @@ export function DeckBuilderScreen() {
               <>
                 <button className="primary" onClick={() => add(info.id)} disabled={(deck.cards[info.id] ?? 0) >= max(info.id)}>＋ デッキに追加</button>
                 <button onClick={() => remove(info.id)} disabled={!deck.cards[info.id]}>－ 1枚減らす</button>
+                {coverButton(info.id)}
                 <span className="muted small">{deck.cards[info.id] ?? 0}/{max(info.id)}枚</span>
               </>
             )
@@ -339,6 +352,7 @@ export function DeckBuilderScreen() {
             <>
               <button className="primary" onClick={() => add(zoom.id)}>デッキに追加</button>
               <button onClick={() => remove(zoom.id)}>1枚減らす</button>
+              {coverButton(zoom.id)}
             </>
           }
         />

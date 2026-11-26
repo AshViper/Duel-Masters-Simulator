@@ -8,8 +8,9 @@ import { useBattle } from '../../store/battleStore';
 import { Header } from '../components/AppShell';
 import { CardView, CIV_COLOR } from '../components/CardView';
 
-/** デッキの代表カード（コストが一番高いカード）と文明ごとの枚数 */
+/** デッキの代表カード（指定したカード、なければコストが一番高いカード）と文明ごとの枚数 */
 function deckSummary(d: Deck, registry: CardRegistry) {
+  const chosen = d.coverCardId && d.cards[d.coverCardId] ? registry[d.coverCardId] : undefined;
   let cover: CardDefinition | undefined;
   const civ = new Map<Civilization, number>();
   for (const [id, n] of Object.entries(d.cards)) {
@@ -18,7 +19,7 @@ function deckSummary(d: Deck, registry: CardRegistry) {
     if (!cover || c.cost > cover.cost || (c.cost === cover.cost && !cover.imageRef && c.imageRef)) cover = c;
     for (const v of c.civilizations) civ.set(v, (civ.get(v) ?? 0) + n);
   }
-  return { cover, civ: [...civ.entries()].sort((a, b) => b[1] - a[1]) };
+  return { cover: chosen ?? cover, civ: [...civ.entries()].sort((a, b) => b[1] - a[1]) };
 }
 
 function CivDots({ civ }: { civ: [Civilization, number][] }) {

@@ -27,6 +27,8 @@ export interface Deck {
   /** cardId → 枚数 */
   cards: Record<string, number>;
   formatId: string;
+  /** 一覧・ホームでサムネイルに使うカード（未指定・デッキに無いときは自動で選ぶ） */
+  coverCardId?: string;
   createdAt: number;
   updatedAt: number;
 }
