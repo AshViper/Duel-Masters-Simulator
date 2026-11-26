@@ -33,6 +33,8 @@ function parseCivs(s: string): Civilization[] {
 }
 
 function mapType(label: string, hasPower: boolean): CardType {
+  // D2フィールドなどのフィールド（禁断フィールドは禁断の鼓動として別に扱う）
+  if (label.includes('フィールド') && !isForbiddenLabel(label)) return 'field';
   if (label.includes('進化')) return hasPower ? 'evolution' : 'spell';
   if (label.includes('呪文')) return 'spell';
   if (label.includes('クリーチャー') || hasPower) return 'creature';
@@ -131,6 +133,8 @@ const FORBIDDEN_RULE_LINES = [/^この(?:鼓動|フィールド)は、?ゲーム
 
 export function faceKind(card: CardDefinition): 'creature' | 'spell' | 'other' {
   if (isCreatureType(card.type) && card.power !== undefined) return 'creature';
+  // フィールドの能力（常在・置換・ターンのはじめ）はクリーチャーと同じ書き方
+  if (card.type === 'field') return 'creature';
   if (card.type === 'spell' && (!card.typeLabel || card.typeLabel.includes('呪文'))) return 'spell';
   return 'other';
 }
@@ -155,6 +159,8 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
       forbidden: { seals: forbiddenSealCount(card.text) ?? 0, creature: { name: t.name, cost: t.cost, civilizations: t.civilizations, races: [], power: undefined, text: t.text, typeLabel: '禁断クリーチャー' } },
     };
   }
+  // 以前の版でフィールドを呪文として保存したカードを直す
+  if (card.type === 'spell' && card.typeLabel?.includes('フィールド') && !isForbiddenLabel(card.typeLabel)) card = { ...card, type: 'field' };
   // 禁断の鼓動：決まった文はエンジンが処理し、裏側（禁断クリーチャー）の能力も読む
   const isForbidden = !!card.forbidden;
   const mainText = isForbidden
@@ -239,6 +245,7 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     twin,
     forbidden,
     psychic,
+    summonFrom: main.summonFrom,
     soul: main.soul && hasAny(main.soul) ? compact(main.soul) : undefined,
     support,
   };

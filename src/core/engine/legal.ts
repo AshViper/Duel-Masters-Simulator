@@ -1,5 +1,5 @@
 import type { CardRegistry } from '../cards/registry';
-import { attackTargets, canPlay, def, evolutionBases, isIdle } from './queries';
+import { attackTargets, canPlay, def, evolutionBases, isIdle, minimalSacrifice } from './queries';
 import type { Action, GameState, PlayerId } from './types';
 
 /**
@@ -14,11 +14,15 @@ export function getLegalActions(state: GameState, reg: CardRegistry, player: Pla
     for (const iid of P.zones.hand) out.push({ type: 'CHARGE_MANA', player, iid });
   }
   if (state.phase === 'charge' || state.phase === 'main') {
-    for (const iid of P.zones.hand) {
+    // 手札と、墓地などから召喚できるカード（「このクリーチャーを自分の墓地から召喚してもよい」）
+    for (const iid of [...P.zones.hand, ...P.zones.graveyard, ...P.zones.mana]) {
       if (!canPlay(state, reg, player, iid, 'main')) continue;
+      // ササゲール：使わないと払えない時だけ、少ない数で破壊する
+      const sac = minimalSacrifice(state, reg, player, iid) ?? [];
+      const extra = sac.length ? { sacrifice: sac } : {};
       if (def(state, reg, iid).type === 'evolution') {
-        for (const b of evolutionBases(state, reg, player, iid)) out.push({ type: 'PLAY_CARD', player, iid, evolveOn: b });
-      } else out.push({ type: 'PLAY_CARD', player, iid });
+        for (const b of evolutionBases(state, reg, player, iid)) if (!sac.includes(b)) out.push({ type: 'PLAY_CARD', player, iid, evolveOn: b, ...extra });
+      } else out.push({ type: 'PLAY_CARD', player, iid, ...extra });
     }
     // ツインパクトの呪文側
     for (const iid of P.zones.hand) {

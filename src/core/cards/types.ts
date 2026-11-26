@@ -13,13 +13,15 @@ export const CIV_LABEL: Record<Civilization, string> = {
   zero: '無色',
 };
 
-export const CARD_TYPES = ['creature', 'evolution', 'spell'] as const;
+/** field：D2フィールドなど。唱えるとバトルゾーンに置かれ、クリーチャーではない */
+export const CARD_TYPES = ['creature', 'evolution', 'spell', 'field'] as const;
 export type CardType = (typeof CARD_TYPES)[number];
 
 export const CARD_TYPE_LABEL: Record<CardType, string> = {
   creature: 'クリーチャー',
   evolution: '進化クリーチャー',
   spell: '呪文',
+  field: 'フィールド',
 };
 
 /** 効果の自動処理対応状況。manual のカードはエンジンが勝手に処理しない。 */
@@ -70,6 +72,10 @@ export interface CardFilter {
   untapped?: boolean;
   /** 効果の発生源自身を除く */
   excludeSelf?: boolean;
+  /** 進化クリーチャー */
+  evolution?: boolean;
+  /** 持ち主のクリーチャーの中で一番パワーが大きい（highest）／小さい（lowest） */
+  extremePower?: 'highest' | 'lowest';
 }
 
 /** 効果の対象指定 */
@@ -98,7 +104,9 @@ export interface Quantity {
 export type Condition =
   | { type: 'compare'; left: Quantity; op: '>' | '>=' | '<' | '<=' | '=='; right: Quantity | number }
   | { type: 'not'; condition: Condition }
-  | { type: 'and'; conditions: Condition[] };
+  | { type: 'and'; conditions: Condition[] }
+  /** このクリーチャーがこのターンに攻撃していた */
+  | { type: 'attackedThisTurn' };
 
 /** 構造化された効果定義 */
 export type EffectDef =
@@ -153,6 +161,8 @@ export type EffectDef =
   | { type: 'soulRaid' }
   /** 覚醒リンク：条件のクリーチャーがそろっていれば、このクリーチャーと裏返してリンクする */
   | { type: 'awakenLink' }
+  /** 自分の封印を count 枚まで墓地に置く（封印の付いたカードを選び、その封印から外す） */
+  | { type: 'removeOwnSeals'; count: number }
   /** 手札から条件に合うカードを1枚、コストを支払わずに使ってもよい（maxCostHandSize: コストが手札の枚数以下） */
   | { type: 'playFromHandFree'; filter?: CardFilter; maxCostHandSize?: boolean }
   /** エンジン内部用：公開したカードを出す／唱える（てもよい）。しなければそのまま */
@@ -222,6 +232,10 @@ export interface TriggeredAbility {
   minDrawCount?: number;
   /** 発動条件（「〜なら」） */
   condition?: Condition;
+  /** onSummon：進化ではないクリーチャーの上に置いた（進化した）時だけ */
+  evolvedOnNonEvolution?: boolean;
+  /** Dスイッチ：ゲーム中に一度だけ（使ったら二度と聞かない） */
+  dSwitch?: boolean;
 }
 
 /** 常在効果がかかる範囲 */
@@ -260,7 +274,8 @@ export interface ReplacementAbility {
   filter?: CardFilter;
   /** destroySelf: かわりにこのクリーチャーを破壊する（セイバー） / stay: とどまる */
   /** escape: かわりに自分のシールドを1つ手札に加える（エスケープ）。shedUnder: かわりに下のカードすべてが離れる（G-NEO進化） */
-  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder';
+  /** seal: かわりにそのクリーチャーに封印を付ける（Dの禁断 ドキンダムエリア） */
+  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal';
   optional?: boolean;
 }
 
@@ -284,6 +299,8 @@ export interface Keywords {
   battlePower?: number;
   /** ハンティング：バトル中、自分のハンター1体につきパワー+1000 */
   hunting?: boolean;
+  /** ササゲールN：ディスペクターを召喚する時、このクリーチャーを破壊してコストをN少なくしてもよい */
+  sasageru?: number;
   /** ブロックされない */
   unblockable?: boolean;
   /** アンタップされているクリーチャーも攻撃できる */
@@ -396,6 +413,8 @@ export interface CardDefinition {
   neoEvolution?: CardFilter;
   /** 禁断の鼓動：ゲーム開始時に封印を付けてバトルゾーンに置き、封印がすべてなくなったら creature 側に裏返す（禁断解放） */
   forbidden?: ForbiddenSide;
+  /** 手札以外から召喚できる（「このクリーチャーを自分の墓地から召喚してもよい」）。condition を満たす時だけ */
+  summonFrom?: { zones: Array<'graveyard' | 'mana'>; condition?: Condition };
   /** 超魂X：これがクリーチャーの下にあれば、そのクリーチャーにも与える能力 */
   soul?: Pick<CardDefinition, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
   /** サイキック・クリーチャー：裏面（覚醒・覚醒リンクした後のクリーチャー）と覚醒リンクの条件 */

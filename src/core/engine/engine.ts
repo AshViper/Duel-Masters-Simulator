@@ -31,6 +31,9 @@ import {
   activeStatics,
   attackSwapCandidates,
   canBeEvolutionSource,
+  battleAndFields,
+  canSummonFromZone,
+  sasageruCandidates,
   sClassCards,
   battleCards,
   isIgnored,
@@ -87,6 +90,7 @@ const INSTEAD_LABEL: Record<ReplacementAbility['instead'], string> = {
   stay: 'バトルゾーンにとどまる',
   escape: '自分のシールドを1つ手札に加える',
   shedUnder: '下のカードすべてを離す',
+  seal: '封印を付ける',
 };
 
 export class Ctx {
@@ -168,7 +172,7 @@ export class Ctx {
       case 'CHARGE_MANA':
         return this.chargeMana(a.player, a.iid);
       case 'PLAY_CARD':
-        return this.playCard(a.player, a.iid, a.evolveOn, a.manaIids, a.side ?? 'main');
+        return this.playCard(a.player, a.iid, a.evolveOn, a.manaIids, a.side ?? 'main', a.sacrifice ?? []);
       case 'ATTACK':
         return this.attack(a.player, a.attacker, a.target);
     }
@@ -265,10 +269,10 @@ export class Ctx {
     this.run();
   }
 
-  private playCard(player: PlayerId, iid: string, evolveOn: string | undefined, manaIids: string[] | undefined, side: 'main' | 'twin'): void {
+  private playCard(player: PlayerId, iid: string, evolveOn: string | undefined, manaIids: string[] | undefined, side: 'main' | 'twin', sacrifice: string[] = []): void {
     const s = this.s;
     const inst = s.cards[iid];
-    if (!inst || inst.owner !== player || inst.zone !== 'hand') throw new IllegalAction('手札のカードを選んでください');
+    if (!inst || inst.owner !== player || (inst.zone !== 'hand' && !(side === 'main' && canSummonFromZone(s, this.reg, player, iid)))) throw new IllegalAction('手札のカードを選んでください');
     if (s.phase !== 'charge' && s.phase !== 'main') throw new IllegalAction('カードはメインステップで使います');
     const d = def(s, this.reg, iid);
     if (side === 'twin' && !d.twin) throw new IllegalAction('ツインパクトではありません');
@@ -287,15 +291,27 @@ export class Ctx {
       }
       if (!bases.includes(evolveOn)) throw new IllegalAction('そのクリーチャーには進化できません');
     }
-    const cost = effectiveCost(s, this.reg, player, iid, side);
-    const pay = choosePayment(s, this.reg, player, iid, manaIids, side);
+    // ササゲール：破壊するクリーチャーは、ササゲールを持つ自分のクリーチャー（進化元にはできない）
+    if (sacrifice.length) {
+      const cands = sasageruCandidates(s, this.reg, player, iid, side);
+      if (new Set(sacrifice).size !== sacrifice.length || sacrifice.some((x) => !cands.includes(x) || x === evolveOn)) throw new IllegalAction('ササゲールで破壊できないクリーチャーが含まれています');
+    }
+    const cost = effectiveCost(s, this.reg, player, iid, side, sacrifice);
+    const pay = choosePayment(s, this.reg, player, iid, manaIids, side, sacrifice);
     if (!pay) throw new IllegalAction(`マナが足りません（コスト${cost}・${face.civilizations.map((c) => CIV_LABEL[c]).join('/')}）`);
     if (s.phase === 'charge') {
       s.phase = 'main';
       this.emit({ type: 'PHASE_CHANGED', phase: 'main' });
     }
     for (const m of pay) s.cards[m].tapped = true;
-    this.log(`${face.name} を${face.type === 'spell' ? '唱える' : '召喚'}（${cost}マナ）`, player);
+    if (sacrifice.length) {
+      const total = sacrifice.reduce((a, b) => a + (keywords(s, this.reg, b).sasageru ?? 0), 0);
+      this.log(`ササゲール：${sacrifice.map((x) => this.name(x)).join('・')} を破壊して、${face.name} のコストを${total}少なくする`, player);
+      // コストの支払いとして破壊する（召喚より先に）
+      s.queue.push(...sacrifice.map((x): Task => ({ kind: 'leave', iid: x, to: 'graveyard', cause: 'destroy' })));
+    }
+    const verb = face.type === 'spell' ? '唱える' : face.type === 'field' ? 'バトルゾーンに出す' : inst.zone === 'hand' ? '召喚' : `${inst.zone === 'graveyard' ? '墓地' : 'マナゾーン'}から召喚`;
+    this.log(`${face.name} を${verb}（${cost}マナ）`, player);
     this.emit({ type: 'CARD_PLAYED', player, iid });
     s.queue.push(face.type === 'spell' ? { kind: 'castSpell', player, iid, side } : { kind: 'enterBattle', player, iid, evolveOn });
     this.run();
@@ -322,6 +338,7 @@ export class Ctx {
       this.emit({ type: 'PHASE_CHANGED', phase: 'attack' });
     }
     s.cards[attacker].tapped = true;
+    s.cards[attacker].attackedTurn = s.turn;
     const sClass = sClassCards(s, this.reg, player);
     s.combat = { attacker, attackingPlayer: player, target, ...(sClass.length ? { sClassEligible: sClass } : {}) };
     const tname = target.kind === 'player' ? s.players[other(player)].name : this.name(target.iid);
@@ -453,6 +470,7 @@ export class Ctx {
           const bz = s.players[base.owner].zones.battle;
           bz.splice(bz.indexOf(task.evolveOn), 1);
           const baseTapped = base.tapped;
+          const baseNonEvo = def(s, this.reg, task.evolveOn).type !== 'evolution' && base.under.length === 0;
           const under = [task.evolveOn, ...base.under];
           base.under = [];
           base.tapped = false;
@@ -460,6 +478,7 @@ export class Ctx {
           inst.under = under;
           // 進化クリーチャーは進化元のタップ状態を引き継ぐ
           inst.tapped = baseTapped;
+          if (baseNonEvo) inst.evolvedOnNonEvolution = true;
           this.log(`${this.name(task.evolveOn)} が ${this.name(task.iid)} に進化`, task.player);
         } else {
           this.moveCard(task.iid, 'battle');
@@ -481,6 +500,23 @@ export class Ctx {
           else inst.exLifeShields = [...(inst.exLifeShields ?? []), top];
         }
         if (exCount) this.log(`${this.name(task.iid)} の${exCount > 1 ? 'エクストラ' : ''}EXライフ：山札の上から${exCount}枚をシールド化`, inst.owner);
+        const enteredDef = def(s, this.reg, task.iid);
+        if (enteredDef.type === 'field') {
+          // D2フィールド：他のD2フィールドがバトルゾーンに出たら、前のものを持ち主の墓地に置く
+          if (enteredDef.typeLabel?.includes('D2')) {
+            for (const p of [0, 1] as PlayerId[]) {
+              for (const b of [...s.players[p].zones.battle]) {
+                if (b === task.iid) continue;
+                const bd = def(s, this.reg, b);
+                if (bd.type === 'field' && bd.typeLabel?.includes('D2')) {
+                  this.moveCard(b, 'graveyard');
+                  this.log(`${bd.name} を墓地に置いた（新しいD2フィールドが出たため）`, s.cards[b].owner);
+                }
+              }
+            }
+          }
+          return false;
+        }
         this.emit({ type: 'CREATURE_SUMMONED', player: task.player, iid: task.iid });
         return false;
       }
@@ -903,6 +939,15 @@ export class Ctx {
           inst.under = [];
           return false;
         }
+        case 'seal': {
+          // かわりに封印を付ける：山札の上から1枚を封印にし、バトルゾーンにとどまる（封印中は両プレイヤーが無視する）
+          if (!s.players[s.cards[task.iid].owner].zones.deck.length) {
+            this.insertFront({ ...task, replaced: [...replaced, key] });
+            return false;
+          }
+          this.sealCard(task.iid);
+          return false;
+        }
         case 'escape': {
           const shields = s.players[owner].zones.shield;
           if (!shields.length) {
@@ -944,7 +989,7 @@ export class Ctx {
     const s = this.s;
     const owner = s.cards[iid].owner;
     // 自分自身の置換効果を優先し、次に自分の他のクリーチャーのもの
-    const sources = [iid, ...battleCards(s, this.reg, owner).filter((x) => x !== iid)];
+    const sources = [iid, ...battleAndFields(s, this.reg, owner).filter((x) => x !== iid)];
     for (const src of sources) {
       const reps = def(s, this.reg, src).replacements ?? [];
       for (let i = 0; i < reps.length; i++) {
@@ -1201,6 +1246,8 @@ export class Ctx {
       }
       case 'soulRaid':
         return this.soulRaid(controller, source);
+      case 'removeOwnSeals':
+        return this.removeOwnSeals(controller, source, e.count);
       case 'awakenLink':
         this.awakenLink(controller, source);
         return false;
@@ -1392,6 +1439,38 @@ export class Ctx {
     return [top, ...cells];
   }
 
+  /**
+   * 自分の封印を count 枚まで墓地に置く（Dスイッチ）。封印の付いた自分のカードを選び、選んだ順にその封印をすべて外す。
+   * 禁断の鼓動の封印がなくなれば禁断解放する
+   */
+  private removeOwnSeals(controller: PlayerId, source: string, count: number): boolean {
+    const s = this.s;
+    const src = s.cards[source];
+    // Dスイッチ：上下逆さまにする（ゲーム中に一度）
+    if (src && this.reg[src.cardId]?.abilities?.some((a) => a.dSwitch)) src.dSwitched = true;
+    const holders = s.players[controller].zones.battle.filter((b) => s.cards[b].seals?.length);
+    if (!holders.length) {
+      this.log(`${this.name(source)}：封印の付いたカードがありません`, controller);
+      return false;
+    }
+    const r = this.takeResponse();
+    if (!r) {
+      s.pending = { kind: 'selectCards', player: controller, source, prompt: `${this.name(source)}：封印を外すカードを選ぶ（選んだ順に、合わせて${count}枚まで墓地に置く）`, candidates: holders, min: 0, max: holders.length };
+      return true;
+    }
+    let left = count;
+    for (const h of r.selected ?? []) {
+      if (!holders.includes(h)) continue;
+      while (left > 0 && s.cards[h].seals?.length) {
+        const top = s.cards[h].seals![s.cards[h].seals!.length - 1];
+        this.moveCard(top, 'graveyard');
+        left--;
+      }
+    }
+    this.log(`${this.name(source)}：封印を${count - left}枚墓地に置いた`, controller);
+    return false;
+  }
+
   /** 超魂レイド：山札の上から3枚を表向きにし、進化元になれるカードを1枚この下に置いてもよい。残りは好きな順序で山札の下へ */
   private soulRaid(controller: PlayerId, source: string): boolean {
     const s = this.s;
@@ -1497,9 +1576,13 @@ export class Ctx {
     const inst = s.cards[iid];
     if (!inst || isIgnored(s, this.reg, iid)) return;
     const d = def(s, this.reg, iid);
-    if (!isCreatureType(d.type)) return;
+    if (!isCreatureType(d.type) && d.type !== 'field') return;
     (d.abilities ?? []).forEach((ab, i) => {
       if (ab.when !== when || (extra && !extra(ab))) return;
+      // 「進化ではないクリーチャーの上に置いた時」
+      if (ab.evolvedOnNonEvolution && !inst.evolvedOnNonEvolution) return;
+      // Dスイッチはゲーム中に一度だけ
+      if (ab.dSwitch && inst.dSwitched) return;
       // 「各ターンに1度」
       if (ab.oncePerTurn) {
         const key = `${iid}:${i}`;

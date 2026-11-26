@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
-import { attackTargets, canAttackWith, canPlay, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
+import { attackTargets, canAttackWith, canPlay, choosePayment, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
 import { useOnline } from '../../store/onlineStore';
 import { CardDetail, Modal } from '../components/CardDetail';
 import { CardView, CIV_COLOR, type CardSize } from '../components/CardView';
+import { create } from 'zustand';
 import '../battle.css';
 import { dropKey, parseDropKey, resolveDrop, type DropResult, type DropTarget } from './battleDrag';
 
@@ -16,14 +17,20 @@ const CIV_ORDER = CIVILIZATIONS;
 /** ドラッグ中の状態。active になるまで（少し動かすまで）はクリック扱い */
 interface DragState {
   iid: string;
-  x: number;
-  y: number;
   /** 掴んだ時のカードの中心（攻撃の矢印の始点） */
   ox: number;
   oy: number;
-  tilt: number;
   over: DropTarget | null;
 }
+
+// 軽量化：マウスの動きに合わせて頻繁に変わる値は、盤面全体ではなくそれを使う部品だけが読む小さなストアに置く
+/** カーソルを合わせているカード（右のプレビューだけが読む） */
+const useHoverCard = create<{ iid: string | null }>(() => ({ iid: null }));
+const setHover = (iid: string | null) => {
+  if (useHoverCard.getState().iid !== iid) useHoverCard.setState({ iid });
+};
+/** ドラッグ中の指先の位置と傾き（ドラッグの影と矢印だけが読む） */
+const useDragPos = create<{ x: number; y: number; tilt: number }>(() => ({ x: 0, y: 0, tilt: 0 }));
 const DRAG_THRESHOLD = 6;
 
 const MOVE_TARGETS: ZoneName[] = ['hand', 'battle', 'mana', 'shield', 'graveyard', 'deck'];
@@ -43,9 +50,10 @@ export function BattleScreen() {
   const suppressClick = useRef(false);
   const [detail, setDetail] = useState<CardDefinition | null>(null);
   const [zoneView, setZoneView] = useState<{ player: PlayerId; zone: ZoneName } | null>(null);
-  const [evolve, setEvolve] = useState<{ iid: string; bases: string[]; neo?: boolean } | null>(null);
+  const [evolve, setEvolve] = useState<{ iid: string; bases: string[]; neo?: boolean; sacrifice?: string[] } | null>(null);
+  /** ササゲール：ディスペクターを召喚する時に破壊するクリーチャーを選ぶ */
+  const [sasa, setSasa] = useState<{ iid: string; cands: string[]; chosen: string[] } | null>(null);
   const [toast, setToast] = useState('');
-  const [hover, setHover] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ text: string; key: number } | null>(null);
   const [flash, setFlash] = useState<PlayerId | null>(null);
   const logRef = useRef<HTMLOListElement>(null);
@@ -77,10 +85,8 @@ export function BattleScreen() {
     const t = setTimeout(() => setFlash(null), 650);
     return () => clearTimeout(t);
   }, [game?.lastEvents]);
-  // 隠れたカードやゾーン移動したカードのプレビューは消す
-  useEffect(() => {
-    if (hover && game && !game.cards[hover]) setHover(null);
-  }, [game, hover]);
+  // 対戦画面を離れたらプレビューを消す
+  useEffect(() => () => setHover(null), []);
   useEffect(() => {
     if (!error) return;
     setToast(error);
@@ -91,6 +97,8 @@ export function BattleScreen() {
     return () => clearTimeout(t);
   }, [error, clearError]);
 
+  // 表示中の盤面はもう書き換えないので、パワー・コストなどの問い合わせ結果を覚えて描画を軽くする
+  if (game) sealForQueries(game);
   const legal = useMemo(() => (game ? getLegalActions(game, registry, game.activePlayer) : []), [game, registry]);
   if (!game) return null;
 
@@ -100,6 +108,7 @@ export function BattleScreen() {
   const pending = g.pending && canControl(g.pending.player) ? g.pending : null;
   const act = (a: Action) => dispatch(a);
   const def = (iid: string) => cardDef(g, registry, iid);
+  const keywordsOf = (iid: string) => cardKeywords(g, registry, iid);
   const active = g.activePlayer;
   const myTurnControl = canControl(active) && isIdle(g);
 
@@ -107,19 +116,26 @@ export function BattleScreen() {
   const isAttackTarget = (iid: string) => !!attacker && attackTargetsOf(attacker).some((t) => t.kind === 'creature' && t.iid === iid);
   const canAttackPlayer = !!attacker && attackTargetsOf(attacker).some((t) => t.kind === 'player');
 
-  function play(iid: string) {
+  function play(iid: string, sacrifice?: string[]) {
     const owner = g.cards[iid].owner;
     const d = def(iid);
+    // ササゲール：破壊できるクリーチャーがいれば、先に選ぶ（使わないことも選べる）
+    if (!sacrifice) {
+      const cands = sasageruCandidates(g, registry, owner, iid);
+      if (cands.length) return setSasa({ iid, cands, chosen: minimalSacrifice(g, registry, owner, iid) ?? [] });
+    }
+    const sac = sacrifice ?? [];
+    const extra = sac.length ? { sacrifice: sac } : {};
     if (d.type === 'evolution') {
-      const bases = evolutionBases(g, registry, owner, iid);
-      if (bases.length > 1) return setEvolve({ iid, bases });
+      const bases = evolutionBases(g, registry, owner, iid).filter((b) => !sac.includes(b));
+      if (bases.length > 1) return setEvolve({ iid, bases, sacrifice: sac });
     }
     // NEO進化：重ねるか、そのまま召喚するかを選ぶ
     if (d.neoEvolution) {
-      const bases = evolutionBases(g, registry, owner, iid);
-      if (bases.length > 0) return setEvolve({ iid, bases, neo: true });
+      const bases = evolutionBases(g, registry, owner, iid).filter((b) => !sac.includes(b));
+      if (bases.length > 0) return setEvolve({ iid, bases, neo: true, sacrifice: sac });
     }
-    act({ type: 'PLAY_CARD', player: owner, iid });
+    act({ type: 'PLAY_CARD', player: owner, iid, ...extra });
   }
 
   function onCardClick(iid: string, e: MouseEvent) {
@@ -180,6 +196,8 @@ export function BattleScreen() {
     let lastX = sx;
     let tilt = 0;
     let over: DropTarget | null = null;
+    let started = false;
+    const dropKeyOf = (t: DropTarget | null) => (t ? dropKey(t) : '');
     const move = (ev: PointerEvent) => {
       if (!active) {
         if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < DRAG_THRESHOLD) return;
@@ -190,8 +208,14 @@ export function BattleScreen() {
       tilt = Math.max(-14, Math.min(14, tilt * 0.6 + (ev.clientX - lastX) * 0.9));
       lastX = ev.clientX;
       const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('[data-drop]') as HTMLElement | null;
-      over = parseDropKey(el?.dataset.drop);
-      setDrag({ iid, x: ev.clientX, y: ev.clientY, ox: rect.left + rect.width / 2, oy: rect.top + rect.height / 2, tilt, over });
+      const next = parseDropKey(el?.dataset.drop);
+      useDragPos.setState({ x: ev.clientX, y: ev.clientY, tilt });
+      // 盤面（落とし先の光り方）を描き直すのは、ドラッグを始めた時と落とし先が変わった時だけ
+      if (!started || dropKeyOf(next) !== dropKeyOf(over)) {
+        started = true;
+        over = next;
+        setDrag({ iid, ox: rect.left + rect.width / 2, oy: rect.top + rect.height / 2, over });
+      }
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
@@ -247,7 +271,7 @@ export function BattleScreen() {
         faceDown={opts.hidden}
         size={size}
         tapped={inst.tapped}
-        power={inst.zone === 'battle' && !isIgnored(g, registry, iid) ? power(g, registry, iid) : undefined}
+        power={inst.zone === 'battle' && d.type !== 'field' && !isIgnored(g, registry, iid) ? power(g, registry, iid) : undefined}
         cost={inst.zone === 'hand' ? effectiveCost(g, registry, inst.owner, iid) : undefined}
         selected={selection.includes(iid)}
         highlight={highlightOf(iid)}
@@ -395,8 +419,6 @@ export function BattleScreen() {
 
   const canNext = legal.some((a) => a.type === 'NEXT_PHASE') && canControl(active);
   const over = g.gameOverReason !== null;
-  const hoverInst = hover ? g.cards[hover] : undefined;
-  const hoverVisible = hoverInst && !(hoverInst.zone === 'shield' && !hoverInst.faceUp) && !(hoverInst.zone === 'hand' && !canControl(hoverInst.owner)) && hoverInst.zone !== 'deck';
   const hint = pending
     ? null
     : attacker
@@ -437,23 +459,7 @@ export function BattleScreen() {
       </div>
 
       <aside className="side-panel">
-        <div className="preview" data-testid="preview">
-          {hoverVisible ? (
-            <>
-              <CardView card={def(hover!)} size="md" power={hoverInst!.zone === 'battle' && !isIgnored(g, registry, hover!) ? power(g, registry, hover!) : undefined} />
-              <div className="preview-info">
-                <div className="preview-name">{def(hover!).name}</div>
-                <div className="muted small">
-                  {def(hover!).typeLabel ?? CARD_TYPE_LABEL[def(hover!).type]}・コスト{def(hover!).cost}
-                  {hoverInst!.zone === 'battle' && `・パワー${power(g, registry, hover!)}`}
-                </div>
-                <div className="preview-text">{def(hover!).text}</div>
-              </div>
-            </>
-          ) : (
-            <p className="muted small preview-empty">カードにカーソルを合わせると拡大表示します</p>
-          )}
-        </div>
+        <HoverPreview g={g} canControl={canControl} />
         <ol className="log" ref={logRef} data-testid="log">
           {g.log.map((l, i) =>
             l.text.startsWith('──') ? (
@@ -534,16 +540,39 @@ export function BattleScreen() {
           <h3>{evolve.neo ? 'NEO進化：重ねるクリーチャーを選んでください' : '進化元を選んでください'}</h3>
           <div className="zone-cards wrap">
             {evolve.bases.map((b) => (
-              <CardView key={b} card={def(b)} size="sm" onClick={() => { act({ type: 'PLAY_CARD', player: g.cards[evolve.iid].owner, iid: evolve.iid, evolveOn: b }); setEvolve(null); }} />
+              <CardView key={b} card={def(b)} size="sm" onClick={() => { act({ type: 'PLAY_CARD', player: g.cards[evolve.iid].owner, iid: evolve.iid, evolveOn: b, ...(evolve.sacrifice?.length ? { sacrifice: evolve.sacrifice } : {}) }); setEvolve(null); }} />
             ))}
           </div>
           {evolve.neo && (
-            <button onClick={() => { act({ type: 'PLAY_CARD', player: g.cards[evolve.iid].owner, iid: evolve.iid }); setEvolve(null); }}>
+            <button onClick={() => { act({ type: 'PLAY_CARD', player: g.cards[evolve.iid].owner, iid: evolve.iid, ...(evolve.sacrifice?.length ? { sacrifice: evolve.sacrifice } : {}) }); setEvolve(null); }}>
               進化せずに召喚する
             </button>
           )}
         </Modal>
       )}
+      {sasa && g.cards[sasa.iid]?.zone === 'hand' && (() => {
+        const owner = g.cards[sasa.iid].owner;
+        const cost = effectiveCost(g, registry, owner, sasa.iid, 'main', sasa.chosen);
+        const payable = choosePayment(g, registry, owner, sasa.iid, undefined, 'main', sasa.chosen) !== null;
+        const toggle = (b: string) => setSasa({ ...sasa, chosen: sasa.chosen.includes(b) ? sasa.chosen.filter((x) => x !== b) : [...sasa.chosen, b] });
+        return (
+          <Modal onClose={() => setSasa(null)}>
+            <h3>ササゲール：{def(sasa.iid).name} を召喚する時に破壊するクリーチャー</h3>
+            <p className="muted small">選んだクリーチャーのササゲールの数だけコストが少なくなります（0以下にはなりません）。選ばずに召喚することもできます。</p>
+            <div className="zone-cards wrap">
+              {sasa.cands.map((b) => (
+                <div key={b} className={'sasa-pick' + (sasa.chosen.includes(b) ? ' on' : '')}>
+                  <CardView card={def(b)} size="sm" onClick={() => toggle(b)} />
+                  <span>ササゲール{keywordsOf(b).sasageru}</span>
+                </div>
+              ))}
+            </div>
+            <button className="primary" disabled={!payable} onClick={() => { const chosen = sasa.chosen; setSasa(null); play(sasa.iid, chosen); }} data-testid="sasageru-play">
+              {sasa.chosen.length ? `${sasa.chosen.length}体を破壊して召喚（コスト${cost}）` : `ササゲールを使わずに召喚（コスト${cost}）`}{payable ? '' : '：マナが足りません'}
+            </button>
+          </Modal>
+        );
+      })()}
       {toast && <div className="toast">{toast}</div>}
       {over && (
         <div className="modal-backdrop">
@@ -597,11 +626,15 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
   const manual: Item[] = [];
   if (inst.zone === 'hand' && canControl(owner)) {
     const chargeOk = g.activePlayer === owner && g.phase === 'charge' && !g.players[owner].chargedThisTurn && isIdle(g);
-    rule.push({ label: d.type === 'spell' ? '唱える' : '召喚する', run: () => play(iid), disabled: !canPlay(g, registry, owner, iid), primary: true });
+    rule.push({ label: d.type === 'spell' ? '唱える' : d.type === 'field' ? 'バトルゾーンに出す' : '召喚する', run: () => play(iid), disabled: !canPlay(g, registry, owner, iid), primary: true });
     if (d.twin) {
       rule.push({ label: `「${d.twin.name}」を唱える`, run: () => act({ type: 'PLAY_CARD', player: owner, iid, side: 'twin' }), disabled: !canPlay(g, registry, owner, iid, 'twin') });
     }
     rule.push({ label: 'マナチャージ', run: () => act({ type: 'CHARGE_MANA', player: owner, iid }), disabled: !chargeOk });
+  }
+  // 墓地・マナゾーンから召喚できるクリーチャー（「このクリーチャーを自分の墓地から召喚してもよい」）
+  if (inst.zone !== 'hand' && d.summonFrom && (d.summonFrom.zones as string[]).includes(inst.zone) && canControl(owner)) {
+    rule.push({ label: `${inst.zone === 'graveyard' ? '墓地' : 'マナゾーン'}から召喚する`, run: () => play(iid), disabled: !canPlay(g, registry, owner, iid), primary: true });
   }
   if (inst.zone === 'battle' && d.hyper && !inst.hyper) {
     rule.push({ label: 'ハイパー化する', run: () => act({ type: 'HYPERIZE', player: owner, iid }), disabled: !canControl(owner) || !hyperizeCandidates(g, registry, owner, iid) });
@@ -663,8 +696,40 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
 }
 
 /** ドラッグ中に指についてくるカード・攻撃の矢印・何が起きるかのラベル */
+/** 右のプレビュー：カーソルを合わせたカードを大きく見せる（ホバーで盤面全体を描き直さないよう、ここだけがホバーを読む） */
+function HoverPreview({ g, canControl }: { g: GameState; canControl: (p: PlayerId) => boolean }) {
+  const registry = useApp((s) => s.registry);
+  const hover = useHoverCard((s) => s.iid);
+  const inst = hover ? g.cards[hover] : undefined;
+  // 隠れたカード（相手の手札・裏向きのシールド・山札）は見せない
+  const visible = !!inst && !(inst.zone === 'shield' && !inst.faceUp) && !(inst.zone === 'hand' && !canControl(inst.owner)) && inst.zone !== 'deck';
+  if (!visible) {
+    return (
+      <div className="preview" data-testid="preview">
+        <p className="muted small preview-empty">カードにカーソルを合わせると拡大表示します</p>
+      </div>
+    );
+  }
+  const d = cardDef(g, registry, hover!);
+  const p = inst!.zone === 'battle' && !isIgnored(g, registry, hover!) ? power(g, registry, hover!) : undefined;
+  return (
+    <div className="preview" data-testid="preview">
+      <CardView card={d} size="md" power={p} />
+      <div className="preview-info">
+        <div className="preview-name">{d.name}</div>
+        <div className="muted small">
+          {d.typeLabel ?? CARD_TYPE_LABEL[d.type]}・コスト{d.cost}
+          {p !== undefined && `・パワー${p}`}
+        </div>
+        <div className="preview-text">{d.text}</div>
+      </div>
+    </div>
+  );
+}
+
 function DragLayer({ g, drag, result, attackMode }: { g: GameState; drag: DragState; result: DropResult | null; attackMode: boolean }) {
   const registry = useApp((s) => s.registry);
+  const { x, y, tilt } = useDragPos();
   const inst = g.cards[drag.iid];
   if (!inst) return null;
   const d = cardDef(g, registry, drag.iid);
@@ -673,9 +738,9 @@ function DragLayer({ g, drag, result, attackMode }: { g: GameState; drag: DragSt
     <div className={'drag-layer tone-' + tone}>
       {attackMode && (() => {
         // 始点から指先へ、少し持ち上げたベジェ曲線の矢印
-        const mx = (drag.ox + drag.x) / 2;
-        const my = (drag.oy + drag.y) / 2 - Math.min(160, Math.hypot(drag.x - drag.ox, drag.y - drag.oy) * 0.35);
-        const d = `M ${drag.ox} ${drag.oy} Q ${mx} ${my} ${drag.x} ${drag.y}`;
+        const mx = (drag.ox + x) / 2;
+        const my = (drag.oy + y) / 2 - Math.min(160, Math.hypot(x - drag.ox, y - drag.oy) * 0.35);
+        const d = `M ${drag.ox} ${drag.oy} Q ${mx} ${my} ${x} ${y}`;
         return (
           <svg className="attack-arrow" width="100%" height="100%">
             <defs>
@@ -690,11 +755,11 @@ function DragLayer({ g, drag, result, attackMode }: { g: GameState; drag: DragSt
         );
       })()}
       {!attackMode && (
-        <div className="drag-ghost" style={{ left: drag.x, top: drag.y, transform: `translate(-50%, -60%) rotate(${drag.tilt}deg)` }}>
+        <div className="drag-ghost" style={{ left: x, top: y, transform: `translate(-50%, -60%) rotate(${tilt}deg)` }}>
           <CardView card={d} size="hd" faceDown={inst.zone === 'shield' && !inst.faceUp} />
         </div>
       )}
-      <div className="drag-chip" style={{ left: drag.x, top: drag.y }}>
+      <div className="drag-chip" style={{ left: x, top: y }}>
         {result ? result.label : attackMode ? '攻撃先へドラッグ' : '置き場所へドラッグ'}
       </div>
     </div>

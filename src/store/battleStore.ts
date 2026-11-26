@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { chooseAction, type Difficulty } from '../core/ai/cpu';
 import { expandDeck, type Deck } from '../core/deck/rules';
 import { applyAction } from '../core/engine/engine';
+import { sealForQueries } from '../core/engine/queries';
 import { createGame } from '../core/engine/setup';
 import type { Action, GameState, PlayerId } from '../core/engine/types';
 import { db } from '../db/db';
@@ -70,6 +71,8 @@ export const useBattle = create<BattleState>((set, get) => {
       cpuTimer = null;
       const g = get().game;
       if (!g) return;
+      // ストアの盤面は書き換えないので、CPU の問い合わせも結果を覚えて速くする
+      sealForQueries(g);
       const a = chooseAction(g, useApp.getState().registry, who, difficulty);
       if (a) get().dispatch(a);
     }, useApp.getState().settings.cpuDelayMs);

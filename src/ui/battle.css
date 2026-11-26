@@ -85,7 +85,7 @@
     linear-gradient(rgba(12, 20, 34, 0.8), rgba(12, 20, 34, 0.9)),
     url('./assets/battle/zone-texture.webp') 0 0 / 256px 256px;
   box-shadow: var(--shadow-panel), inset 0 1px 0 rgba(233, 196, 106, 0.08), inset 0 0 0 1px rgba(255, 255, 255, 0.02);
-  backdrop-filter: blur(3px);
+  /* 軽量化：背景がほぼ不透明なので、ぼかし（backdrop-filter）は使わない。ゾーンごとに背景をぼかす処理が毎フレーム重かった */
   transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s, opacity 0.2s, transform 0.2s;
 }
 /* 角の金の飾り */
@@ -209,6 +209,9 @@
 .piles.has-hyper .pile-label { letter-spacing: 0.05em; }
 /* 山札・墓地の列（styles.css の .side-row）を、超次元の分だけ広げる */
 .side-row:has(.piles.has-hyper) { grid-template-columns: minmax(140px, 180px) minmax(140px, 1fr) minmax(0, 1.3fr) minmax(144px, 186px); }
+/* ササゲールで破壊するクリーチャーの選択 */
+.sasa-pick { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px; border-radius: 10px; border: 2px solid transparent; font-size: 12px; }
+.sasa-pick.on { border-color: var(--red, #e5484d); box-shadow: 0 0 12px rgba(229, 72, 77, 0.45); }
 .hyper-pile { box-shadow: inset 0 0 18px rgba(93, 217, 245, 0.2); }
 .hyper-pile .pile-top .card { box-shadow: 0 0 12px rgba(93, 217, 245, 0.45); }
 .pile-top { pointer-events: none; }

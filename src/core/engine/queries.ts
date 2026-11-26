@@ -18,6 +18,28 @@ import {
 } from '../cards/types';
 import { other, type AttackTarget, type CardInstance, type GameState, type PlayerId } from './types';
 
+// ───────────────────────── 問い合わせのキャッシュ ─────────────────────────
+// 画面の描画では、同じ盤面に対して同じ問い合わせ（パワー・コスト・使えるか・攻撃先）を何度もする。
+// 盤面（GameState）はアクションのたびに新しく作られるので、「もう変更しない」と印を付けた状態に限り結果を覚える。
+// エンジンの処理中の状態（その場で書き換える）には印がないので、いつも計算し直す。
+const sealedStates = new WeakSet<GameState>();
+const queryCaches = new WeakMap<GameState, Map<string, unknown>>();
+
+/** この状態はもう書き換えないと宣言し、問い合わせの結果を覚えるようにする（対戦画面・CPU 用） */
+export function sealForQueries(state: GameState): void {
+  sealedStates.add(state);
+}
+
+function cached<T>(state: GameState, key: string, fn: () => T): T {
+  if (!sealedStates.has(state)) return fn();
+  let m = queryCaches.get(state);
+  if (!m) queryCaches.set(state, (m = new Map()));
+  if (m.has(key)) return m.get(key) as T;
+  const v = fn();
+  m.set(key, v);
+  return v;
+}
+
 export function def(state: GameState, reg: CardRegistry, iid: string): CardDefinition {
   const inst = state.cards[iid];
   const d = inst && reg[inst.cardId];
@@ -100,7 +122,22 @@ export function isIgnored(state: GameState, reg: CardRegistry, iid: string): boo
 
 /** バトルゾーンのカードのうち、無視されないもの（ふつうのクリーチャー） */
 export function battleCards(state: GameState, reg: CardRegistry, player: PlayerId): string[] {
+  // フィールド（D2フィールドなど）はバトルゾーンにあってもクリーチャーではない
+  return state.players[player].zones.battle.filter((iid) => !isIgnored(state, reg, iid) && def(state, reg, iid).type !== 'field');
+}
+
+/** バトルゾーンの、無視されないクリーチャーとフィールド（常在効果・置換効果の発生源） */
+export function battleAndFields(state: GameState, reg: CardRegistry, player: PlayerId): string[] {
   return state.players[player].zones.battle.filter((iid) => !isIgnored(state, reg, iid));
+}
+
+/** 手札以外から召喚できるか（「このクリーチャーを自分の墓地から召喚してもよい」） */
+export function canSummonFromZone(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): boolean {
+  const inst = state.cards[iid];
+  if (!inst || inst.owner !== player || inst.zone === 'hand') return false;
+  const sf = def(state, reg, iid).summonFrom;
+  if (!sf || !(sf.zones as string[]).includes(inst.zone)) return false;
+  return !sf.condition || evalCondition(state, reg, player, sf.condition, true, iid);
 }
 
 const hyperCache = new WeakMap<CardDefinition, CardDefinition>();
@@ -150,6 +187,14 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   // 常在効果の中からは元の能力で判定する（循環防止）
   if (f.hasKeyword && !(inst.zone === 'battle' && !noPower ? keywords(state, reg, iid) : (d.keywords ?? {}))[f.hasKeyword]) return false;
   if (f.multicolor && d.civilizations.length < 2) return false;
+  if (f.evolution && d.type !== 'evolution') return false;
+  // 一番パワーが大きい／小さい：持ち主のクリーチャーの中で比べる（同じパワーならすべて）
+  if (f.extremePower && inst.zone === 'battle') {
+    const pw = (x: string) => (noPower ? (def(state, reg, x).power ?? 0) : power(state, reg, x));
+    const all = battleCards(state, reg, inst.owner).map(pw);
+    const target = f.extremePower === 'highest' ? Math.max(...all) : Math.min(...all);
+    if (pw(iid) !== target) return false;
+  }
   if (f.maxCost !== undefined && d.cost > f.maxCost) return false;
   if (f.minCost !== undefined && d.cost < f.minCost) return false;
   if (f.tapped && !inst.tapped) return false;
@@ -188,9 +233,13 @@ export interface ActiveStatic {
 
 /** いま有効な常在効果（バトルゾーンのカード＋ターン終了まで有効なもの） */
 export function activeStatics(state: GameState, reg: CardRegistry): ActiveStatic[] {
+  return cached(state, 'statics', () => activeStaticsImpl(state, reg));
+}
+
+function activeStaticsImpl(state: GameState, reg: CardRegistry): ActiveStatic[] {
   const out: ActiveStatic[] = [];
   for (const p of state.players) {
-    for (const iid of battleCards(state, reg, p.id)) {
+    for (const iid of battleAndFields(state, reg, p.id)) {
       for (const s of def(state, reg, iid).statics ?? []) {
         if (s.duringTurn && (s.duringTurn === 'self') !== (state.activePlayer === p.id)) continue;
         // 条件つきの常在効果（循環を避けるため、条件はパワーを見ずに数える）
@@ -228,6 +277,10 @@ function mergeKeywords(base: Keywords, add: Keywords | undefined): Keywords {
 
 /** 現在のキーワード能力（元の能力＋ターン中の付与＋常在効果） */
 export function keywords(state: GameState, reg: CardRegistry, iid: string): Keywords {
+  return cached(state, `kw:${iid}`, () => keywordsImpl(state, reg, iid));
+}
+
+function keywordsImpl(state: GameState, reg: CardRegistry, iid: string): Keywords {
   const inst = state.cards[iid];
   let kw = mergeKeywords(mergeKeywords({ ...(def(state, reg, iid).keywords ?? {}) }, inst.keywordsTurn), inst.keywordsUntil?.keywords);
   if (inst.zone !== 'battle') return kw;
@@ -238,6 +291,10 @@ export function keywords(state: GameState, reg: CardRegistry, iid: string): Keyw
 }
 
 export function power(state: GameState, reg: CardRegistry, iid: string): number {
+  return cached(state, `pw:${iid}`, () => powerImpl(state, reg, iid));
+}
+
+function powerImpl(state: GameState, reg: CardRegistry, iid: string): number {
   const inst = state.cards[iid];
   const d = def(state, reg, iid);
   let p = (d.power ?? 0) + inst.powerModTurn;
@@ -282,7 +339,11 @@ export function cannotBeAttacked(state: GameState, reg: CardRegistry, iid: strin
 }
 
 /** 常在効果込みのコスト */
-export function effectiveCost(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): number {
+export function effectiveCost(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main', sacrifice: string[] = []): number {
+  return cached(state, `ec:${player}:${iid}:${side}:${sacrifice.join(",")}`, () => effectiveCostImpl(state, reg, player, iid, side, sacrifice));
+}
+
+function effectiveCostImpl(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main', sacrifice: string[] = []): number {
   const d = def(state, reg, iid);
   const face = playFace(d, side);
   let cost = face.cost;
@@ -302,7 +363,35 @@ export function effectiveCost(state: GameState, reg: CardRegistry, player: Playe
     cost -= sc.amount * Math.floor(countQuantity(state, reg, player, sc.per, true, iid) / sc.unit);
     floor = Math.min(face.cost, Math.max(floor, sc.min));
   }
+  // ササゲール：破壊するクリーチャーのササゲールの数だけ少なくする（コストは0以下にならない）
+  if (sacrifice.length) {
+    cost -= sacrifice.reduce((a, b) => a + (keywords(state, reg, b).sasageru ?? 0), 0);
+    floor = Math.min(face.cost, Math.max(floor, 1));
+  }
   return Math.max(floor, cost);
+}
+
+/** ディスペクターを召喚する時に、ササゲールで破壊できる自分のクリーチャー */
+export function sasageruCandidates(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): string[] {
+  if (side !== 'main') return [];
+  const d = def(state, reg, iid);
+  if (!isCreatureType(d.type) || !d.races.some((r) => r.includes('ディスペクター'))) return [];
+  return battleCards(state, reg, player).filter((b) => b !== iid && (keywords(state, reg, b).sasageru ?? 0) > 0);
+}
+
+/**
+ * ササゲールを使わないと払えない時に、破壊するクリーチャーを少なく選ぶ（ササゲールの数が大きいものから）。
+ * 使わずに払えるなら []、使っても払えなければ null
+ */
+export function minimalSacrifice(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string[] | null {
+  if (choosePayment(state, reg, player, iid) !== null) return [];
+  const cands = [...sasageruCandidates(state, reg, player, iid)].sort((a, b) => (keywords(state, reg, b).sasageru ?? 0) - (keywords(state, reg, a).sasageru ?? 0));
+  const chosen: string[] = [];
+  for (const c of cands) {
+    chosen.push(c);
+    if (choosePayment(state, reg, player, iid, undefined, 'main', chosen) !== null) return chosen;
+  }
+  return null;
 }
 
 /** 召喚・呪文の禁止を受けているなら理由を返す */
@@ -331,6 +420,10 @@ export function isSummoningSick(state: GameState, reg: CardRegistry, iid: string
 
 /** 攻撃可能なクリーチャーか（状態・召喚酔い・攻撃制限） */
 export function canAttackWith(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): boolean {
+  return cached(state, `ca:${player}:${iid}`, () => canAttackWithImpl(state, reg, player, iid));
+}
+
+function canAttackWithImpl(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): boolean {
   const inst = state.cards[iid];
   if (!inst || inst.owner !== player || inst.zone !== 'battle' || inst.tapped) return false;
   if (!battleCards(state, reg, player).includes(iid)) return false;
@@ -341,6 +434,10 @@ export function canAttackWith(state: GameState, reg: CardRegistry, player: Playe
 }
 
 export function attackTargets(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): AttackTarget[] {
+  return cached(state, `at:${player}:${iid}`, () => attackTargetsImpl(state, reg, player, iid));
+}
+
+function attackTargetsImpl(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): AttackTarget[] {
   if (!canAttackWith(state, reg, player, iid)) return [];
   const kw = keywords(state, reg, iid);
   const machOnly = isSummoningSick(state, reg, iid);
@@ -384,7 +481,9 @@ export function targetCandidates(state: GameState, reg: CardRegistry, controller
 /** 数を数える。noPower なら元のパワーで判定（常在効果の中から呼ぶ時の循環防止）。source は「他の」の判定用 */
 export function countQuantity(state: GameState, reg: CardRegistry, controller: PlayerId, q: Quantity, noPower = false, source?: string): number {
   const players: PlayerId[] = q.who === 'self' ? [controller] : q.who === 'opponent' ? [other(controller)] : [controller, other(controller)];
-  return players.reduce<number>((sum, p) => sum + (q.zone === 'battle' ? battleCards(state, reg, p) : state.players[p].zones[q.zone]).filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)).length, 0);
+  // フィールドを数える時はクリーチャー以外も見る
+  const inBattle = (p: PlayerId) => (q.filter?.cardType === 'field' ? battleAndFields(state, reg, p) : battleCards(state, reg, p));
+  return players.reduce<number>((sum, p) => sum + (q.zone === 'battle' ? inBattle(p) : state.players[p].zones[q.zone]).filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)).length, 0);
 }
 
 export function evalCondition(state: GameState, reg: CardRegistry, controller: PlayerId, c: Condition, noPower = false, source?: string): boolean {
@@ -398,6 +497,8 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       const r = typeof c.right === 'number' ? c.right : countQuantity(state, reg, controller, c.right, noPower, source);
       return c.op === '>' ? l > r : c.op === '>=' ? l >= r : c.op === '<' ? l < r : c.op === '<=' ? l <= r : l === r;
     }
+    case 'attackedThisTurn':
+      return !!source && state.cards[source]?.attackedTurn === state.turn;
   }
 }
 
@@ -433,9 +534,9 @@ export function canBeEvolutionSource(state: GameState, reg: CardRegistry, iid: s
  * コストの支払いに使うマナを決める。払えなければ null。
  * 各文明について1枚ずつ別々のマナを割り当てる（小さな二部マッチング）。
  */
-export function choosePayment(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, preferred?: string[], side: 'main' | 'twin' = 'main'): string[] | null {
+export function choosePayment(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, preferred?: string[], side: 'main' | 'twin' = 'main', sacrifice: string[] = []): string[] | null {
   const face = playFace(def(state, reg, iid), side);
-  const cost = effectiveCost(state, reg, player, iid, side);
+  const cost = effectiveCost(state, reg, player, iid, side, sacrifice);
   // コスト0（G・ゼロなど）はマナを支払わない
   if (cost === 0) return preferred && preferred.length ? null : [];
   const civs: Civilization[] = face.civilizations.filter((cv) => cv !== 'zero');
@@ -473,15 +574,22 @@ function assignCivs(civs: Civilization[], mana: string[], mciv: (m: string) => C
 }
 
 export function canPlay(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): boolean {
+  return cached(state, `cp:${player}:${iid}:${side}`, () => canPlayImpl(state, reg, player, iid, side));
+}
+
+function canPlayImpl(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): boolean {
   if (!isIdle(state) || state.activePlayer !== player) return false;
   if (state.phase !== 'charge' && state.phase !== 'main') return false;
   const inst = state.cards[iid];
-  if (!inst || inst.owner !== player || inst.zone !== 'hand') return false;
+  if (!inst || inst.owner !== player) return false;
+  if (inst.zone !== 'hand' && !(side === 'main' && canSummonFromZone(state, reg, player, iid))) return false;
   const d = def(state, reg, iid);
   if (side === 'twin' && !d.twin) return false;
   if (side === 'main' && d.type === 'evolution' && evolutionBases(state, reg, player, iid).length === 0) return false;
   if (playRestriction(state, reg, player, iid, side)) return false;
-  return choosePayment(state, reg, player, iid, undefined, side) !== null;
+  if (choosePayment(state, reg, player, iid, undefined, side) !== null) return true;
+  // ササゲールを使えば払える
+  return side === 'main' && minimalSacrifice(state, reg, player, iid) !== null;
 }
 
 export function untappedManaCount(state: GameState, player: PlayerId): number {

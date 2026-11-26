@@ -32,6 +32,12 @@ export interface CardInstance {
   seals?: string[];
   /** 禁断の鼓動がクリーチャー側に裏返った（禁断解放した）／サイキック・クリーチャーが裏返った（覚醒リンク） */
   flipped?: boolean;
+  /** 最後に攻撃したターン（「そのターンこのクリーチャーが攻撃していたら」） */
+  attackedTurn?: number;
+  /** 進化ではないクリーチャーの上に置いて（進化して）出た */
+  evolvedOnNonEvolution?: boolean;
+  /** Dスイッチを使った（D2フィールドを上下逆さまにした） */
+  dSwitched?: boolean;
   /** 覚醒リンクでこのクリーチャーとリンクしているサイキック・セル（バトルゾーンの一覧には入らない） */
   links?: string[];
 }
@@ -207,7 +213,8 @@ export type Action =
   | { type: 'NEXT_PHASE'; player: PlayerId }
   | { type: 'END_TURN'; player: PlayerId }
   | { type: 'CHARGE_MANA'; player: PlayerId; iid: string }
-  | { type: 'PLAY_CARD'; player: PlayerId; iid: string; evolveOn?: string; manaIids?: string[]; side?: 'main' | 'twin' }
+  /** sacrifice：ササゲールで破壊する自分のクリーチャー（ディスペクターの召喚コストを少なくする） */
+  | { type: 'PLAY_CARD'; player: PlayerId; iid: string; evolveOn?: string; manaIids?: string[]; side?: 'main' | 'twin'; sacrifice?: string[] }
   | { type: 'ATTACK'; player: PlayerId; attacker: string; target: AttackTarget }
   | { type: 'RESPOND'; player: PlayerId; selected?: string[]; accept?: boolean }
   /** 手動処理：任意のカードを任意のゾーンへ移動 */

@@ -1,7 +1,8 @@
 // 手動処理だった能力を自動にした分のテスト（条件つきで「〜」を得る、ハンティング、すべてのバトルに勝つ、パワーを0にするなど）
 import { describe, expect, it } from 'vitest';
 import { Ctx, applyAction } from '../engine/engine';
-import { effectiveCost, keywords, power } from '../engine/queries';
+import { effectiveCost, keywords, minimalSacrifice, power, sasageruCandidates } from '../engine/queries';
+import { getLegalActions } from '../engine/legal';
 import { createGame } from '../engine/setup';
 import type { Action, GameState, PlayerId } from '../engine/types';
 import { SAMPLE_CARDS } from '../testing/fixtureCards';
@@ -36,6 +37,9 @@ const C = {
   mafia: mk('a-9', [], { race: 'マフィ・ギャング', cost: '4', civ: '闇' }),
   knight: mk('a-10', ['自分の他のナイトに「スピードアタッカー」を与える。'], { race: 'ナイト' }),
   knight2: mk('a-11', [], { race: 'ナイト' }),
+  sasa3: mk('a-13', ['ササゲール３（ディスペクターを召喚する時、コストを３少なくしてもよい。そうしたら、このクリーチャーを破壊する。そのディスペクターのコストは０以下にはならない）'], { race: 'ディスタス', cost: '3' }),
+  sasa4: mk('a-14', ['ササゲール４（自分のディスペクター・クリーチャーの召喚コストを４少なくしてもよい。そうしたら、このエレメントを破壊する。ただしコストは０以下にならない）'], { race: 'ディスタス', cost: '4' }),
+  dispecter: mk('a-15', [], { race: 'ディスペクター/テスト', cost: '7', power: '9000' }),
   reveal: mk('a-12', ['自分の山札の上から１枚目を表向きにする。そのカードが呪文であれば、自分の手札に加える。それ以外のカードであれば、自分の墓地に置く。'], { type: '呪文', power: '' }),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
@@ -147,6 +151,44 @@ describe('エンジンで動く', () => {
     const k2 = put(s, 0, C.knight2.id, 'battle');
     expect(keywords(s, reg, k2).speedAttacker).toBe(true);
     expect(keywords(s, reg, k).speedAttacker).toBeFalsy();
+  });
+
+  it('ササゲール：破壊したクリーチャーの数だけディスペクターのコストが少なくなる（0以下にならない）', () => {
+    const s = newGame();
+    const a = put(s, 0, C.sasa3.id, 'battle');
+    const b = put(s, 0, C.sasa4.id, 'battle');
+    const d = put(s, 0, C.dispecter.id, 'hand');
+    const other = put(s, 0, C.big.id, 'hand');
+    expect(keywords(s, reg, a).sasageru).toBe(3);
+    expect(sasageruCandidates(s, reg, 0, d)).toEqual([a, b]);
+    expect(sasageruCandidates(s, reg, 0, other)).toEqual([]);
+    expect(effectiveCost(s, reg, 0, d, 'main', [a])).toBe(4);
+    expect(effectiveCost(s, reg, 0, d, 'main', [a, b])).toBe(1);
+  });
+
+  it('ササゲール：マナが足りない時はササゲールで召喚でき、CPU もそれを選べる', () => {
+    let s = newGame();
+    const a = put(s, 0, C.sasa3.id, 'battle');
+    const b = put(s, 0, C.sasa4.id, 'battle');
+    const d = put(s, 0, C.dispecter.id, 'hand');
+    for (let i = 0; i < 3; i++) put(s, 0, C.big.id, 'mana');
+    // 3マナ：ササゲール4（7→3）だけで足りる
+    expect(minimalSacrifice(s, reg, 0, d)).toEqual([b]);
+    expect(getLegalActions(s, reg, 0)).toContainEqual({ type: 'PLAY_CARD', player: 0, iid: d, sacrifice: [b] });
+    expect(() => act(s, { type: 'PLAY_CARD', player: 0, iid: d })).toThrow(/マナが足りません/);
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: d, sacrifice: [b] });
+    expect(s.cards[b].zone).toBe('graveyard');
+    expect(s.cards[a].zone).toBe('battle');
+    expect(s.cards[d].zone).toBe('battle');
+    expect(s.players[0].zones.mana.filter((m) => s.cards[m].tapped)).toHaveLength(3);
+  });
+
+  it('ササゲール：ササゲールを持たないクリーチャーは破壊に使えない', () => {
+    const s = newGame();
+    const x = put(s, 0, C.big.id, 'battle');
+    const d = put(s, 0, C.dispecter.id, 'hand');
+    for (let i = 0; i < 7; i++) put(s, 0, C.big.id, 'mana');
+    expect(() => act(s, { type: 'PLAY_CARD', player: 0, iid: d, sacrifice: [x] })).toThrow(/ササゲール/);
   });
 
   it('「そのカードが呪文であれば手札、それ以外は墓地」', () => {
