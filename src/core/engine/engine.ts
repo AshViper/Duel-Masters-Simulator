@@ -26,6 +26,8 @@ import {
   evalCondition,
   evolutionBases,
   isIdle,
+  isUntargetable,
+  keywords,
   matchFilter,
   playRestriction,
   power,
@@ -380,13 +382,19 @@ export class Ctx {
         this.emit({ type: 'SPELL_CAST', player: task.player, iid: task.iid });
         const tasks: Task[] = [];
         for (const ab of face.abilities) if (ab.when === 'onCast') tasks.push(...this.abilityTasks(ab, task.player, task.iid));
-        this.insertFront(...tasks, { kind: 'spellToGrave', iid: task.iid });
+        this.insertFront(...tasks, { kind: 'spellToGrave', iid: task.iid, side: task.side });
         return false;
       }
 
-      case 'spellToGrave':
-        if (s.cards[task.iid]?.zone === 'hand') this.moveCard(task.iid, 'graveyard');
+      case 'spellToGrave': {
+        if (s.cards[task.iid]?.zone !== 'hand') return false;
+        const d = def(s, this.reg, task.iid);
+        // チャージャー：墓地のかわりにマナゾーンに置く
+        const charger = task.side === 'twin' ? d.twin?.keywords?.charger : d.keywords?.charger;
+        this.moveCard(task.iid, charger ? 'mana' : 'graveyard');
+        if (charger) this.log(`${this.name(task.iid)} をマナゾーンに置いた（チャージャー）`, s.cards[task.iid].owner);
         return false;
+      }
 
       case 'enterBattle': {
         const inst = s.cards[task.iid];
@@ -410,6 +418,14 @@ export class Ctx {
           this.log(`${this.name(task.evolveOn)} が ${this.name(task.iid)} に進化`, task.player);
         } else {
           this.moveCard(task.iid, 'battle');
+        }
+        // EXライフ：山札の上から1枚をシールド化する
+        const deck = s.players[inst.owner].zones.deck;
+        if (def(s, this.reg, task.iid).keywords?.exLife && deck.length) {
+          const top = deck[deck.length - 1];
+          this.moveCard(top, 'shield');
+          inst.exLifeShield = top;
+          this.log(`${this.name(task.iid)} のEXライフ：山札の上から1枚をシールド化`, inst.owner);
         }
         this.emit({ type: 'CREATURE_SUMMONED', player: task.player, iid: task.iid });
         return false;
@@ -504,13 +520,25 @@ export class Ctx {
           chosen = r.selected ?? [];
         }
         const triggers: Task[] = [];
+        // ブレイクしたシールドを手札に加えるかわりに墓地に置く
+        const burn = s.cards[task.source]?.zone === 'battle' && !!keywords(s, this.reg, task.source).shieldBurn;
         for (const sh of chosen) {
-          this.moveCard(sh, 'hand');
+          this.moveCard(sh, burn ? 'graveyard' : 'hand');
           this.emit({ type: 'SHIELD_BROKEN', player: task.defender, iid: sh });
+          if (burn) continue;
           const d = def(s, this.reg, sh);
           if (d.keywords?.shieldTrigger || d.twin?.keywords?.shieldTrigger) triggers.push({ kind: 'shieldTrigger', player: task.defender, iid: sh });
+          // G・ストライク：相手のクリーチャーを1体選んでもよい。このターン、そのクリーチャーは攻撃できない
+          if (d.keywords?.gStrike) {
+            triggers.push({
+              kind: 'confirmOptional',
+              controller: task.defender,
+              source: sh,
+              effects: [{ type: 'grantKeyword', target: { owner: 'opponent', zone: 'battle', count: 1 }, keywords: { cannotAttack: true } }],
+            });
+          }
         }
-        this.log(`シールドを${chosen.length}枚ブレイク（残り${shields.length}枚）`, task.breaker);
+        this.log(`シールドを${chosen.length}枚ブレイク（残り${shields.length}枚）${burn ? '：墓地に置いた' : ''}`, task.breaker);
         this.insertFront(...triggers);
         return false;
       }
@@ -559,6 +587,14 @@ export class Ctx {
     const s = this.s;
     const inst = s.cards[task.iid];
     if (!inst || inst.zone !== 'battle') return false;
+    // EXライフ：離れるかわりに、そのシールドを墓地に置く
+    if (inst.exLifeShield && s.cards[inst.exLifeShield]?.zone === 'shield') {
+      const sh = inst.exLifeShield;
+      delete inst.exLifeShield;
+      this.moveCard(sh, 'graveyard');
+      this.log(`${this.name(task.iid)} はEXライフのシールドを墓地に置いて、バトルゾーンにとどまった`, inst.owner);
+      return false;
+    }
     const replaced = task.replaced ?? [];
     const rep = this.findReplacement(task.iid, task.cause, replaced);
     if (rep) {
@@ -825,7 +861,12 @@ export class Ctx {
   /** 対象を選んで fn を適用する。選択が必要なら pending を立てて true を返す */
   private withTargets(controller: PlayerId, source: string, spec: TargetSpec, verb: string, harmful: boolean, fn: (iid: string) => Task | void): boolean {
     const s = this.s;
-    const candidates = targetCandidates(s, this.reg, controller, spec, source).filter((c) => c !== source || spec.zone !== 'hand');
+    const candidates = targetCandidates(s, this.reg, controller, spec, source).filter(
+      (c) =>
+        (c !== source || spec.zone !== 'hand') &&
+        // 「相手に選ばれない」クリーチャーは、相手が選ぶ効果の候補にしない（「すべて」は選ばないので対象になる）
+        !(spec.count !== 'all' && spec.chooser !== 'owner' && s.cards[c].owner !== controller && isUntargetable(s, this.reg, c)),
+    );
     if (candidates.length === 0) {
       this.log(`${this.name(source)}：対象がいません`, controller);
       return false;
@@ -968,6 +1009,7 @@ export class Ctx {
     inst.tapped = false;
     inst.powerModTurn = 0;
     delete inst.keywordsTurn;
+    delete inst.exLifeShield;
     inst.faceUp = to !== 'shield' && to !== 'deck';
     if (to === 'battle') inst.enteredTurn = s.turn;
     // 多色カードはタップしてマナゾーンに置かれる

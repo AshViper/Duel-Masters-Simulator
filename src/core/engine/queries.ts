@@ -36,6 +36,9 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(d.type) : d.type !== f.cardType)) return false;
   if (f.civilization && !d.civilizations.includes(f.civilization)) return false;
   if (f.race && !d.races.some((r) => r.includes(f.race!))) return false;
+  if (f.races && !f.races.some((x) => d.races.some((r) => r.includes(x)))) return false;
+  if (f.nonEvolution && d.type === 'evolution') return false;
+  if (f.multicolor && d.civilizations.length < 2) return false;
   if (f.maxCost !== undefined && d.cost > f.maxCost) return false;
   if (f.minCost !== undefined && d.cost < f.minCost) return false;
   if (f.tapped && !inst.tapped) return false;
@@ -54,6 +57,9 @@ function matchFace(face: PlayFace, d: CardDefinition, f: CardFilter | undefined)
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(face.type) : face.type !== f.cardType)) return false;
   if (f.civilization && !face.civilizations.includes(f.civilization)) return false;
   if (f.race && (face.side === 'twin' || !d.races.some((r) => r.includes(f.race!)))) return false;
+  if (f.races && (face.side === 'twin' || !f.races.some((x) => d.races.some((r) => r.includes(x))))) return false;
+  if (f.nonEvolution && face.type === 'evolution') return false;
+  if (f.multicolor && face.civilizations.length < 2) return false;
   if (f.maxCost !== undefined && face.cost > f.maxCost) return false;
   if (f.minCost !== undefined && face.cost < f.minCost) return false;
   return true;
@@ -72,7 +78,10 @@ export function activeStatics(state: GameState, reg: CardRegistry): ActiveStatic
   const out: ActiveStatic[] = [];
   for (const p of state.players) {
     for (const iid of p.zones.battle) {
-      for (const s of def(state, reg, iid).statics ?? []) out.push({ controller: p.id, source: iid, static: s });
+      for (const s of def(state, reg, iid).statics ?? []) {
+        if (s.duringTurn && (s.duringTurn === 'self') !== (state.activePlayer === p.id)) continue;
+        out.push({ controller: p.id, source: iid, static: s });
+      }
     }
   }
   for (const t of state.turnStatics ?? []) out.push(t);
@@ -127,7 +136,31 @@ export function power(state: GameState, reg: CardRegistry, iid: string): number 
 }
 
 export function breakerCount(state: GameState, reg: CardRegistry, iid: string): number {
-  return keywords(state, reg, iid).breaker ?? 1;
+  const kw = keywords(state, reg, iid);
+  const base = kw.breaker ?? 1;
+  // パワード・ブレイカー：パワー6000ごとに1つ多くブレイクする
+  return kw.poweredBreaker ? Math.max(base, 1 + Math.floor(power(state, reg, iid) / 6000)) : base;
+}
+
+/** ジャストダイバーが有効か（出てから次の自分のターンのはじめまで） */
+function justDiving(state: GameState, inst: CardInstance): boolean {
+  if (state.turn === inst.enteredTurn) return true;
+  // 出たターンの次のターンが相手のターンなら、そのターン中も有効
+  return state.turn === inst.enteredTurn + 1 && state.activePlayer !== inst.owner;
+}
+
+/** 相手に選ばれないか */
+export function isUntargetable(state: GameState, reg: CardRegistry, iid: string): boolean {
+  const inst = state.cards[iid];
+  if (!inst || inst.zone !== 'battle') return false;
+  const kw = keywords(state, reg, iid);
+  return !!kw.untargetable || (!!kw.justDiver && justDiving(state, inst));
+}
+
+/** 攻撃されないか */
+export function cannotBeAttacked(state: GameState, reg: CardRegistry, iid: string): boolean {
+  const kw = keywords(state, reg, iid);
+  return !!kw.cannotBeAttacked || (!!kw.justDiver && justDiving(state, state.cards[iid]));
 }
 
 /** 常在効果込みのコスト */
@@ -174,24 +207,32 @@ export function canAttackWith(state: GameState, reg: CardRegistry, player: Playe
   const inst = state.cards[iid];
   if (!inst || inst.owner !== player || inst.zone !== 'battle' || inst.tapped) return false;
   if (!state.players[player].zones.battle.includes(iid)) return false;
-  if (keywords(state, reg, iid).cannotAttack) return false;
-  return !isSummoningSick(state, reg, iid);
+  const kw = keywords(state, reg, iid);
+  if (kw.cannotAttack) return false;
+  // マッハファイターは出たターンでもクリーチャーを攻撃できる
+  return !isSummoningSick(state, reg, iid) || (!!kw.machFighter && inst.enteredTurn === state.turn);
 }
 
 export function attackTargets(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): AttackTarget[] {
   if (!canAttackWith(state, reg, player, iid)) return [];
   const kw = keywords(state, reg, iid);
+  const machOnly = isSummoningSick(state, reg, iid);
   const out: AttackTarget[] = [];
-  if (!kw.cannotAttackPlayers) out.push({ kind: 'player' });
+  if (!kw.cannotAttackPlayers && !machOnly) out.push({ kind: 'player' });
   for (const t of state.players[other(player)].zones.battle) {
-    if (state.cards[t].tapped || kw.attackUntapped) out.push({ kind: 'creature', iid: t });
+    if (cannotBeAttacked(state, reg, t)) continue;
+    if (state.cards[t].tapped || kw.attackUntapped || machOnly) out.push({ kind: 'creature', iid: t });
   }
   return out;
 }
 
 export function blockersFor(state: GameState, reg: CardRegistry, defender: PlayerId, attacker: string): string[] {
   if (keywords(state, reg, attacker).unblockable) return [];
-  return state.players[defender].zones.battle.filter((b) => !state.cards[b].tapped && keywords(state, reg, b).blocker);
+  return state.players[defender].zones.battle.filter((b) => {
+    if (state.cards[b].tapped) return false;
+    const kw = keywords(state, reg, b);
+    return !!kw.blocker && !kw.cannotBlock;
+  });
 }
 
 // ───────────────────────── 効果の対象・条件 ─────────────────────────

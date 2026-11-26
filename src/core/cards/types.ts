@@ -54,6 +54,12 @@ export interface CardFilter {
   civilization?: Civilization;
   cardType?: CardType;
   race?: string;
+  /** いずれかの種族を持つ（「AまたはB」） */
+  races?: string[];
+  /** 進化ではない */
+  nonEvolution?: boolean;
+  /** 多色 */
+  multicolor?: boolean;
   tapped?: boolean;
   untapped?: boolean;
   /** 効果の発生源自身を除く */
@@ -168,13 +174,17 @@ export interface Applies {
 }
 
 /** 常在効果（バトルゾーンにある間、または turnStatic でターン終了まで有効） */
-export type StaticAbility =
+export type StaticAbility = (
   | { type: 'powerMod'; amount: number; appliesTo: Applies; attackingOnly?: boolean }
   | { type: 'grantKeyword'; keywords: Keywords; appliesTo: Applies }
   /** 手札のカードのコストを増減する。コストは minCost（既定1）未満にならない */
   | { type: 'costMod'; amount: number; appliesTo: Applies; minCost?: number }
   | { type: 'cannotSummon'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
-  | { type: 'cannotCast'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter };
+  | { type: 'cannotCast'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
+) & {
+  /** 有効なターン（「自分のターン中」= self）。省略時は常に有効 */
+  duringTurn?: 'self' | 'opponent';
+};
 
 /** 置換効果（「〜する時、かわりに…」） */
 export interface ReplacementAbility {
@@ -206,6 +216,26 @@ export interface Keywords {
   unblockable?: boolean;
   /** アンタップされているクリーチャーも攻撃できる */
   attackUntapped?: boolean;
+  /** ブロックできない */
+  cannotBlock?: boolean;
+  /** マッハファイター：出たターンでも相手のクリーチャー（アンタップ含む）を攻撃できる */
+  machFighter?: boolean;
+  /** パワード・ブレイカー：パワー6000ごとにブレイク数+1 */
+  poweredBreaker?: boolean;
+  /** チャージャー：唱えた後、墓地のかわりにマナゾーンに置く */
+  charger?: boolean;
+  /** 相手に選ばれない */
+  untargetable?: boolean;
+  /** 攻撃されない */
+  cannotBeAttacked?: boolean;
+  /** ジャストダイバー：出た時から次の自分のターンのはじめまで、相手に選ばれず攻撃されない */
+  justDiver?: boolean;
+  /** G・ストライク：シールドから手札に加える時、相手のクリーチャーを1体選んでもよい。このターンそれは攻撃できない */
+  gStrike?: boolean;
+  /** ブレイクしたシールドを、相手は手札に加えるかわりに墓地に置く */
+  shieldBurn?: boolean;
+  /** EXライフ：出る時に山札の上から1枚をシールド化し、離れる時かわりにそのシールドを墓地に置く */
+  exLife?: boolean;
 }
 
 /** ツインパクトの呪文側 */
@@ -214,7 +244,7 @@ export interface TwinSide {
   cost: number;
   civilizations: Civilization[];
   text: string;
-  keywords?: Pick<Keywords, 'shieldTrigger'>;
+  keywords?: Pick<Keywords, 'shieldTrigger' | 'charger'>;
   abilities?: TriggeredAbility[];
 }
 

@@ -20,6 +20,8 @@ export interface CardInstance {
   under: string[];
   /** シールドが表向きかどうか（公開情報） */
   faceUp: boolean;
+  /** EXライフで置いたシールド */
+  exLifeShield?: string;
 }
 
 export interface PlayerState {
@@ -101,7 +103,7 @@ export type Task =
   | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin' }
   | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string }
   /** 呪文を解決し終えたら墓地へ */
-  | { kind: 'spellToGrave'; iid: string }
+  | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin' }
   /** バトルゾーンから離れる（置換効果をここで適用） */
   | { kind: 'leave'; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[] }
   /** 自動フェイズを進める（開始時誘発などを解決してから次へ） */

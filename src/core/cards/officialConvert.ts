@@ -97,7 +97,7 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     twinParsed = parseAbilityText(twin.text, 'spell');
     twin = {
       ...twin,
-      keywords: twinParsed.keywords.shieldTrigger ? { shieldTrigger: true } : undefined,
+      keywords: twinParsed.keywords.shieldTrigger || twinParsed.keywords.charger ? { ...(twinParsed.keywords.shieldTrigger ? { shieldTrigger: true } : {}), ...(twinParsed.keywords.charger ? { charger: true } : {}) } : undefined,
       abilities: twinParsed.abilities.length ? twinParsed.abilities : undefined,
     };
   }
