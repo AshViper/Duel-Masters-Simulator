@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
-import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
+import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isNonCreaturePermanent, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
 import { attackTargets, canAttackWith, canPlay, choosePayment, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
@@ -280,7 +280,7 @@ export function BattleScreen() {
         faceDown={opts.hidden}
         size={size}
         tapped={inst.tapped}
-        power={inst.zone === 'battle' && d.type !== 'field' && !isIgnored(g, registry, iid) ? power(g, registry, iid) : undefined}
+        power={inst.zone === 'battle' && !isNonCreaturePermanent(d.type) && !isIgnored(g, registry, iid) ? power(g, registry, iid) : undefined}
         cost={inst.zone === 'hand' ? effectiveCost(g, registry, inst.owner, iid) : undefined}
         selected={selection.includes(iid)}
         highlight={highlightOf(iid)}
@@ -646,7 +646,7 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
   const manual: Item[] = [];
   if (inst.zone === 'hand' && canControl(owner)) {
     const chargeOk = g.activePlayer === owner && g.phase === 'charge' && !g.players[owner].chargedThisTurn && isIdle(g);
-    rule.push({ label: d.type === 'spell' ? '唱える' : d.type === 'field' ? 'バトルゾーンに出す' : '召喚する', run: () => play(iid), disabled: !canPlay(g, registry, owner, iid), primary: true });
+    rule.push({ label: d.type === 'spell' ? '唱える' : d.type === 'field' ? 'バトルゾーンに出す' : d.type === 'tamaseed' ? '使う' : '召喚する', run: () => play(iid), disabled: !canPlay(g, registry, owner, iid), primary: true });
     if (d.twin) {
       rule.push({ label: `「${d.twin.name}」を唱える`, run: () => act({ type: 'PLAY_CARD', player: owner, iid, side: 'twin' }), disabled: !canPlay(g, registry, owner, iid, 'twin') });
     }

@@ -3,6 +3,7 @@
 import type { CardRegistry } from '../cards/registry';
 import {
   isCreatureType,
+  isNonCreaturePermanent,
   manaCivilizations,
   playFace,
   type Applies,
@@ -122,8 +123,8 @@ export function isIgnored(state: GameState, reg: CardRegistry, iid: string): boo
 
 /** バトルゾーンのカードのうち、無視されないもの（ふつうのクリーチャー） */
 export function battleCards(state: GameState, reg: CardRegistry, player: PlayerId): string[] {
-  // フィールド（D2フィールドなど）はバトルゾーンにあってもクリーチャーではない
-  return state.players[player].zones.battle.filter((iid) => !isIgnored(state, reg, iid) && def(state, reg, iid).type !== 'field');
+  // フィールド（D2フィールドなど）・タマシードはバトルゾーンにあってもクリーチャーではない
+  return state.players[player].zones.battle.filter((iid) => !isIgnored(state, reg, iid) && !isNonCreaturePermanent(def(state, reg, iid).type));
 }
 
 /** バトルゾーンの、無視されないクリーチャーとフィールド（常在効果・置換効果の発生源） */
@@ -494,8 +495,8 @@ export function targetCandidates(state: GameState, reg: CardRegistry, controller
 /** 数を数える。noPower なら元のパワーで判定（常在効果の中から呼ぶ時の循環防止）。source は「他の」の判定用 */
 export function countQuantity(state: GameState, reg: CardRegistry, controller: PlayerId, q: Quantity, noPower = false, source?: string): number {
   const players: PlayerId[] = q.who === 'self' ? [controller] : q.who === 'opponent' ? [other(controller)] : [controller, other(controller)];
-  // フィールドを数える時はクリーチャー以外も見る
-  const inBattle = (p: PlayerId) => (q.filter?.cardType === 'field' ? battleAndFields(state, reg, p) : battleCards(state, reg, p));
+  // フィールド・タマシードを数える時はクリーチャー以外も見る
+  const inBattle = (p: PlayerId) => (q.filter?.cardType && isNonCreaturePermanent(q.filter.cardType) ? battleAndFields(state, reg, p) : battleCards(state, reg, p));
   return players.reduce<number>((sum, p) => sum + (q.zone === 'battle' ? inBattle(p) : state.players[p].zones[q.zone]).filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)).length, 0);
 }
 

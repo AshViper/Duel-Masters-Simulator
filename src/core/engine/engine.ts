@@ -7,6 +7,7 @@ import type { CardRegistry } from '../cards/registry';
 import {
   CIV_LABEL,
   isCreatureType,
+  isNonCreaturePermanent,
   manaCivilizations,
   playFace,
   ZONE_LABEL,
@@ -310,7 +311,7 @@ export class Ctx {
       // コストの支払いとして破壊する（召喚より先に）
       s.queue.push(...sacrifice.map((x): Task => ({ kind: 'leave', iid: x, to: 'graveyard', cause: 'destroy' })));
     }
-    const verb = face.type === 'spell' ? '唱える' : face.type === 'field' ? 'バトルゾーンに出す' : inst.zone === 'hand' ? '召喚' : `${inst.zone === 'graveyard' ? '墓地' : 'マナゾーン'}から召喚`;
+    const verb = face.type === 'spell' ? '唱える' : face.type === 'field' ? 'バトルゾーンに出す' : face.type === 'tamaseed' ? '使う' : inst.zone === 'hand' ? '召喚' : `${inst.zone === 'graveyard' ? '墓地' : 'マナゾーン'}から召喚`;
     this.log(`${face.name} を${verb}（${cost}マナ）`, player);
     this.emit({ type: 'CARD_PLAYED', player, iid });
     s.queue.push(face.type === 'spell' ? { kind: 'castSpell', player, iid, side } : { kind: 'enterBattle', player, iid, evolveOn });
@@ -522,6 +523,8 @@ export class Ctx {
           }
           return false;
         }
+        // タマシードはクリーチャーではないので、召喚としては扱わない
+        if (enteredDef.type === 'tamaseed') return false;
         this.emit({ type: 'CREATURE_SUMMONED', player: task.player, iid: task.iid });
         return false;
       }
@@ -1591,7 +1594,7 @@ export class Ctx {
     const inst = s.cards[iid];
     if (!inst || isIgnored(s, this.reg, iid)) return;
     const d = def(s, this.reg, iid);
-    if (!isCreatureType(d.type) && d.type !== 'field') return;
+    if (!isCreatureType(d.type) && !isNonCreaturePermanent(d.type)) return;
     (d.abilities ?? []).forEach((ab, i) => {
       if (ab.when !== when || (extra && !extra(ab))) return;
       // 「進化ではないクリーチャーの上に置いた時」

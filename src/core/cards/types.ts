@@ -14,7 +14,8 @@ export const CIV_LABEL: Record<Civilization, string> = {
 };
 
 /** field：D2フィールドなど。唱えるとバトルゾーンに置かれ、クリーチャーではない */
-export const CARD_TYPES = ['creature', 'evolution', 'spell', 'field'] as const;
+/** tamaseed：タマシード。呪文でもクリーチャーでもない独自の種類で、使うとバトルゾーンに置かれる */
+export const CARD_TYPES = ['creature', 'evolution', 'spell', 'field', 'tamaseed'] as const;
 export type CardType = (typeof CARD_TYPES)[number];
 
 export const CARD_TYPE_LABEL: Record<CardType, string> = {
@@ -22,6 +23,7 @@ export const CARD_TYPE_LABEL: Record<CardType, string> = {
   evolution: '進化クリーチャー',
   spell: '呪文',
   field: 'フィールド',
+  tamaseed: 'タマシード',
 };
 
 /** 効果の自動処理対応状況。manual のカードはエンジンが勝手に処理しない。 */
@@ -442,6 +444,11 @@ export interface PsychicSide {
 
 export function isCreatureType(t: CardType): boolean {
   return t === 'creature' || t === 'evolution';
+}
+
+/** バトルゾーンに置かれるが、クリーチャーではないカード（フィールド・タマシード） */
+export function isNonCreaturePermanent(t: CardType): boolean {
+  return t === 'field' || t === 'tamaseed';
 }
 
 /** マナゾーンに置いた時の文明（ツインパクトは両面の文明を持つ） */

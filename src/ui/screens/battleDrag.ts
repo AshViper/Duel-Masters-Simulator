@@ -77,7 +77,7 @@ export function resolveDrop(g: GameState, reg: CardRegistry, iid: string, t: Dro
     }
     if (zoneT.zone === 'battle') {
       const d = def(g, reg, iid);
-      if (canPlay(g, reg, owner, iid)) return { label: d.type === 'spell' ? '唱える' : '召喚する', tone: 'play', run: { type: 'play', iid } };
+      if (canPlay(g, reg, owner, iid)) return { label: d.type === 'spell' ? '唱える' : d.type === 'tamaseed' ? '使う' : '召喚する', tone: 'play', run: { type: 'play', iid } };
       if (d.twin && canPlay(g, reg, owner, iid, 'twin')) {
         return { label: `「${d.twin.name}」を唱える`, tone: 'play', run: { type: 'action', action: { type: 'PLAY_CARD', player: owner, iid, side: 'twin' } } };
       }

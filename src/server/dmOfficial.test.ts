@@ -86,7 +86,7 @@ describe('公式カードの変換', () => {
     // 定型文の効果（カードを2枚引く）は自動処理になる
     expect(spell).toMatchObject({ type: 'spell', power: undefined, keywords: { shieldTrigger: true }, abilities: [{ when: 'onCast', effects: [{ type: 'draw', count: 2 }] }], support: 'full' });
     const odd = convertOfficialCard({ id: 'p-3', detailUrl: '', faces: [{ ...face, type: 'タマシード', power: '', civilization: '火/水', abilities: ['何かの能力'] }] });
-    expect(odd).toMatchObject({ type: 'spell', typeLabel: 'タマシード', civilizations: ['fire', 'water'], support: 'manual' });
+    expect(odd).toMatchObject({ type: 'tamaseed', typeLabel: 'タマシード', civilizations: ['fire', 'water'], support: 'manual' });
   });
 });
 
