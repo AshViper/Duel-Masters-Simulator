@@ -1058,7 +1058,8 @@ export class Ctx {
           return false;
         }
         let chosen: string[];
-        if (shields.length <= n) chosen = [...shields];
+        if (task.chosen) chosen = task.chosen.filter((x) => shields.includes(x));
+        else if (shields.length <= n) chosen = [...shields];
         else {
           const r = this.takeResponse();
           if (!r) {
@@ -1067,6 +1068,33 @@ export class Ctx {
           }
           chosen = r.selected ?? [];
         }
+        // シールド・セイバー：ブレイクされるシールド1つのかわりに、そのクリーチャーを破壊してもよい
+        const saver = task.saverAsked ? undefined : battleCards(s, this.reg, task.defender).find((b) => keywords(s, this.reg, b).shieldSaver);
+        if (saver && chosen.length) {
+          const r = this.takeResponse();
+          if (!r) {
+            // 選んだシールドを覚えて、答えを待つ
+            task.chosen = chosen;
+            s.pending = { kind: 'confirm', player: task.defender, source: saver, prompt: `シールドがブレイクされる。かわりに ${this.name(saver)} を破壊しますか？（シールド1つを守る）` };
+            return true;
+          }
+          task.saverAsked = true;
+          if (r.accept) {
+            this.log(`${this.name(saver)} を破壊して、シールド1つを守った`, task.defender);
+            this.insertFront({ kind: 'leave', iid: saver, to: 'graveyard', cause: 'destroy' }, { ...task, chosen: chosen.slice(1), count: chosen.length - 1 });
+            return false;
+          }
+        }
+        // シールド・プラス：束になったシールドは、下のカードもすべて一緒にブレイクされる
+        chosen = chosen.flatMap((sh) => {
+          const under = s.cards[sh].under;
+          s.cards[sh].under = [];
+          for (const u of under) {
+            s.cards[u].zone = 'shield';
+            shields.push(u);
+          }
+          return [sh, ...under];
+        });
         const triggers: Task[] = [];
         // ブレイクしたシールドを手札に加えるかわりに墓地に置く
         const burn = s.cards[task.source]?.zone === 'battle' && !!keywords(s, this.reg, task.source).shieldBurn;
@@ -1883,6 +1911,48 @@ export class Ctx {
         this.log(`${d.twin.name} を、バトルゾーンに置いたままコストを支払わずに唱える`, controller);
         this.emit({ type: 'SPELL_CAST', player: controller, iid: source });
         this.insertFront(...(d.twin.abilities ?? []).filter((ab) => ab.when === 'onCast').flatMap((ab) => this.abilityTasks(ab, controller, source)));
+        return false;
+      }
+      case 'shieldPlus': {
+        const shields = s.players[controller].zones.shield;
+        const deck = s.players[controller].zones.deck;
+        if (!shields.length || !deck.length) return false;
+        const under = (shield: string) => {
+          const top = this.topOfDeck(controller);
+          if (!top) return;
+          deck.splice(deck.indexOf(top), 1);
+          // 束の下のカードは、シールドゾーンの一覧には入れずにシールドに持たせる（1つのシールドと数える）
+          s.cards[top].zone = 'shield';
+          s.cards[top].faceUp = false;
+          s.cards[shield].under.push(top);
+        };
+        if (e.each) {
+          for (const sh of shields) under(sh);
+          this.log(`山札の上から1枚ずつを、自分の各シールドの下に置いた`, controller);
+          return false;
+        }
+        // 「5枚まで」：先に枚数を選ぶ
+        if (e.upTo && e.count > 1) {
+          const r = this.takeResponse();
+          if (!r) {
+            s.pending = { kind: 'chooseMode', player: controller, source, prompt: `${this.name(source)}：シールドの下に置く枚数を選んでください`, options: Array.from({ length: e.count + 1 }, (_, i) => `${e.count - i}枚`) };
+            return true;
+          }
+          const count = e.count - Number(r.selected?.[0] ?? 0);
+          if (count > 0) this.insertFront(...this.effectTasks(controller, source, [{ type: 'shieldPlus', count }]));
+          return false;
+        }
+        let target = shields[0];
+        if (shields.length > 1) {
+          const r = this.takeResponse();
+          if (!r) {
+            s.pending = { kind: 'selectCards', player: controller, source, prompt: `${this.name(source)}：カードを下に置くシールドを1つ選んでください`, candidates: [...shields], min: 1, max: 1 };
+            return true;
+          }
+          target = r.selected?.[0] ?? target;
+        }
+        for (let i = 0; i < e.count; i++) under(target);
+        this.log(`山札の上から${e.count}枚を、シールド1つの下に置いた`, controller);
         return false;
       }
       case 'afterAttack': {
@@ -2857,8 +2927,9 @@ export class Ctx {
     const fromList = owner.zones[from];
     const idx = fromList.indexOf(iid);
     if (idx >= 0) fromList.splice(idx, 1);
-    const under = from === 'battle' && to !== 'battle' ? inst.under : [];
-    if (from === 'battle' && to !== 'battle') inst.under = [];
+    // 進化元、またはシールドの束の下のカードは、一緒に動く
+    const under = (from === 'battle' && to !== 'battle') || (from === 'shield' && to !== 'shield') ? inst.under : [];
+    if (under.length) inst.under = [];
     // バトルゾーンを離れたカードの封印は墓地へ
     const seals = from === 'battle' && to !== 'battle' ? (inst.seals ?? []) : [];
     if (from === 'battle' && to !== 'battle') {
@@ -2930,7 +3001,7 @@ export class Ctx {
     }
     // 進化元のカードも同じゾーンへ
     for (const u of under) {
-      s.cards[u].zone = 'battle';
+      s.cards[u].zone = from === 'shield' ? 'shield' : 'battle';
       this.moveCard(u, to, opts);
     }
     for (const x of seals) {

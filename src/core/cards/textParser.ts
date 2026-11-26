@@ -211,6 +211,8 @@ const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArr
   ['水晶チャージャー', { crystalCharger: true }],
   ['ハイパーエナジー', { hyperEnergy: true }],
   ['Zラッシュ', { zRush: true }],
+  // シールド・セイバー（補足説明の言い方）
+  ['自分のシールドがブレイクされる時、かわりにこのクリーチャーを破壊してもよい', { shieldSaver: true }],
   // ∞パワーアタッカー：攻撃中、パワーが無限大になる
   ['攻撃中、このクリーチャーのパワーは無限大になる', { powerAttacker: 1_000_000_000 }],
   // 補足説明の言い方：「このクリーチャーはシールドを6つブレイクする」（H・ブレイカーなど）、Evoチャージャー
@@ -760,6 +762,9 @@ function parseSentence(s: string): EffectDef[] | null {
   const ref = parseRefSentence(s);
   if (ref) return ref;
   if (s === '数字を1つ選ぶ') return [{ type: 'chooseNumber' }];
+  // シールド・プラス：「自分の山札の上から1枚を裏向きで自分のシールド1つの下に置く」「5枚まで、裏向きのまま、自分のシールドいずれか1枚の下に置く」「自分の各シールドの下に置く」
+  if ((m = s.match(/^自分の山札の上から(\d+)枚(?:目)?(まで)?を?、?(?:裏向きで|裏向きのまま)?、?自分の(各シールド|シールド(?:いずれか)?1(?:つ|枚))の下に置く$/)))
+    return [{ type: 'shieldPlus', count: n(m[1]), ...(m[2] ? { upTo: true } : {}), ...(m[3] === '各シールド' ? { each: true } : {}) }];
   // 「その攻撃の後、このクリーチャーをアンタップする」
   if ((m = s.match(/^その攻撃の後、(.+)$/))) {
     const inner = parseSentence(m[1]);
@@ -2327,7 +2332,9 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   // カッコの補足説明に条件が書いてある行（バラバラエティなど）は、本文だけでは条件が分からないので読まない
   // （補足説明があっても、条件や「この能力を与える」が書いていなければ読む）
   const condInReminder = /[(（][^()（）]*(?:あれば|なら、|この能力を与える)[^()（）]*[)）]/.test(line.normalize('NFKC'));
-  const anyLabel = condInReminder ? null : (t.match(/^[^、。:：「」]{2,14}?\d*(?:\((?:光|水|闇|火|自然)\))?[:：](.{8,})$/) ?? t.match(/^[^、。:：「」-]{0,10}覚醒-(.{8,})$/));
+  const anyLabel = condInReminder
+    ? null
+    : (t.match(/^[^、。:：「」]{2,14}?\d*(?:\((?:光|水|闇|火|自然)\))?[:：](.{8,})$/) ?? t.match(/^[^、。:：「」-]{0,10}覚醒-(.{8,})$/) ?? t.match(/^[^、。:：「」-]{2,14}-((?:この|自分|相手|各ターン|バトルゾーン).{8,})$/));
   if (anyLabel && !/^(?:進化|NEO進化|G-NEO進化|侵略|革命チェンジ|シンパシー|G・ゼロ|アタック・チャンス|Dスイッチ|ハイパー化|ウルトラ・セイバー)[:：-]/.test(t)) {
     const tmp: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
     if (parseLine(anyLabel[1], options, kind, tmp) && !tmp.abilities.some((a) => a.effects.some((e) => e.type === 'manual'))) {

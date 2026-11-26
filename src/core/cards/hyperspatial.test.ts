@@ -288,3 +288,76 @@ describe('手札にある間の誘発・攻撃まわりの条件', () => {
     expect(s.players[0].zones.hand.length).toBe(afterFirst);
   });
 });
+
+describe('シールド・プラス／シールド・セイバー', () => {
+  const plus = mk('h-30', ['シールド・プラス：このクリーチャーが出た時、自分の山札の上から１枚を裏向きで自分のシールド１つの下に置いてもよい。（そのシールドの束は１つと数える）']);
+  const ultra = mk('h-31', ['ウルトラシールド・プラス-このクリーチャーをバトルゾーンに出した時、自分の山札の上から５枚まで、裏向きのまま、自分のシールドいずれか１枚の下に置いてもよい。（こうして重ねたカードの束を１枚のシールドとみなす）']);
+  const saver = mk('h-32', ['シールド・セイバー（自分のシールドがブレイクされる時、かわりにこのクリーチャーを破壊してもよい）']);
+  const r3 = buildRegistry([...SAMPLE_CARDS, ...Object.values(C), plus, ultra, saver]);
+  const game = () => createGame({ players: [{ name: 'A', deck: filler }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, r3);
+  const add = (s: GameState, p: PlayerId, cardId: string, zone: ZoneName) => {
+    const iid = `t${s.nextIid++}`;
+    s.cards[iid] = { iid, cardId, owner: p, zone: 'deck', tapped: false, enteredTurn: 0, powerModTurn: 0, under: [], faceUp: false };
+    s.players[p].zones.deck.unshift(iid);
+    new Ctx(s, r3).moveCard(iid, zone);
+    s.cards[iid].enteredTurn = 0;
+    return iid;
+  };
+  const step = (s: GameState, a: Action) => {
+    const r = applyAction(s, a, r3);
+    if (r.error) throw new Error(r.error);
+    return r.state;
+  };
+
+  it('読み取り', () => {
+    expect([plus.support, ultra.support, saver.support]).toEqual(['full', 'full', 'full']);
+    expect(saver.keywords?.shieldSaver).toBe(true);
+  });
+
+  it('シールド・プラス：シールドの下に置いたカードは1つのシールドと数え、ブレイクされると一緒に手札に入る', () => {
+    let s = game();
+    const c = add(s, 1, plus.id, 'hand');
+    s.queue.push({ kind: 'enterBattle', player: 1, iid: c });
+    new Ctx(s, r3).run();
+    s = step(s, { type: 'RESPOND', player: 1, accept: true });
+    const target = s.pending?.kind === 'selectCards' ? s.pending.candidates[0] : '';
+    s = step(s, { type: 'RESPOND', player: 1, selected: [target] });
+    expect(s.players[1].zones.shield.length).toBe(5);
+    expect(s.cards[target].under).toHaveLength(1);
+    // その束をブレイクすると、2枚が手札に入る
+    const hand = s.players[1].zones.hand.length;
+    s.queue.push({ kind: 'breakShields', breaker: 0, source: c, defender: 1, count: 1, chosen: [target] });
+    new Ctx(s, r3).run();
+    expect(s.players[1].zones.shield.length).toBe(4);
+    expect(s.players[1].zones.hand.length).toBe(hand + 2);
+  });
+
+  it('ウルトラシールド・プラス：枚数を選んで、シールド1つの下に置く', () => {
+    let s = game();
+    const c = add(s, 0, ultra.id, 'hand');
+    s.queue.push({ kind: 'enterBattle', player: 0, iid: c });
+    new Ctx(s, r3).run();
+    s = step(s, { type: 'RESPOND', player: 0, accept: true });
+    expect(s.pending).toMatchObject({ kind: 'chooseMode' });
+    s = step(s, { type: 'RESPOND', player: 0, selected: ['2'] });
+    const target = s.pending?.kind === 'selectCards' ? s.pending.candidates[1] : '';
+    s = step(s, { type: 'RESPOND', player: 0, selected: [target] });
+    expect(s.cards[target].under).toHaveLength(3);
+    expect(s.players[0].zones.shield.length).toBe(5);
+  });
+
+  it('シールド・セイバー：ブレイクされるシールド1つのかわりに破壊できる', () => {
+    let s = game();
+    const sv = add(s, 1, saver.id, 'battle');
+    const atk = add(s, 0, C.vanilla.id, 'battle');
+    s = step(s, { type: 'ATTACK', player: 0, attacker: atk, target: { kind: 'player' } });
+    for (let i = 0; i < 6 && s.pending && s.pending.kind !== 'confirm'; i++) {
+      const p = s.pending;
+      s = step(s, p.kind === 'selectCards' ? { type: 'RESPOND', player: p.player, selected: p.candidates.slice(0, Math.max(1, p.min)) } : { type: 'RESPOND', player: p.player, selected: [] });
+    }
+    expect(s.pending).toMatchObject({ kind: 'confirm', player: 1 });
+    s = step(s, { type: 'RESPOND', player: 1, accept: true });
+    expect(s.cards[sv].zone).toBe('graveyard');
+    expect(s.players[1].zones.shield.length).toBe(5);
+  });
+});

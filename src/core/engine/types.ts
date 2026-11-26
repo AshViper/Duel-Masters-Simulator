@@ -158,7 +158,7 @@ export type Task =
   | { kind: 'blockStep'; attacker: string; defender: PlayerId }
   | { kind: 'attackResolve'; attacker: string }
   /** byAttack: 攻撃によるブレイク（効果のブレイクではない） */
-  | { kind: 'breakShields'; breaker: PlayerId; source: string; defender: PlayerId; count: number; byAttack?: boolean; split?: boolean }
+  | { kind: 'breakShields'; breaker: PlayerId; source: string; defender: PlayerId; count: number; byAttack?: boolean; split?: boolean; chosen?: string[]; saverAsked?: boolean }
   /** 「各ブレイクの前に」の能力を誘発させる */
   | { kind: 'beforeBreak'; source: string; defender: PlayerId }
   | { kind: 'shieldTrigger'; player: PlayerId; iid: string }

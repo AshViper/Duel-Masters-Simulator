@@ -309,6 +309,11 @@ export type EffectDef =
   | { type: 'ifChosen'; then: EffectDef[]; n?: number }
   /** マジボンバーN：山札の上から1枚目を見て、コストN以下のクリーチャーを1体、手札または山札の上から出してもよい */
   | { type: 'magibomber'; maxCost: number }
+  /**
+   * シールド・プラス：自分の山札の上から count 枚を、裏向きのまま自分のシールド1つの下に置く（重ねた束を1つのシールドと数える）。
+   * upTo: count 枚まで。each: 自分の各シールドの下に1枚ずつ（スーパー・シールド・プラス）
+   */
+  | { type: 'shieldPlus'; count: number; upTo?: boolean; each?: boolean }
   /** 「その攻撃の後、〜」：いまの攻撃が終わった後に行う */
   | { type: 'afterAttack'; effects: EffectDef[] }
   /** 数字を1つ選ぶ（後の文の「その数字と同じコストの」で使う） */
@@ -573,6 +578,8 @@ export interface Keywords {
   lure?: boolean;
   /** このクリーチャーの攻撃中、相手は「G・ストライク」を使えない */
   noGStrikeAgainst?: boolean;
+  /** シールド・セイバー：自分のシールドがブレイクされる時、かわりにこのクリーチャーを破壊してもよい */
+  shieldSaver?: boolean;
   /** ウェーブストライカーを持つ（数えるための印） */
   waveStriker?: boolean;
   /** シンカライズ：クリーチャーであるかのように、この上に進化クリーチャーを置いてもよい（タマシード） */
