@@ -13,6 +13,7 @@ const card = (id: string, extra: Partial<CardDefinition> = {}): CardDefinition =
   races: [],
   power: 1000,
   text: '',
+  support: 'full',
   ...extra,
 });
 
