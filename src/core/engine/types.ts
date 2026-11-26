@@ -128,6 +128,13 @@ export type AttackTarget = { kind: 'player' } | { kind: 'creature'; iid: string 
 export type LeaveCause = 'destroy' | 'effect';
 
 /** 効果処理キューのタスク。ここに積まれたものを順に解決し、入力待ちで中断・再開する */
+/** 誘発した能力1つ分の処理 */
+export interface TriggerGroup {
+  controller: PlayerId;
+  source: string;
+  tasks: Task[];
+}
+
 export type Task =
   | { kind: 'effect'; controller: PlayerId; source: string; effect: EffectDef }
   /** 任意効果の実行確認（承認されたら effects をキュー先頭に積む） */
@@ -154,6 +161,10 @@ export type Task =
   | { kind: 'attackEnd'; attacker: string; broke?: boolean }
   /** 侵略・革命チェンジを使うか聞く */
   | { kind: 'attackSwap'; player: PlayerId }
+  /** 解決を待っている誘発能力のうち、player のものを1つ選んで解決を始める（2つ以上あれば順番を選ぶ） */
+  | { kind: 'pickTrigger'; player: PlayerId }
+  /** 能力（呪文）1つの解決の終わりの印。これがキューにある間は、新しく誘発した能力は解決を待つ */
+  | { kind: 'abilityEnd' }
   /** キリフダッシュを使うか聞く（攻撃の終わり、その攻撃でシールドをブレイクしていた時） */
   | { kind: 'kirifudash'; player: PlayerId }
   /** バトルゾーンから離れる（置換効果をここで適用） */
@@ -221,6 +232,8 @@ export interface GameState {
   players: [PlayerState, PlayerState];
   cards: Record<string, CardInstance>;
   queue: Task[];
+  /** 誘発して、解決を待っている能力（ターンプレイヤーのものから、1つずつキューに移して解決する） */
+  waiting?: TriggerGroup[];
   pending: Pending | null;
   combat: CombatState | null;
   turnStatics: TurnStatic[];

@@ -66,6 +66,7 @@ import {
   type Phase,
   type PlayerId,
   type Task,
+  type TriggerGroup,
 } from './types';
 
 export interface ApplyResult {
@@ -109,6 +110,34 @@ const INSTEAD_LABEL: Record<ReplacementAbility['instead'], string> = {
 /** カードを選ぶ（動かす）効果：後に続く「そうしたら」が、選んだかどうかを見る */
 const CHOOSING_EFFECTS = new Set<EffectDef['type']>(['move', 'destroy', 'tap', 'untap', 'discardUnder', 'discardRandom', 'bounce', 'toHand', 'toGraveyard', 'toMana', 'toShield', 'toDeckBottom', 'toDeckTop', 'shieldToHand', 'graveyardToHand', 'putIntoBattle', 'seal']);
 
+/** 順番を選ぶ時に出す、能力のかんたんな説明 */
+const EFFECT_HINT: Partial<Record<EffectDef['type'], string>> = {
+  draw: 'カードを引く',
+  destroy: '破壊する',
+  move: 'カードを動かす',
+  tap: 'タップする',
+  untap: 'アンタップする',
+  powerMod: 'パワーを変える',
+  grantKeyword: '能力を与える',
+  lookAtTop: '山札を見る',
+  deckTopTo: '山札の上から置く',
+  discardRandom: '手札を捨てさせる',
+  breakShields: 'シールドをブレイクする',
+  chooseOne: '次の中から選ぶ',
+  fight: 'バトルさせる',
+  seal: '封印を付ける',
+  playFromHandFree: 'コストを支払わずに使う',
+  extraTurn: '追加ターン',
+};
+function describeTrigger(g: TriggerGroup): string {
+  const t = g.tasks[0];
+  if (t.kind === 'commandUnseal') return '封印を外す';
+  const e = t.kind === 'effect' ? t.effect : t.kind === 'confirmOptional' ? t.effects[0] : undefined;
+  if (!e) return '能力';
+  if (e.type === 'manual') return e.text.slice(0, 24);
+  return `${EFFECT_HINT[e.type] ?? '能力'}${t.kind === 'confirmOptional' ? '（使ってもよい）' : ''}`;
+}
+
 function bindEvent(effects: EffectDef[], subject: string | undefined): EffectDef[] {
   return effects.map((e): EffectDef => {
     let out = e;
@@ -122,7 +151,6 @@ function bindEvent(effects: EffectDef[], subject: string | undefined): EffectDef
 
 export class Ctx {
   events: GameEvent[] = [];
-  private triggered: Task[] = [];
   private response: Response | null = null;
 
   constructor(
@@ -509,10 +537,42 @@ export class Ctx {
   }
 
   private flushTriggers(): void {
-    if (this.triggered.length === 0) return;
-    const t = this.triggered;
-    this.triggered = [];
-    this.insertFront(...t);
+    const s = this.s;
+    if (!s.waiting?.length) return;
+    // ルール：解決中の能力（呪文）が終わるまで、次の能力は解決しない。S・トリガーは待っている能力より先に使う
+    if (s.queue.some((t) => t.kind === 'abilityEnd' || t.kind === 'shieldTrigger' || t.kind === 'pickTrigger')) return;
+    // ルール：ターンプレイヤーの能力をすべて解決してから、相手の能力を解決する
+    const player = s.waiting.some((g) => g.controller === s.activePlayer) ? s.activePlayer : other(s.activePlayer);
+    this.insertFront({ kind: 'pickTrigger', player });
+  }
+
+  /** 誘発した能力を、解決待ちに加える */
+  private addTrigger(controller: PlayerId, source: string, tasks: Task[]): void {
+    if (tasks.length) (this.s.waiting ??= []).push({ controller, source, tasks });
+  }
+
+  /** 解決待ちの能力から1つ選んで解決を始める。同時に待っている自分の能力が2つ以上あれば、その持ち主が順番を選ぶ */
+  private execPickTrigger(player: PlayerId): boolean {
+    const s = this.s;
+    const all = s.waiting ?? [];
+    const mine = all.filter((g) => g.controller === player);
+    if (!mine.length) return false;
+    let pick = mine[0];
+    // 同じカードの同じ能力どうしは、どれから処理しても同じなので聞かない
+    const key = (g: TriggerGroup) => `${s.cards[g.source]?.cardId}|${JSON.stringify(g.tasks).split(g.source).join('#')}`;
+    if (new Set(mine.map(key)).size > 1) {
+      const r = this.takeResponse();
+      if (!r) {
+        const labels = mine.map((g) => `${this.name(g.source)}：${describeTrigger(g)}`);
+        const options = labels.map((l, i) => (labels.filter((x) => x === l).length > 1 ? `${l}（${labels.slice(0, i + 1).filter((x) => x === l).length}つ目）` : l));
+        s.pending = { kind: 'chooseMode', player, source: mine[0].source, prompt: '同時に誘発した能力があります。先に処理する能力を選んでください', options };
+        return true;
+      }
+      pick = mine[Number(r.selected?.[0])] ?? pick;
+    }
+    s.waiting = all.filter((g) => g !== pick);
+    this.insertFront(...pick.tasks, { kind: 'abilityEnd' });
+    return false;
   }
 
   private takeResponse(): Response | null {
@@ -566,7 +626,8 @@ export class Ctx {
         this.emit({ type: 'SPELL_CAST', player: task.player, iid: task.iid });
         const tasks: Task[] = [];
         for (const ab of face.abilities) if (ab.when === 'onCast') tasks.push(...this.abilityTasks(ab, task.player, task.iid));
-        this.insertFront(...tasks, { kind: 'spellToGrave', iid: task.iid, side: task.side, ...(task.after ? { after: task.after } : {}) });
+        // 呪文の効果をすべて処理し終えるまで、途中で誘発した能力は解決を待つ
+        this.insertFront(...tasks, { kind: 'spellToGrave', iid: task.iid, side: task.side, ...(task.after ? { after: task.after } : {}) }, { kind: 'abilityEnd' });
         return false;
       }
 
@@ -642,7 +703,7 @@ export class Ctx {
           if (baseNonEvo) inst.evolvedOnNonEvolution = true;
           this.log(`${this.name(task.evolveOn)} が ${this.name(task.iid)} に進化`, task.player);
           // シンカパワー：「このクリーチャーが進化する時」。進化した後のクリーチャーが使う
-          for (const ab of evolvedDef.abilities ?? []) if (ab.when === 'onEvolved') this.triggered.push(...this.abilityTasks(ab, inst.owner, task.iid));
+          for (const ab of evolvedDef.abilities ?? []) if (ab.when === 'onEvolved') this.addTrigger(inst.owner, task.iid, this.abilityTasks(ab, inst.owner, task.iid));
         } else {
           this.moveCard(task.iid, 'battle');
         }
@@ -703,6 +764,12 @@ export class Ctx {
 
       case 'attackSwap':
         return this.execAttackSwap(task.player);
+
+      case 'pickTrigger':
+        return this.execPickTrigger(task.player);
+
+      case 'abilityEnd':
+        return false;
 
       case 'kirifudash': {
         const usable = (iid: string) => (def(s, this.reg, iid).altPlays ?? []).findIndex((a, i) => a.timing === 'attackEndBreak' && altUsable(s, this.reg, task.player, iid, i));
@@ -2035,7 +2102,7 @@ export class Ctx {
         if (s.usedThisTurn.includes(key)) return;
         s.usedThisTurn.push(key);
       }
-      this.triggered.push(...this.abilityTasks(ab, inst.owner, iid, subject));
+      this.addTrigger(inst.owner, iid, this.abilityTasks(ab, inst.owner, iid, subject));
     });
   }
 
@@ -2067,7 +2134,7 @@ export class Ctx {
         // コマンドが出たら、その持ち主は同じ文明の自身のカードから封印を1つ外す
         if (s.cards[e.iid] && def(s, this.reg, e.iid).races.some((r) => r.includes('コマンド'))) {
           const owner = s.cards[e.iid].owner;
-          if (s.players[owner].zones.battle.some((b) => s.cards[b].seals?.length)) this.triggered.push({ kind: 'commandUnseal', player: owner, command: e.iid });
+          if (s.players[owner].zones.battle.some((b) => s.cards[b].seals?.length)) this.addTrigger(owner, e.iid, [{ kind: 'commandUnseal', player: owner, command: e.iid }]);
         }
         // 「自分のパワー6000以上のクリーチャーが出た時」は、条件に合えばこのクリーチャー自身にも誘発する
         this.triggerFrom(e.iid, 'onSummon', (ab) => !ab.filter || matchFilter(s, this.reg, e.iid, ab.filter, e.iid));
@@ -2091,7 +2158,7 @@ export class Ctx {
         // メガ・ラスト・バースト：呪文側をコストを支払わずに唱えてもよい
         const ld = def(s, this.reg, e.iid);
         if (ld.keywords?.megaLastBurst && ld.twin && (e.to === 'hand' || e.to === 'mana' || e.to === 'graveyard') && s.cards[e.iid]?.zone === e.to) {
-          this.triggered.push(...this.effectTasks(s.cards[e.iid].owner, e.iid, [{ type: 'playRevealed', iid: e.iid, as: 'spell' }]));
+          this.addTrigger(s.cards[e.iid].owner, e.iid, this.effectTasks(s.cards[e.iid].owner, e.iid, [{ type: 'playRevealed', iid: e.iid, as: 'spell' }]));
         }
         this.triggerFrom(e.iid, 'onLeave');
         this.triggerOthers(e.iid, 'onOtherLeave', e.player);
@@ -2307,6 +2374,7 @@ export class Ctx {
     s.gameOverReason = reason;
     s.pending = null;
     s.queue = [];
+    s.waiting = [];
     s.combat = null;
     this.log(winner === null ? `引き分け（${reason}）` : `${s.players[winner].name} の勝利！（${reason}）`, winner);
     this.emit({ type: 'GAME_OVER', winner, reason });
