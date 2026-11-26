@@ -129,6 +129,7 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     neoEvolution: main.neoEvolution,
     hyper: main.hyper,
     selfCost: main.selfCost,
+    gZero: main.gZero,
     hyperForm: hyperParsed
       ? {
           keywords: Object.keys(hyperParsed.keywords).length ? hyperParsed.keywords : undefined,

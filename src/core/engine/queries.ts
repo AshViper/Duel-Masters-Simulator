@@ -69,6 +69,8 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   if (f.races && !f.races.some((x) => d.races.some((r) => r.includes(x)))) return false;
   if (f.nonEvolution && (d.type === 'evolution' || (inst.zone === 'battle' && inst.under.length > 0))) return false;
   if (f.twinpact && !d.twin) return false;
+  // 常在効果の中からは元の能力で判定する（循環防止）
+  if (f.hasKeyword && !(inst.zone === 'battle' && !noPower ? keywords(state, reg, iid) : (d.keywords ?? {}))[f.hasKeyword]) return false;
   if (f.multicolor && d.civilizations.length < 2) return false;
   if (f.maxCost !== undefined && d.cost > f.maxCost) return false;
   if (f.minCost !== undefined && d.cost < f.minCost) return false;
@@ -213,6 +215,8 @@ export function effectiveCost(state: GameState, reg: CardRegistry, player: Playe
     cost += s.amount;
     if (s.minCost !== undefined) floor = Math.min(face.cost, Math.max(floor, s.minCost));
   }
+  // G・ゼロ：条件を満たしていればコストを支払わずに使える
+  if (side === 'main' && d.gZero && evalCondition(state, reg, player, d.gZero, true, iid)) return 0;
   // このカード自身のコスト軽減（「〜1枚につき1少なくする」）
   if (side === 'main' && d.selfCost) {
     const sc = d.selfCost;
@@ -342,6 +346,8 @@ export function evolutionBases(state: GameState, reg: CardRegistry, player: Play
 export function choosePayment(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, preferred?: string[], side: 'main' | 'twin' = 'main'): string[] | null {
   const face = playFace(def(state, reg, iid), side);
   const cost = effectiveCost(state, reg, player, iid, side);
+  // コスト0（G・ゼロなど）はマナを支払わない
+  if (cost === 0) return preferred && preferred.length ? null : [];
   const civs: Civilization[] = face.civilizations.filter((cv) => cv !== 'zero');
   const untapped = state.players[player].zones.mana.filter((m) => !state.cards[m].tapped);
   const mciv = (m: string) => manaCivilizations(def(state, reg, m));

@@ -22,6 +22,8 @@ export interface CardInstance {
   faceUp: boolean;
   /** EXライフで置いたシールド */
   exLifeShield?: string;
+  /** エクストラEXライフで置いたシールド（2つ目以降） */
+  exLifeShields?: string[];
   /** ハイパーモード中（次の持ち主のターンのはじめまで） */
   hyper?: boolean;
   /** 次の player のターンのはじめまで有効なキーワード能力 */

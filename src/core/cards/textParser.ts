@@ -25,12 +25,14 @@ export interface ParsedAbilities {
   evolvesFrom?: { race?: string; civilization?: Civilization };
   /** NEO進化の進化元 */
   neoEvolution?: CardFilter;
+  /** G・ゼロの条件 */
+  gZero?: Condition;
   /** このカード自身のコスト軽減 */
   selfCost?: { amount: number; per: Quantity; unit: number; min: number };
   /** ハイパー化のコスト */
   hyper?: { count: number; excludeSelf: boolean; filter?: CardFilter };
   /** 侵略・革命チェンジ */
-  attackSwap?: { kind: 'invasion' | 'revolution'; filter: CardFilter };
+  attackSwap?: { kind: 'invasion' | 'revolution' | 'attackChance'; filter: CardFilter };
   /** 置換効果（「破壊される時、かわりに〜」） */
   replacements: ReplacementAbility[];
   /** 自動処理できなかった能力の行 */
@@ -58,7 +60,7 @@ export function normalizeText(s: string): string {
 }
 
 /** 能力の頭に付くアイコン（{2W} W・ブレイカーなど、キーワードの名前と同じ意味のもの） */
-const PLAIN_ICON = /\{(?:\d?[WTQ]|PP|GS|ST|SST)\}/g;
+const PLAIN_ICON = /\{(?:\d?[WTQ]|PP|GS|ST|SST|SG|STP)\}/g;
 function stripIcons(t: string): string {
   return t.replace(PLAIN_ICON, '');
 }
@@ -84,6 +86,10 @@ export function applyKeywordLine(line: string, kw: Keywords): boolean {
   if (t === 'パワード・ブレイカー') return (kw.poweredBreaker = true);
   if (t === 'チャージャー') return (kw.charger = true);
   if (t === 'EXライフ') return (kw.exLife = true);
+  if (t === 'エクストラEXライフ') return (kw.extraExLife = true);
+  if (t === 'メガ・ラスト・バースト') return (kw.megaLastBurst = true);
+  if (t === 'シールド・ゴー') return (kw.shieldGo = true);
+  if (t === 'S・トリガー・プラス') return (kw.shieldTrigger = true);
   if (t === 'ガードマン') return (kw.guardman = true);
   if (t === 'スーパーガードマン') return (kw.superGuardman = true);
   if (/^マナゾーンに置く時、このカードはタップして置く$/.test(t)) return (kw.manaTapped = true);
@@ -225,6 +231,11 @@ function parseMods(mods: string, filter: CardFilter): boolean {
     [/^((?:光|水|闇|火|自然)(?:または(?:光|水|闇|火|自然))+)の/, (x) => (filter.civilizations = x[1].split('または').map((c) => CIV[c]))],
     [/^進化ではない/, () => (filter.nonEvolution = true)],
     [/^ツインパクト/, () => (filter.twinpact = true)],
+    [/^「([^「」]+)」を持つ/, (x) => {
+      const kw: Keywords = {};
+      if (!applyKeywordLine(x[1], kw) || Object.keys(kw).length !== 1) throw new Error('unknown keyword');
+      filter.hasKeyword = Object.keys(kw)[0] as keyof Keywords;
+    }],
     [/^無色の/, () => (filter.civilization = 'zero')],
     [/^進化クリーチャー以外の/, () => (filter.nonEvolution = true)],
     [/^多色の?/, () => (filter.multicolor = true)],
@@ -235,7 +246,11 @@ function parseMods(mods: string, filter: CardFilter): boolean {
     const r = rules.find(([re]) => re.test(m));
     if (!r) return false;
     const x = m.match(r[0])!;
-    r[1](x);
+    try {
+      r[1](x);
+    } catch {
+      return false;
+    }
     m = m.slice(x[0].length);
   }
   return true;
@@ -247,7 +262,7 @@ function civList(s: string): string {
 }
 
 function setRaces(filter: CardFilter, text: string): void {
-  const races = text.split('または');
+  const races = text.split('または').map((r) => r.replace(/・?(?:クリーチャー|カード)$/, ''));
   if (races.length === 1) filter.race = races[0];
   else filter.races = races;
 }
@@ -783,6 +798,19 @@ function parseStatic(t: string): StaticAbility[] | null {
     if (!p || p.unit !== 1) return null;
     return [{ type: 'powerMod', amount: n(per[2]), appliesTo: { owner: 'self', onlySelf: true }, perCount: p.per }];
   }
+  // 「このクリーチャーのパワーを+4000し、「W・ブレイカー」を与える」
+  const selfBuff = t.match(/^このクリーチャーのパワーを([+-]\d+)(?:し、(「.+」を与え)る|する)$/) ?? t.match(/^このクリーチャーに()(「.+」を与え)る$/);
+  if (selfBuff) {
+    const out: StaticAbility[] = [];
+    const appliesTo: Applies = { owner: 'self', onlySelf: true };
+    if (selfBuff[1]) out.push({ type: 'powerMod', amount: n(selfBuff[1]), appliesTo });
+    if (selfBuff[2]) {
+      const kw = parseGrant(selfBuff[2] + 'る');
+      if (!kw) return null;
+      out.push({ type: 'grantKeyword', keywords: kw, appliesTo });
+    }
+    return out;
+  }
   // 「〜があれば、このクリーチャーは攻撃されない」：条件つきの常在効果
   const cond = splitCondition(t);
   if (cond.condition && cond.body) {
@@ -922,6 +950,42 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   const t = normalizeText(line);
   const opts = options.map(normalizeText);
   if (kind === 'other') return false;
+  // 名前だけの能力語（「マナ武装5：」「鬼タイム：」など）。条件は後ろの文に書いてあるので外して読む
+  const label = t.match(/^(?:マナ武装|龍マナ武装|鬼タイム|革命|マナドライブ)\d*[:：](.+)$/);
+  if (label) return parseLine(label[1], options, kind, out);
+  // G・ゼロ：「G・ゼロ：バトルゾーンに自分の〜があれば、このクリーチャーをコストを支払わずに召喚してもよい」
+  const gz = t.match(/^G・ゼロ[:：](.+)、この(?:クリーチャー|呪文|カード)を(?:コストを支払わずに|コスト0で)(?:召喚し|唱え|使っ)てもよい。?$/);
+  if (gz) {
+    const c = splitCondition(`${gz[1]}、x`);
+    if (!c.condition || c.body !== 'x') return false;
+    out.gZero = c.condition;
+    return true;
+  }
+  // シンパシー：「シンパシー：自分のドラゴン・クリーチャー」その1体につき召喚コストを1（W・シンパシーは2）少なくする
+  const sym = t.match(/^(W・)?シンパシー[:：](?:自分の)?(.+?)。?$/);
+  if (sym && kind === 'creature') {
+    const filter = parseSwapCondition(sym[2]);
+    if (!filter) return false;
+    out.selfCost = { amount: sym[1] ? 2 : 1, per: { who: 'self', zone: 'battle', ...(Object.keys(filter).length ? { filter } : {}) }, unit: 1, min: 1 };
+    return true;
+  }
+  // アタック・チャンス：「アタック・チャンス：光のパワー4000以上のクリーチャー」
+  const ac = t.match(/^アタック・チャンス[:：](.+?)。?$/);
+  if (ac) {
+    const filter = parseSwapCondition(ac[1]);
+    if (!filter) return false;
+    out.attackSwap = { kind: 'attackChance', filter };
+    return true;
+  }
+  // G-NEO進化：NEO進化と同じく重ねてもよく、離れる時はかわりに下のカードすべてが離れる
+  const gneo = t.match(/^G-NEO進化[:：](?:自分の)?(.+?)1体の上に置いてもよい。?$/);
+  if (gneo && kind === 'creature') {
+    const filter = parseSwapCondition(gneo[1]);
+    if (!filter) return false;
+    out.neoEvolution = filter;
+    out.replacements.push({ event: 'leaveBattle', subject: 'self', instead: 'shedUnder' });
+    return true;
+  }
   // 進化元：「進化：自分の火のクリーチャー1体の上に置く」「進化：自分のドラゴン1体の上に置く」
   const evo = t.match(/^進化[:\-—―ー](?:進化ではない、?)?(?:自分の)?(?:(光|水|闇|火|自然)の)?(.*?)1体の上に置く。?$/);
   if (evo) {
@@ -969,7 +1033,7 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     return true;
   }
   // 能力語（「鬼タイム：」など）や特殊な記号・カード名の指定を含む文は手動
-  const unsafe = /[:：\[{「]/.test(t.replace(/「[^「」]+」(?:と「[^「」]+」)*を与え|「S・トリガー」は使えない/g, ''));
+  const unsafe = /[:：\[{「]/.test(t.replace(/「[^「」]+」(?:と「[^「」]+」)*を与え|「S・トリガー」は使えない|「[^「」]+」を持つ/g, ''));
   const trig = kind === 'creature' ? parseTrigger(t) : null;
   if (trig || kind === 'spell') {
     const whens: TriggerEvent[] = trig ? trig.when : ['onCast'];
@@ -1005,7 +1069,8 @@ function selfKeywordStatic(t: string): StaticAbility[] | null {
 
 /** 侵略・革命チェンジの条件「火のコスト3以上の、コマンドまたはドラゴン」を読む */
 function parseSwapCondition(text: string): CardFilter | null {
-  const t = civList(text).replace(/、/g, '').replace(/・?クリーチャー$/, '');
+  // 「ジャイアント、ミステリー・トーテム、またはスノーフェアリー」→「…または…または…」（「〜の、」の読点はそのまま消す）
+  const t = civList(text).replace(/(?<!の)、(?:または)?/g, 'または').replace(/、/g, '').replace(/・?クリーチャー$/, '');
   const filter: CardFilter = {};
   const k = t.lastIndexOf('の');
   const mods = k >= 0 ? t.slice(0, k + 1) : '';

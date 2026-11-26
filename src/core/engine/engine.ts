@@ -82,6 +82,7 @@ const INSTEAD_LABEL: Record<ReplacementAbility['instead'], string> = {
   destroySelf: 'このクリーチャーを破壊する',
   stay: 'バトルゾーンにとどまる',
   escape: '自分のシールドを1つ手札に加える',
+  shedUnder: '下のカードすべてを離す',
 };
 
 export class Ctx {
@@ -452,12 +453,15 @@ export class Ctx {
         }
         // EXライフ：山札の上から1枚をシールド化する
         const deck = s.players[inst.owner].zones.deck;
-        if (def(s, this.reg, task.iid).keywords?.exLife && deck.length) {
+        const exKw = def(s, this.reg, task.iid).keywords;
+        const exCount = exKw?.extraExLife ? 2 : exKw?.exLife ? 1 : 0;
+        for (let i = 0; i < exCount && deck.length; i++) {
           const top = deck[deck.length - 1];
           this.moveCard(top, 'shield');
-          inst.exLifeShield = top;
-          this.log(`${this.name(task.iid)} のEXライフ：山札の上から1枚をシールド化`, inst.owner);
+          if (!inst.exLifeShield) inst.exLifeShield = top;
+          else inst.exLifeShields = [...(inst.exLifeShields ?? []), top];
         }
+        if (exCount) this.log(`${this.name(task.iid)} の${exCount > 1 ? 'エクストラ' : ''}EXライフ：山札の上から${exCount}枚をシールド化`, inst.owner);
         this.emit({ type: 'CREATURE_SUMMONED', player: task.player, iid: task.iid });
         return false;
       }
@@ -586,7 +590,10 @@ export class Ctx {
         // ブレイクしたシールドを手札に加えるかわりに墓地に置く
         const burn = s.cards[task.source]?.zone === 'battle' && !!keywords(s, this.reg, task.source).shieldBurn;
         for (const sh of chosen) {
-          this.moveCard(sh, burn ? 'graveyard' : 'hand');
+          // シールド・ゴーで表向きのシールドは、手札に加えるかわりに墓地へ
+          const goDown = s.cards[sh].faceUp && !!def(s, this.reg, sh).keywords?.shieldGo;
+          this.moveCard(sh, burn || goDown ? 'graveyard' : 'hand');
+          if (goDown) continue;
           this.emit({ type: 'SHIELD_BROKEN', player: task.defender, iid: sh });
           if (burn) continue;
           const d = def(s, this.reg, sh);
@@ -658,7 +665,7 @@ export class Ctx {
         kind: 'selectCards',
         player,
         source: c.attacker,
-        prompt: `${this.name(c.attacker)} の攻撃時に、侵略・革命チェンジするカードを選んでください（使わないなら選ばずに決定）`,
+        prompt: `${this.name(c.attacker)} の攻撃時に、侵略・革命チェンジ・アタック・チャンスで使うカードを選んでください（使わないなら選ばずに決定）`,
         candidates,
         min: 0,
         max: 1,
@@ -669,7 +676,13 @@ export class Ctx {
     if (!pick) return false;
     const d = def(s, this.reg, pick);
     const old = c.attacker;
-    if (d.attackSwap?.kind === 'revolution') {
+    if (d.attackSwap?.kind === 'attackChance') {
+      // アタック・チャンス：コストを支払わずに使う
+      this.log(`アタック・チャンス！ ${d.name}`, player);
+      // 使い終わってから、もう一度使えるカードがないか聞く（insertFront は前に積むので先に積む）
+      this.insertFront({ kind: 'attackSwap', player });
+      this.playFree(player, pick, isCreatureType(d.type) ? 'creature' : 'spell');
+    } else if (d.attackSwap?.kind === 'revolution') {
       // 革命チェンジ：攻撃中のクリーチャーを手札に戻し、このクリーチャーを出して攻撃を続ける
       this.log(`革命チェンジ！ ${this.name(old)} を手札に戻し、${d.name} を出す`, player);
       this.emit({ type: 'CARD_PLAYED', player, iid: pick });
@@ -693,9 +706,11 @@ export class Ctx {
     const inst = s.cards[task.iid];
     if (!inst || inst.zone !== 'battle') return false;
     // EXライフ：離れるかわりに、そのシールドを墓地に置く
-    if (inst.exLifeShield && s.cards[inst.exLifeShield]?.zone === 'shield') {
-      const sh = inst.exLifeShield;
-      delete inst.exLifeShield;
+    const exShields = [inst.exLifeShield, ...(inst.exLifeShields ?? [])].filter((x): x is string => !!x && s.cards[x]?.zone === 'shield');
+    if (exShields.length) {
+      const sh = exShields[0];
+      inst.exLifeShield = exShields[1];
+      inst.exLifeShields = exShields.slice(2);
       this.moveCard(sh, 'graveyard');
       this.log(`${this.name(task.iid)} はEXライフのシールドを墓地に置いて、バトルゾーンにとどまった`, inst.owner);
       return false;
@@ -725,6 +740,19 @@ export class Ctx {
       switch (ability.instead) {
         case 'stay':
           return false;
+        case 'shedUnder': {
+          if (!inst.under.length) {
+            this.insertFront({ ...task, replaced: [...replaced, key] });
+            return false;
+          }
+          // G-NEO進化：かわりに下のカードすべてが離れる
+          for (const u of [...inst.under]) {
+            s.cards[u].zone = 'battle';
+            this.moveCard(u, task.to);
+          }
+          inst.under = [];
+          return false;
+        }
         case 'escape': {
           const shields = s.players[owner].zones.shield;
           if (!shields.length) {
@@ -1248,13 +1276,25 @@ export class Ctx {
         }
         break;
       case 'CREATURE_DESTROYED':
+        // シールド・ゴー：墓地から表向きでシールド化する
+        if (s.cards[e.iid]?.zone === 'graveyard' && def(s, this.reg, e.iid).keywords?.shieldGo) {
+          this.moveCard(e.iid, 'shield');
+          s.cards[e.iid].faceUp = true;
+          this.log(`${this.name(e.iid)} のシールド・ゴー：表向きでシールド化`, s.cards[e.iid].owner);
+        }
         this.triggerFrom(e.iid, 'onDestroyed');
         this.triggerOthers(e.iid, 'onOtherDestroyed', e.player);
         break;
-      case 'CREATURE_LEFT':
+      case 'CREATURE_LEFT': {
+        // メガ・ラスト・バースト：呪文側をコストを支払わずに唱えてもよい
+        const ld = def(s, this.reg, e.iid);
+        if (ld.keywords?.megaLastBurst && ld.twin && (e.to === 'hand' || e.to === 'mana' || e.to === 'graveyard') && s.cards[e.iid]?.zone === e.to) {
+          this.triggered.push(...this.effectTasks(s.cards[e.iid].owner, e.iid, [{ type: 'playRevealed', iid: e.iid, as: 'spell' }]));
+        }
         this.triggerFrom(e.iid, 'onLeave');
         this.triggerOthers(e.iid, 'onOtherLeave', e.player);
         break;
+      }
       case 'ATTACK_DECLARED':
         this.triggerFrom(e.attacker, 'onAttack');
         this.triggerOthers(e.attacker, 'onOtherAttack', e.player);
@@ -1334,6 +1374,7 @@ export class Ctx {
     delete inst.keywordsUntil;
     delete inst.hyper;
     delete inst.exLifeShield;
+    delete inst.exLifeShields;
     inst.faceUp = to !== 'shield' && to !== 'deck';
     if (to === 'battle') inst.enteredTurn = s.turn;
     // 多色カードはタップしてマナゾーンに置かれる

@@ -62,6 +62,8 @@ export interface CardFilter {
   nonEvolution?: boolean;
   /** ツインパクト */
   twinpact?: boolean;
+  /** 指定のキーワード能力を持つ（「「ブロッカー」を持つ」） */
+  hasKeyword?: keyof Keywords;
   /** 多色 */
   multicolor?: boolean;
   tapped?: boolean;
@@ -247,8 +249,8 @@ export interface ReplacementAbility {
   subject: 'self' | 'otherOwn' | 'anyOwn';
   filter?: CardFilter;
   /** destroySelf: かわりにこのクリーチャーを破壊する（セイバー） / stay: とどまる */
-  /** escape: かわりに自分のシールドを1つ手札に加える（エスケープ） */
-  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'destroySelf' | 'stay' | 'escape';
+  /** escape: かわりに自分のシールドを1つ手札に加える（エスケープ）。shedUnder: かわりに下のカードすべてが離れる（G-NEO進化） */
+  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder';
   optional?: boolean;
 }
 
@@ -288,8 +290,13 @@ export interface Keywords {
   gStrike?: boolean;
   /** ブレイクしたシールドを、相手は手札に加えるかわりに墓地に置く */
   shieldBurn?: boolean;
-  /** EXライフ：出る時に山札の上から1枚をシールド化し、離れる時かわりにそのシールドを墓地に置く */
+  /** EXライフ：出る時に山札の上から1枚（エクストラEXライフは2枚）をシールド化し、離れる時かわりにそのシールドを1つ墓地に置く */
   exLife?: boolean;
+  extraExLife?: boolean;
+  /** メガ・ラスト・バースト：離れて手札・マナ・墓地に置かれた時、呪文側をコストを支払わずに唱えてもよい */
+  megaLastBurst?: boolean;
+  /** シールド・ゴー：破壊された時、墓地から表向きでシールド化する。表向きでシールドゾーンを離れる時、かわりに墓地に置く */
+  shieldGo?: boolean;
   /** マナゾーンにタップして置かれる */
   manaTapped?: boolean;
   /** ガードマン：相手のクリーチャーが自分の他のクリーチャーを攻撃する時、攻撃先をこのクリーチャーに変更できる */
@@ -337,7 +344,9 @@ export interface CardDefinition {
   /** 進化元の条件（種族名 or 文明） */
   evolvesFrom?: { race?: string; civilization?: Civilization };
   /** 侵略（invasion）・革命チェンジ（revolution）：攻撃中の自分のクリーチャーが filter に合えば、手札から使える */
-  attackSwap?: { kind: 'invasion' | 'revolution'; filter: CardFilter };
+  attackSwap?: { kind: 'invasion' | 'revolution' | 'attackChance'; filter: CardFilter };
+  /** G・ゼロ：条件を満たしていればコストを支払わずに使える */
+  gZero?: Condition;
   /** このカード自身の召喚コストを「〜1枚につきN」少なくする。コストは min 未満にならない */
   selfCost?: { amount: number; per: Quantity; unit: number; min: number };
   /** ハイパー化：自分のクリーチャーを count 体タップして、次の自分のターンのはじめまでハイパーモードになる */
