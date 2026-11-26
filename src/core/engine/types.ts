@@ -28,6 +28,8 @@ export interface CardInstance {
   hyper?: boolean;
   /** 次の player のターンのはじめまで有効なキーワード能力 */
   keywordsUntil?: { keywords: Keywords; player: PlayerId };
+  /** 「ゲーム中で一度」の能力を使った */
+  usedOnce?: boolean;
   /** 無月の門で選んでいる途中の素材（step: 何番目の選択か） */
   gateProgress?: { step: number; picks: string[] };
   /** 次の player のターンのはじめまでのパワー修正 */

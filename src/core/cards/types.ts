@@ -277,6 +277,8 @@ export type EffectDef =
   | { type: 'dSwitchFlip' }
   /** 手札・墓地にあるこのカードの「ゾーンからの誘発」（zoneGates の gate 番目）を処理する */
   | { type: 'zoneGate'; gate: number }
+  /** 「ゲーム中で一度」の能力を使ったことを記録する */
+  | { type: 'useOnce' }
   /**
    * 効果の発生源（このクリーチャー）自身に対する処理。移動先（MoveDest）なら move と同じ移動をする。
    * 'toHand' / 'toMana' は旧形式（'hand' / 'mana' と同じ）。tapped: タップして置く
@@ -444,6 +446,8 @@ export interface TriggeredAbility {
   evolvedOnNonEvolution?: boolean;
   /** Dスイッチ：ゲーム中に一度だけ（使ったら二度と聞かない） */
   dSwitch?: boolean;
+  /** ゲーム中に一度だけ（使ったら二度と誘発しない。effects の useOnce で使ったことを記録する） */
+  oncePerGame?: boolean;
   /** このターンの時だけ誘発する（「相手のターンにこのクリーチャーが出た時」は opponent） */
   duringTurn?: 'self' | 'opponent';
   /** 「これを装備したクリーチャーが〜時」：装備先のクリーチャーに起きた出来事で誘発する（ドラグハート・ウエポン） */
@@ -487,6 +491,10 @@ export type StaticAbility = (
   | { type: 'breakerBonus'; amount: number; perCount: Quantity; unit: number }
   /** 条件に合うクリーチャーを、そのゾーンから召喚してもよい（「自分のターンに一度、魔導具クリーチャーを1体、自分の墓地から召喚してもよい」） */
   | { type: 'summonFromZone'; zone: 'graveyard' | 'mana'; filter?: CardFilter; oncePerTurn?: boolean }
+  /** 自分の（filter に合う）呪文を唱えた後、墓地に置くかわりにこのフィールドの下に置いて draw 枚引いてもよい（卍 新世壊 卍） */
+  | { type: 'spellToUnder'; filter?: CardFilter; draw: number }
+  /** 自分の（filter に合う）呪文を唱えられなくする効果を無視する */
+  | { type: 'ignoreCastLocks'; filter?: CardFilter }
   /** 条件に合う相手のクリーチャーはタップしてバトルゾーンに出る */
   | { type: 'opponentEntersTapped'; filter?: CardFilter }
 ) & {

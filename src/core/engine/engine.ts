@@ -660,11 +660,13 @@ export class Ctx {
     return list.filter((x) => x !== self && matchFilter(s, this.reg, x, filter));
   }
 
-  private gateReady(player: PlayerId, iid: string, g: ZoneGate): boolean {
+  /** pending: これから墓地に置かれるカード（唱えている呪文。誘発を解決する時には墓地にある） */
+  private gateReady(player: PlayerId, iid: string, g: ZoneGate, pending?: string): boolean {
     const m = g.materials;
     if (!m) return true;
     const b = this.gateCandidates(player, iid, m.filter, 'battle').length;
-    const gr = this.gateCandidates(player, iid, m.filter, 'graveyard').length;
+    const extra = pending && this.s.cards[pending]?.zone !== 'graveyard' && matchFilter(this.s, this.reg, pending, m.filter) ? 1 : 0;
+    const gr = this.gateCandidates(player, iid, m.filter, 'graveyard').length + extra;
     return m.total !== undefined ? b + gr >= m.total : b >= (m.battle ?? 0) && gr >= (m.graveyard ?? 0);
   }
 
@@ -677,7 +679,7 @@ export class Ctx {
         (def(s, this.reg, h).zoneGates ?? []).forEach((g, gate) => {
           if (!g.on.includes(on) || !g.zones.includes(z)) return;
           if (subject && g.subject && !matchFilter(s, this.reg, subject, g.subject)) return;
-          if (!this.gateReady(player, h, g)) return;
+          if (!this.gateReady(player, h, g, on === 'spell' ? subject : undefined)) return;
           this.addTrigger(player, h, this.effectTasks(player, h, [{ type: 'optional', effects: [{ type: 'zoneGate', gate }] }]));
         });
       }
@@ -824,6 +826,29 @@ export class Ctx {
           this.moveCard(task.iid, 'deck', { toTop: false });
           this.log(`${this.name(task.iid)} を山札の下に置いた`, s.cards[task.iid].owner);
           return false;
+        }
+        // 卍 新世壊 卍：「自分の魔導具呪文を唱えた時、唱えた後で墓地に置くかわりに、このフィールドの下に置いてカードを1枚引いてもよい」
+        {
+          const owner = s.cards[task.iid].owner;
+          const host = activeStatics(s, this.reg).find((a) => a.static.type === 'spellToUnder' && a.controller === owner && s.cards[a.source]?.zone === 'battle' && matchFilter(s, this.reg, task.iid, a.static.filter));
+          if (host && host.static.type === 'spellToUnder') {
+            const r = this.takeResponse();
+            if (!r) {
+              s.pending = { kind: 'confirm', player: owner, source: host.source, prompt: `${this.name(task.iid)} を墓地に置くかわりに ${this.name(host.source)} の下に置いて、カードを${host.static.draw}枚引きますか？` };
+              return true;
+            }
+            if (r.accept) {
+              const list = s.players[owner].zones.hand;
+              const k = list.indexOf(task.iid);
+              if (k >= 0) list.splice(k, 1);
+              s.cards[task.iid].zone = 'battle';
+              s.cards[task.iid].faceUp = true;
+              s.cards[host.source].under.push(task.iid);
+              this.log(`${this.name(task.iid)} を ${this.name(host.source)} の下に置いた`, owner);
+              this.draw(owner, host.static.draw);
+              return false;
+            }
+          }
         }
         const d = def(s, this.reg, task.iid);
         // チャージャー：墓地のかわりにマナゾーンに置く
@@ -1889,6 +1914,9 @@ export class Ctx {
         s.players[controller].extraTurns += 1;
         this.log('このターンの後、もう一度自分のターンを行う', controller);
         return false;
+      case 'useOnce':
+        if (s.cards[source]) s.cards[source].usedOnce = true;
+        return false;
       case 'zoneGate':
         return this.execZoneGate(controller, source, e.gate);
       case 'dSwitchFlip': {
@@ -2839,6 +2867,7 @@ export class Ctx {
       if (ab.evolvedOnNonEvolution && !inst.evolvedOnNonEvolution) return;
       // Dスイッチはゲーム中に一度だけ
       if (ab.dSwitch && inst.dSwitched) return;
+      if (ab.oncePerGame && inst.usedOnce) return;
       // 「相手のターンにこのクリーチャーが出た時」
       if (ab.duringTurn && (s.activePlayer === inst.owner) !== (ab.duringTurn === 'self')) return;
       // 「各ターンに1度」

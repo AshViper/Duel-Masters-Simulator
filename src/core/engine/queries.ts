@@ -561,6 +561,8 @@ export function playRestriction(state: GameState, reg: CardRegistry, player: Pla
     const s = a.static;
     if (s.type !== 'cannotSummon' && s.type !== 'cannotCast') continue;
     if ((s.type === 'cannotSummon') !== isCreatureType(face.type)) continue;
+    // 卍 新世壊 卍：「自分の魔導具呪文を唱えられなくする能力を無視する」
+    if (s.type === 'cannotCast' && activeStatics(state, reg).some((x) => x.static.type === 'ignoreCastLocks' && x.controller === player && matchFace(face, d, x.static.filter))) continue;
     const hit = s.who === 'both' || (s.who === 'self') === (a.controller === player);
     if (hit && matchFace(face, d, s.filter)) return `${def(state, reg, a.source).name} の効果で${s.type === 'cannotSummon' ? '召喚' : '呪文を唱えることが'}できません`;
   }

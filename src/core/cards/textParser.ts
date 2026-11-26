@@ -114,6 +114,15 @@ export function normalizeText(s: string): string {
     // 「このクリーチャーが攻撃する時、攻撃の後、このクリーチャーを破壊する」＝攻撃の終わりに
     .replace(/^このクリーチャーが攻撃する時、攻撃の後、/, 'このクリーチャーの攻撃の終わりに、')
     .replace(/を(\d+)枚選んで捨てる/g, 'を$1枚選び、捨てる')
+    // 「このクリーチャーは、進化クリーチャーである時しか攻撃できない」
+    .replace(/^このクリーチャーは、?進化クリーチャーである時しか攻撃できない/, 'これが進化クリーチャーでなければ、このクリーチャーは攻撃できない')
+    // 「自分のシールドが1つもなければ」＝0つ以下なら
+    .replace(/(自分|相手)のシールドが1つもなければ、/g, '$1のシールドが0つ以下なら、')
+    .replace(/^相手のターン中に、相手のクリーチャーが/, '相手のターンに相手のクリーチャーが')
+    // 「バトルゾーンにある、コスト7以下のカードを1枚選び」：どちらのプレイヤーのものでも
+    .replace(/^バトルゾーンにある、?([^、。]*?)カードを(\d+)(?:枚|つ)選び/, '$1エレメントを$2つ選び')
+    // 「水のコスト3以下の、クリーチャーではないカードを1枚、コストを支払わずに使ってもよい」：場所の書いていないものは手札から
+    .replace(/(を1(?:枚|体|つ)、)コストを支払わずに(使|唱え|召喚し)/g, '$1自分の手札からコストを支払わずに$2')
     .replace(/各プレイヤーは、?それぞれ(\d+)枚ずつ自身の手札を選び/g, '各プレイヤーは自身の手札を$1枚ずつ選び')
     .replace(/カードをさらに(\d+)枚引/g, 'カードを$1枚引')
     // 「相手のシールドが2枚以下ならば」＝「相手のシールドが2つ以下なら」
@@ -446,6 +455,7 @@ function parseMods(mods: string, filter: CardFilter): boolean {
     [/^クリーチャーではない/, () => (filter.not = { cardType: 'creature' })],
     [/^サイキックではない/, () => undefined],
     // 「闇ではない」「多色ではない」「ドラゴンではない」：その条件に合わないもの
+    [/^クリーチャーではない/, () => (filter.not = { cardType: 'creature' })],
     [/^(光|水|闇|火|自然|無色|多色)ではない/, (x) => (filter.not = x[1] === '多色' ? { multicolor: true } : { civilization: x[1] === '無色' ? 'zero' : CIV[x[1]] })],
     [/^([^、のをにがで「」]+?)ではない/, (x) => (filter.not = { race: x[1].replace(/・?クリーチャー$/, '') })],
     [/^種族に([^、のをにがで「」]+?)とある/, (x) => (filter.race = x[1])],
@@ -681,7 +691,13 @@ function parseGrant(t: string): Keywords | null {
 
 /** 「自分のドラゴン」「自分の多色クリーチャー」の主語部分を CardFilter にする */
 function parseSubject(t: string, filter: CardFilter): boolean {
-  if (t.endsWith('クリーチャー')) return parseMods(t.slice(0, -'クリーチャー'.length), filter);
+  if (t.endsWith('クリーチャー')) {
+    const tmp: CardFilter = {};
+    if (parseMods(t.slice(0, -'クリーチャー'.length), tmp)) return !!Object.assign(filter, tmp);
+    // 「魔導具クリーチャー」「闇の魔導具クリーチャー」：種族＋クリーチャー
+    if (!/^(?:[^、。「」]*の)?[^、のをにがで「」]+クリーチャー$/.test(t)) return false;
+    t = t.slice(0, -'クリーチャー'.length);
+  }
   // 「水のハンター」「コスト5以上のドラゴン」：修飾語＋種族
   const k = t.lastIndexOf('の');
   if (k > 0 && /^[^、のをにがで「」]+$/.test(t.slice(k + 1))) {
@@ -1658,6 +1674,24 @@ function parseStatic(t: string): StaticAbility[] | null {
     if (!parseSubject(sfz[1], filter)) return null;
     return [{ type: 'summonFromZone', zone: sfz[2] === '墓地' ? 'graveyard' : 'mana', filter, oncePerTurn: true }];
   }
+  // 卍 新世壊 卍
+  const stu = t.match(/^自分の(.+?)呪文を唱えた時、唱えた後で墓地に置くかわりに、このフィールドの下に置いてカードを(\d+)枚引いてもよい$/);
+  if (stu) {
+    const filter: CardFilter = { cardType: 'spell' };
+    setRaces(filter, stu[1]);
+    return [{ type: 'spellToUnder', filter, draw: n(stu[2]) }];
+  }
+  const icl = t.match(/^自分の(.+?)呪文(?:または(.+?)呪文)?を唱えられなくする(?:能力|効果)を無視する$/);
+  if (icl) {
+    const filter: CardFilter = { cardType: 'spell' };
+    setRaces(filter, [icl[1], icl[2]].filter(Boolean).join('または'));
+    return [{ type: 'ignoreCastLocks', filter }];
+  }
+  // 「各ターン、相手が唱える1枚目の呪文のコストを1多くする」
+  const first = t.match(/^各ターン、(相手|自分)が唱える1枚目の呪文のコストを(\d+)(多く|少なく)する$/);
+  if (first) return [{ type: 'costMod', amount: first[3] === '多く' ? n(first[2]) : -n(first[2]), appliesTo: { owner: first[1] === '自分' ? 'self' : 'opponent', filter: { cardType: 'spell' } }, firstPerTurn: true }];
+  // 「呪文の効果によって相手がクリーチャーを選ぶ時、このクリーチャーは選べない」
+  if (t === '呪文の効果によって相手がクリーチャーを選ぶ時、このクリーチャーは選べない') return [{ type: 'grantKeyword', keywords: { untargetableBySpellCost: 99 }, appliesTo: { owner: 'self', onlySelf: true } }];
   // 「相手のクリーチャーはタップしてバトルゾーンに出る」
   const oet = t.match(/^相手の(.*?)クリーチャーは(?:すべて)?、?タップして(?:バトルゾーンに)?出る$/);
   if (oet) {
@@ -1784,7 +1818,11 @@ function parseStatic(t: string): StaticAbility[] | null {
   m = t.match(/^(自分|相手)の(.*?)(クリーチャー|呪文|カード)(?:の召喚|を召喚する|の唱える|を唱える|を実行する|の)?コストを(\d+)(多く|少なく)する(?:。ただし、?コストは0以下に(?:は)?ならない)?$/);
   if (m) {
     const filter: CardFilter = m[3] === 'カード' ? {} : { cardType: m[3] === '呪文' ? 'spell' : 'creature' };
-    if (!parseMods(m[2], filter)) return null;
+    // 「自分の魔導具クリーチャーを召喚するコスト」：修飾語でなければ種族
+    if (!parseMods(m[2], filter)) {
+      if (!/^[^、のをにがで「」]+$/.test(m[2])) return null;
+      setRaces(filter, m[2].replace(/・$/, ''));
+    }
     return [{ type: 'costMod', amount: m[5] === '多く' ? n(m[4]) : -n(m[4]), appliesTo: { owner: owner(m[1]), ...(Object.keys(filter).length ? { filter } : {}) } }];
   }
   // 「自分のマフィ・ギャングを召喚するコストを1少なくする。ただし、コストは0以下にならない」「自分のゼニスを召喚するコストは3少なくなる。ただし、コストは5より少なくならない」
@@ -2185,6 +2223,8 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
   // 「これが進化クリーチャーなら、」
   const evo = body.match(/^これが進化クリーチャーなら、(.+)$/);
   if (evo) return { body: evo[1], condition: { type: 'selfIsEvolution' } };
+  const notEvo = body.match(/^これが進化クリーチャーでなければ、(.+)$/);
+  if (notEvo) return { body: notEvo[1], condition: { type: 'not', condition: { type: 'selfIsEvolution' } } };
   // 「このターンに2つ以上自分のシールドがブレイクされていなければ、」
   const broken = body.match(/^(?:この|その)ターン(?:に|中)?、?(\d+)つ以上(自分|相手)のシールドがブレイクされて(いれば|いなければ)、(.+)$/);
   if (broken) {
@@ -2405,6 +2445,14 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   const zg = kind === 'creature' ? parseZoneGate(t) : null;
   if (zg) {
     (out.zoneGates ??= []).push(zg);
+    return true;
+  }
+  // 無月の門99（卍 新世壊 卍）：「自分のターンの終わりに、このフィールドの下に4枚以上カードがあれば、ゲーム中で一度、〜してもよい」
+  const g99 = t.match(/^無月の門\d+[:：]自分のターンの終わりに、このフィールドの下に(\d+)枚以上カードがあれば、ゲーム中で一度、(.+?)。?$/);
+  if (g99 && kind === 'creature') {
+    const groups = parseBody(g99[2], opts);
+    if (!groups || groups.length !== 1) return false;
+    out.abilities.push({ when: 'onTurnEnd', effects: [{ type: 'useOnce' }, ...groups[0].effects], condition: { type: 'underCount', min: n(g99[1]) }, oncePerGame: true, optional: true });
     return true;
   }
   // 「バトルゾーンに自分のフィールドがあれば、このクリーチャーを自分の墓地から召喚してもよい」
