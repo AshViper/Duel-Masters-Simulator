@@ -51,7 +51,7 @@ export function mergeRegistry(base: CardRegistry, cards: CardDefinition[]): Card
 
 /** カード定義が参照している画像キー */
 export function imageKeysOf(cards: CardDefinition[]): string[] {
-  return [...new Set(cards.map((c) => c.imageRef).filter((k): k is string => !!k))];
+  return [...new Set(cards.flatMap((c) => (c.forbidden && c.imageRef ? [c.imageRef, `${c.imageRef}:b`] : [c.imageRef])).filter((k): k is string => !!k))];
 }
 
 const CODE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';

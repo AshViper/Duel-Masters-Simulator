@@ -95,6 +95,12 @@ export function applyKeywordLine(line: string, kw: Keywords): boolean {
   if (/^マナゾーンに置く時、このカードはタップして置く$/.test(t)) return (kw.manaTapped = true);
   if (/^自分の山札の最後の1枚を引く時、ゲームに負けるかわりに勝つ$/.test(t)) return (kw.winOnLastDraw = true);
   if (t === 'ジャストダイバー') return (kw.justDiver = true);
+  const spellUt = t.match(/^コスト(\d+)以下の呪文(?:の効果)?によって、相手がクリーチャーを選ぶ時、このクリーチャーは選べない$/);
+  if (spellUt) {
+    kw.untargetableBySpellCost = Number(spellUt[1]);
+    return true;
+  }
+  if (/^このカードがバトルゾーン以外のゾーンにあれば、自分はゲームに負ける$/.test(t)) return (kw.loseIfNotInBattle = true);
   if (t === 'G・ストライク') return (kw.gStrike = true);
   if (t === 'このクリーチャーはブロックできない') return (kw.cannotBlock = true);
   if (t === 'このクリーチャーは攻撃されない') return (kw.cannotBeAttacked = true);
@@ -128,6 +134,7 @@ const SELF_EVENTS: [RegExp, TriggerEvent][] = [
   [/^破壊された時/, 'onDestroyed'],
   [/^(?:バトルゾーンを)?離れた時/, 'onLeave'],
   [/^ブロックした時/, 'onBlock'],
+  [/^禁断解放した時/, 'onUnleash'],
   [/^バトルに勝った時/, 'onBattleWin'],
 ];
 /** 主語なしで書ける出来事（「〜時または自分のターンのはじめに」） */
@@ -353,6 +360,7 @@ const VERBS: VerbRule[] = [
   { re: /^(?:好きな順序で)?山札の(?:一番)?下に(?:置く|戻す)$/, zones: ['battle', 'hand', 'mana', 'graveyard', 'shield'], build: (t) => ({ type: 'toDeckBottom', target: t }) },
   { re: /^(?:好きな順序で)?山札の(?:一番)?上に(?:置く|戻す)$/, zones: ['hand'], build: (t) => ({ type: 'toDeckTop', target: t }) },
   { re: /^(?:裏向きにして)?(?:新しい)?シールド(?:化する|ゾーンに(?:裏向きにして)?置く|に加える|として(?:シールドゾーンに)?(?:置く|加える))$/, zones: ['battle', 'hand', 'graveyard', 'mana'], build: (t) => ({ type: 'toShield', target: t }) },
+  { re: /^(?:相手は)?(?:それら?に|そのクリーチャーに)?封印を1つ(?:ずつ)?付ける$/, zones: ['battle'], build: (t) => ({ type: 'seal', target: t }) },
   { re: /^(?:バトルゾーンに)?出す$/, zones: ['hand', 'graveyard', 'mana'], build: (t) => ({ type: 'putIntoBattle', target: { ...t, filter: { ...(t.filter ?? {}), cardType: 'creature' } } }) },
 ];
 
@@ -454,6 +462,13 @@ function parseSentence(s: string): EffectDef[] | null {
     return r && r.map((e) => ('target' in e && typeof e.target === 'object' ? ({ ...e, target: { ...e.target, chooser: 'owner' } } as EffectDef) : e));
   }
   if ((m = s.match(/^相手のシールドを(\d+)つブレイクする$/))) return [{ type: 'breakShields', count: n(m[1]) }];
+  // 「相手は自身のクリーチャーすべてに封印を1つ付ける」（ドキンダムX）
+  if ((m = s.match(/^(?:相手は、?自身|(相手|自分))の(.*?)クリーチャーすべてに(?:、?それぞれ)?封印を1つ(?:ずつ)?付ける$/))) {
+    const filter: CardFilter = {};
+    if (!parseMods(m[2], filter)) return null;
+    const owner = m[1] === '自分' ? 'self' : 'opponent';
+    return [{ type: 'seal', target: { owner, zone: 'battle', count: 'all', ...(Object.keys(filter).length ? { filter } : {}) } }];
+  }
   if ((m = s.match(/^(?:このターン、)?このクリーチャーのパワーを\+(\d+)する$/))) return [{ type: 'powerMod', target: 'self', amount: n(m[1]) }];
   if (s === 'このクリーチャーをアンタップする') return [{ type: 'selfAction', action: 'untap' }];
   if (s === 'このクリーチャーをタップする') return [{ type: 'selfAction', action: 'tap' }];

@@ -172,6 +172,8 @@ export type EffectDef =
   /** ガチンコ・ジャッジ：互いに山札の上を公開し、自分のコストが相手以上なら勝ち（then を処理）。公開したカードは山札の下へ */
   | { type: 'gachinko'; then: EffectDef[] }
   /** エンジンでは処理しない。ログに出してプレイヤーの手動操作に委ねる */
+  /** 封印を1つ付ける（封印は、付けられるカードの持ち主の山札の上から1枚目を裏向きで重ねる） */
+  | { type: 'seal'; target: TargetSpec }
   | { type: 'manual'; text: string };
 
 export const TRIGGER_EVENTS = [
@@ -194,6 +196,8 @@ export const TRIGGER_EVENTS = [
   'onOtherLeave',
   /** このクリーチャーの攻撃の終わりに */
   'onAttackEnd',
+  /** このクリーチャーが禁断解放した時 */
+  'onUnleash',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
@@ -305,6 +309,17 @@ export interface Keywords {
   superGuardman?: boolean;
   /** 山札の最後の1枚を引く時、ゲームに負けるかわりに勝つ */
   winOnLastDraw?: boolean;
+  /** コストN以下の呪文によって、相手がクリーチャーを選ぶ時、このクリーチャーは選べない */
+  untargetableBySpellCost?: number;
+  /** このカードがバトルゾーン以外のゾーンにあれば、持ち主はゲームに負ける */
+  loseIfNotInBattle?: boolean;
+}
+
+/** 禁断の鼓動の裏側（禁断クリーチャー） */
+export interface ForbiddenSide {
+  /** ゲーム開始時に付ける封印の数 */
+  seals: number;
+  creature: Pick<CardDefinition, 'name' | 'cost' | 'civilizations' | 'races' | 'power' | 'text' | 'typeLabel' | 'keywords' | 'abilities' | 'statics' | 'replacements'>;
 }
 
 /** ツインパクトの呪文側 */
@@ -357,6 +372,8 @@ export interface CardDefinition {
   hyperForm?: Pick<CardDefinition, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
   /** NEO進化：このクリーチャーを、条件に合う自分のクリーチャーの上に重ねて召喚してもよい */
   neoEvolution?: CardFilter;
+  /** 禁断の鼓動：ゲーム開始時に封印を付けてバトルゾーンに置き、封印がすべてなくなったら creature 側に裏返す（禁断解放） */
+  forbidden?: ForbiddenSide;
   support: SupportLevel;
 }
 

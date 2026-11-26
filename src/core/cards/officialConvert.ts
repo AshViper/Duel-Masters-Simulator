@@ -2,7 +2,7 @@
 // 能力テキストは textParser で読み取り、定型文の能力は自動処理にする。
 // 読み取れない能力は「手動処理」として残す（誤って自動処理しないため）。
 import type { OfficialCardDetail, OfficialCardFace } from '../../server/dmOfficial';
-import { isCreatureType, type CardDefinition, type CardType, type Civilization, type SupportLevel, type TwinSide } from './types';
+import { isCreatureType, type CardDefinition, type CardType, type Civilization, type ForbiddenSide, type SupportLevel, type TwinSide } from './types';
 import { parseAbilityText, type ParsedAbilities } from './textParser';
 
 export const OFFICIAL_PREFIX = 'dm:';
@@ -54,7 +54,23 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
   // ハイパー化のカードは、2面目が同じ名前のクリーチャー（ハイパーモード）
   const hyperFace = d.faces[1] && d.faces[1].name === main.name && /クリーチャー/.test(d.faces[1].type) ? d.faces[1] : undefined;
   const hyperText = hyperFace ? hyperFace.abilities.filter((a) => !main.abilities.includes(a)).join('\n') : undefined;
-  const spellFace = hyperFace ? undefined : d.faces[1];
+  // 禁断の鼓動：2面目は禁断解放した後の禁断クリーチャー
+  const forbiddenFace = isForbiddenLabel(typeLabel) && d.faces[1] ? d.faces[1] : undefined;
+  const forbidden: ForbiddenSide | undefined = forbiddenFace
+    ? {
+        seals: forbiddenSealCount(faceText(main)) ?? 0,
+        creature: {
+          name: forbiddenFace.name,
+          cost: parseNumber(forbiddenFace.cost) ?? 0,
+          civilizations: parseCivs(forbiddenFace.civilization || main.civilization),
+          races: forbiddenFace.race ? forbiddenFace.race.split(/[/／]/).map((r) => r.trim()).filter(Boolean) : [],
+          power: parseNumber(forbiddenFace.power) ?? 0,
+          text: faceText(forbiddenFace),
+          typeLabel: forbiddenFace.type || '禁断クリーチャー',
+        },
+      }
+    : undefined;
+  const spellFace = hyperFace || forbiddenFace ? undefined : d.faces[1];
   const twin: TwinSide | undefined = spellFace
     ? {
         name: spellFace.name,
@@ -79,9 +95,23 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
     rarity: main.rarity || undefined,
     twin,
     ...(hyperText !== undefined ? { hyperText } : {}),
+    ...(forbidden ? { forbidden } : {}),
     support: 'manual',
   });
 }
+
+function isForbiddenLabel(label: string | undefined): boolean {
+  return !!label && /禁断の鼓動|禁断フィールド/.test(label);
+}
+
+/** 「この鼓動は、ゲーム開始時、封印を6つ付けてバトルゾーンに置く」の封印の数 */
+function forbiddenSealCount(text: string): number | undefined {
+  const m = text.normalize('NFKC').match(/ゲーム開始時、?封印を(\d+)つ付けてバトルゾーンに置く/);
+  return m ? Number(m[1]) : undefined;
+}
+
+/** 禁断の鼓動の面で、エンジンが処理する決まった文（開始時の封印・離れない・禁断解放） */
+const FORBIDDEN_RULE_LINES = [/^この(?:鼓動|フィールド)は、?ゲーム開始時、?封印を\d+つ付けてバトルゾーンに置く。?$/, /^この(?:鼓動|フィールド)はバトルゾーンを離れない。?$/, /^禁断解放/];
 
 export function faceKind(card: CardDefinition): 'creature' | 'spell' | 'other' {
   if (isCreatureType(card.type) && card.power !== undefined) return 'creature';
@@ -99,7 +129,38 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     const mainLines = new Set(card.text.split('\n'));
     card = { ...card, hyperText: card.twin.text.split('\n').filter((l) => !mainLines.has(l)).join('\n'), twin: undefined };
   }
-  const main = parseAbilityText(card.text, faceKind(card));
+  // 以前の版で、禁断の鼓動の裏側（禁断クリーチャー）をツインパクトの呪文側として保存したカードを直す
+  // （パワー・種族は残っていないので、公式から保存し直すと正しくなる）
+  if (card.twin && !card.forbidden && isForbiddenLabel(card.typeLabel)) {
+    const t = card.twin;
+    card = {
+      ...card,
+      twin: undefined,
+      forbidden: { seals: forbiddenSealCount(card.text) ?? 0, creature: { name: t.name, cost: t.cost, civilizations: t.civilizations, races: [], power: undefined, text: t.text, typeLabel: '禁断クリーチャー' } },
+    };
+  }
+  // 禁断の鼓動：決まった文はエンジンが処理し、裏側（禁断クリーチャー）の能力も読む
+  const isForbidden = !!card.forbidden;
+  const mainText = isForbidden
+    ? card.text
+        .split('\n')
+        .filter((l) => !FORBIDDEN_RULE_LINES.some((re) => re.test(l.normalize('NFKC').trim())))
+        .join('\n')
+    : card.text;
+  const main = parseAbilityText(mainText, faceKind(card));
+  const fParsed = card.forbidden ? parseAbilityText(card.forbidden.creature.text, 'creature') : undefined;
+  const forbidden: ForbiddenSide | undefined = card.forbidden
+    ? {
+        seals: card.forbidden.seals || (forbiddenSealCount(card.text) ?? 0),
+        creature: {
+          ...card.forbidden.creature,
+          keywords: Object.keys(fParsed!.keywords).length ? fParsed!.keywords : undefined,
+          abilities: fParsed!.abilities.length ? fParsed!.abilities : undefined,
+          statics: fParsed!.statics.length ? fParsed!.statics : undefined,
+          replacements: fParsed!.replacements.length ? fParsed!.replacements : undefined,
+        },
+      }
+    : undefined;
   const hyperParsed = card.hyperText !== undefined ? parseAbilityText(card.hyperText, 'creature') : undefined;
   let twin = card.twin;
   let twinParsed: ParsedAbilities | undefined;
@@ -111,8 +172,10 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
       abilities: twinParsed.abilities.length ? twinParsed.abilities : undefined,
     };
   }
-  const manual = main.manualLines.length + (twinParsed?.manualLines.length ?? 0) + (hyperParsed?.manualLines.length ?? 0);
+  const manual = main.manualLines.length + (twinParsed?.manualLines.length ?? 0) + (hyperParsed?.manualLines.length ?? 0) + (fParsed?.manualLines.length ?? 0);
   const auto =
+    (isForbidden ? 1 : 0) +
+    (fParsed ? Object.keys(fParsed.keywords).length + fParsed.parsedLines.length : 0) +
     Object.keys(main.keywords).length +
     main.parsedLines.length +
     (twinParsed ? Object.keys(twinParsed.keywords).length + twinParsed.parsedLines.length : 0) +
@@ -139,6 +202,7 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
         }
       : undefined,
     twin,
+    forbidden,
     support,
   };
 }

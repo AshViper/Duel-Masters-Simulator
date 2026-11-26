@@ -66,7 +66,18 @@ export function createGame(opts: NewGameOptions, reg: CardRegistry): GameState {
 
   const ctx = new Ctx(state, reg);
   for (const p of [0, 1] as PlayerId[]) {
+    // 禁断の鼓動：山札から出してバトルゾーンに置き、シャッフル後に山札の上から封印を付ける
+    const forbidden = players[p].zones.deck.filter((iid) => reg[state.cards[iid].cardId].forbidden);
+    for (const iid of forbidden) {
+      ctx.moveCard(iid, 'battle');
+      state.cards[iid].enteredTurn = 0;
+    }
     ctx.shuffle(p);
+    for (const iid of forbidden) {
+      const n = reg[state.cards[iid].cardId].forbidden!.seals;
+      for (let i = 0; i < n; i++) ctx.sealCard(iid, true);
+      ctx.log(`${reg[state.cards[iid].cardId].name} を封印${state.cards[iid].seals?.length ?? 0}つ付けてバトルゾーンに置いた`, p);
+    }
     for (let i = 0; i < config.initialShields; i++) {
       const top = ctx.topOfDeck(p);
       if (top) ctx.moveCard(top, 'shield');

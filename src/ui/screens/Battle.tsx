@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactElement } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
-import { attackTargets, canAttackWith, canPlay, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, power, untappedManaCount } from '../../core/engine/queries';
+import { attackTargets, canAttackWith, canPlay, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
@@ -89,7 +89,7 @@ export function BattleScreen() {
     setMenu(null);
     return dispatch(a);
   };
-  const def = (iid: string) => registry[g.cards[iid].cardId];
+  const def = (iid: string) => cardDef(g, registry, iid);
   const active = g.activePlayer;
   const myTurnControl = canControl(active) && isIdle(g);
 
@@ -193,7 +193,7 @@ export function BattleScreen() {
         faceDown={opts.hidden}
         size={size}
         tapped={inst.tapped}
-        power={inst.zone === 'battle' ? power(g, registry, iid) : undefined}
+        power={inst.zone === 'battle' && !isIgnored(g, registry, iid) ? power(g, registry, iid) : undefined}
         cost={inst.zone === 'hand' ? effectiveCost(g, registry, inst.owner, iid) : undefined}
         selected={selection.includes(iid)}
         highlight={highlightOf(iid)}
@@ -202,7 +202,14 @@ export function BattleScreen() {
         onHover={opts.hidden ? undefined : (on) => setHover(on ? iid : null)}
         draggable={canControl(inst.owner)}
         onDragStart={onDragStart(iid)}
-        badge={inst.under.length > 0 ? <span className="under-badge">進化 +{inst.under.length}</span> : undefined}
+        badge={
+          inst.seals?.length ? (
+            <span className="under-badge seal-badge" title="封印されている間、両プレイヤーはこのカードを無視する">封印 ×{inst.seals.length}</span>
+          ) : inst.under.length > 0 ? (
+            <span className="under-badge">進化 +{inst.under.length}</span>
+          ) : undefined
+        }
+        dimmed={inst.zone === 'battle' && !!inst.seals?.length}
         testId={`card-${iid}`}
       />
     );
@@ -362,7 +369,7 @@ export function BattleScreen() {
         <div className="preview" data-testid="preview">
           {hoverVisible ? (
             <>
-              <CardView card={def(hover!)} size="md" power={hoverInst!.zone === 'battle' ? power(g, registry, hover!) : undefined} />
+              <CardView card={def(hover!)} size="md" power={hoverInst!.zone === 'battle' && !isIgnored(g, registry, hover!) ? power(g, registry, hover!) : undefined} />
               <div className="preview-info">
                 <div className="preview-name">{def(hover!).name}</div>
                 <div className="muted small">
@@ -504,7 +511,7 @@ function MenuItems({ g, iid, manual, act, play, showDetail, canControl }: {
   const inst = g.cards[iid];
   const owner = inst.owner;
   const actor: PlayerId = canControl(owner) ? owner : canControl(other(owner)) ? other(owner) : 0;
-  const d = registry[inst.cardId];
+  const d = cardDef(g, registry, iid);
   const items: { label: string; run: () => void; disabled?: boolean }[] = [];
   if (!manual && inst.zone === 'hand') {
     const chargeOk = g.activePlayer === owner && g.phase === 'charge' && !g.players[owner].chargedThisTurn && isIdle(g);
@@ -558,7 +565,7 @@ function DecisionPanel({ g, selection, setSelection, act, renderCard, canControl
   const p = g.pending!;
   const who = g.players[p.player].name;
   const sourceId = p.kind === 'block' ? p.attacker : p.source;
-  const source = sourceId && g.cards[sourceId] ? registry[g.cards[sourceId].cardId] : undefined;
+  const source = sourceId && g.cards[sourceId] ? cardDef(g, registry, sourceId) : undefined;
   // 発生源が相手の伏せたシールドなどなら見せない
   const sourceHidden = !!sourceId && ((g.cards[sourceId].zone === 'shield' && !g.cards[sourceId].faceUp) || (g.cards[sourceId].zone === 'hand' && !canControl(g.cards[sourceId].owner)));
   const respond = (r: { accept?: boolean; selected?: string[] }) => act({ type: 'RESPOND', player: p.player, ...r });
@@ -581,7 +588,7 @@ function DecisionPanel({ g, selection, setSelection, act, renderCard, canControl
     body = (
       <>
         <p className="decision-prompt">
-          {registry[g.cards[p.attacker].cardId].name}（パワー{power(g, registry, p.attacker)}）が攻撃しています。ブロックするクリーチャーを選んでください。
+          {cardDef(g, registry, p.attacker).name}（パワー{power(g, registry, p.attacker)}）が攻撃しています。ブロックするクリーチャーを選んでください。
         </p>
         <div className="zone-cards wrap decision-cards">{p.blockers.map((b) => renderCard(b, 'sm'))}</div>
         <button onClick={() => respond({ selected: [] })} data-testid="no-block">ブロックしない</button>

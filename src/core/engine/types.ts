@@ -28,6 +28,10 @@ export interface CardInstance {
   hyper?: boolean;
   /** 次の player のターンのはじめまで有効なキーワード能力 */
   keywordsUntil?: { keywords: Keywords; player: PlayerId };
+  /** このカードに付いている封印（seal ゾーンのカード。最後が一番上） */
+  seals?: string[];
+  /** 禁断の鼓動がクリーチャー側に裏返った（禁断解放した） */
+  flipped?: boolean;
 }
 
 export interface PlayerState {
@@ -113,6 +117,8 @@ export type Task =
   /** 呪文を解決し終えたら墓地へ */
   | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin' }
   | { kind: 'hyperize'; player: PlayerId; iid: string }
+  /** コマンドが出た時、その持ち主は同じ文明を持つ自身のカードから封印を1つ墓地に置く */
+  | { kind: 'commandUnseal'; player: PlayerId; command: string }
   /** 攻撃の終わり */
   | { kind: 'attackEnd'; attacker: string }
   /** 侵略・革命チェンジを使うか聞く */
