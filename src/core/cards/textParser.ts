@@ -910,7 +910,16 @@ function parseSentence(s: string): EffectDef[] | null {
     if (body && (chosen || p)) return [{ type: 'repeat', per: chosen ? 'chosen' : p!.per, unit: chosen ? 1 : p!.unit, effects: body }];
   }
   // 「相手の手札を見て1枚選び、捨てさせる」：中身を見て選ぶ
-  if ((m = s.match(/^相手の手札を見て(\d+)枚選び、捨てさせる$/))) return [move({ owner: 'opponent', zone: 'hand', count: n(m[1]) }, 'graveyard')];
+  if ((m = s.match(/^相手の手札を見て(\d+)枚(まで)?選び、捨てさせる$/)))
+    return [move({ owner: 'opponent', zone: 'hand', count: n(m[1]), ...(m[2] ? { upTo: true } : {}) }, 'graveyard')];
+  // 「各プレイヤーは、バトルゾーン、手札、シールドゾーン、墓地にある自身のカードをすべて山札に加えてシャッフルする」
+  if ((m = s.match(/^各プレイヤーは、?((?:(?:バトルゾーン|手札|シールドゾーン|マナゾーン|墓地)(?:、|と|および)?)+)にある自身のカードをすべて(?:自身の)?山札に(?:加えて|戻して)シャッフルする$/))) {
+    const Z: Record<string, TargetSpec['zone']> = { バトルゾーン: 'battle', 手札: 'hand', シールドゾーン: 'shield', マナゾーン: 'mana', 墓地: 'graveyard' };
+    const zones = m[1].split(/、|と|および/).filter(Boolean).map((z) => Z[z]);
+    if (!zones.length || zones.some((z) => !z)) return null;
+    // 解決中の呪文（まだ手札にある）は含めない
+    return [move({ owner: 'any', zone: zones[0], extraZones: zones.slice(1), count: 'all', filter: { excludeSelf: true } }, 'deckBottom'), { type: 'shuffleDeck', both: true }];
+  }
   // 「こうして捨てたカード1枚につき、相手の手札を1枚見ないで選び、捨てさせる」
   if ((m = s.match(/^こうして捨てたカード1枚につき、相手の手札を(?:(\d+)枚見ないで|見ないで(\d+)枚)選び、捨てさせる$/))) return [{ type: 'discardRandom', count: n(m[1] ?? m[2]), perChosen: true }];
   // 天使と悪魔の墳墓：「バトルゾーンに同じ名前のクリーチャーが2体以上あれば、それらをすべて破壊する」
@@ -2008,8 +2017,9 @@ function parseGrantFrame(line: string): { condition: Condition; label: string } 
 
 /** 能力テキストの段落を、1つの能力ごとにまとめる（途中で改行された文をつなぎ、▶ の選択肢を前の能力に付ける） */
 export function splitAbilityLines(text: string): { line: string; options: string[] }[] {
+  // 「（補足説明）**Dスイッチ：〜」「（補足説明）Dスイッチ：〜」：改行がなくても、補足説明の後の能力語は別の行
   const paras = text
-    .split(/\n+/)
+    .split(/\n+|\*{2,}|(?<=[)）])\s*(?=[^\s、。()（）:：]{1,12}[:：])/)
     .map((x) => x.trim())
     .filter(Boolean);
   const out: { line: string; options: string[] }[] = [];

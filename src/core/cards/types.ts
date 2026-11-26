@@ -247,7 +247,8 @@ export type EffectDef =
       /** opponent：相手に選ばせる */
       chooser?: 'opponent';
     }
-  | { type: 'shuffleDeck' }
+  /** 山札をシャッフルする（both: 両方のプレイヤー） */
+  | { type: 'shuffleDeck'; both?: boolean }
   /** 自分の墓地のカードをすべて山札に加えてシャッフルする */
   | { type: 'graveyardToDeck' }
   /** 山札の上から1枚目を公開し、クリーチャーなら出してもよい／呪文なら唱えてもよい／それ以外は otherwise へ */

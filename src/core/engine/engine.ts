@@ -2337,8 +2337,10 @@ export class Ctx {
         return false;
       }
       case 'shuffleDeck':
-        this.shuffle(controller);
-        this.log('山札をシャッフル', controller);
+        for (const p of e.both ? [controller, other(controller)] : [controller]) {
+          this.shuffle(p);
+          this.log('山札をシャッフル', p);
+        }
         return false;
       case 'graveyardToDeck': {
         const grave = [...s.players[controller].zones.graveyard];
