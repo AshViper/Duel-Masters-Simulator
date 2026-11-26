@@ -1,7 +1,7 @@
 import { convertOfficialCard, officialCardId, OFFICIAL_PREFIX } from '../core/cards/officialConvert';
 import type { OfficialCardDetail } from '../server/dmOfficial';
 import { db } from '../db/db';
-import { deleteImages, hasImage, saveImage } from '../db/imageCache';
+import { deleteImages, hasImage, saveImage, setMissingImageHandler } from '../db/imageCache';
 import { useApp } from './appStore';
 import { apiFetch, isProxyMissing, needsBridge, NO_PROXY_MESSAGE } from '../ui/officialApi';
 import { isBridgeConnected } from '../ui/officialBridge';
@@ -53,48 +53,68 @@ async function backImageMissing(card: CardDefinition): Promise<boolean> {
   return !!(card.forbidden || card.psychic) && !!card.imageRef && !(await hasImage(`${card.imageRef}:b`));
 }
 
+/** 1枚分の修理：古い版で保存したカードは保存し直し、裏面の画像だけ無いカードは画像を取り直す。直せたら true */
+const fixing = new Map<string, Promise<boolean>>();
+function repairCard(card: CardDefinition): Promise<boolean> {
+  let p = fixing.get(card.id);
+  if (!p) {
+    p = (async () => {
+      try {
+        // 古い版で保存したカードは、裏側のパワーなどが欠けている（禁断解放した途端に破壊されるなど）ので、まるごと保存し直す
+        if (isStaleOfficial(card)) return (await saveOfficialCard(card.id.slice(OFFICIAL_PREFIX.length))) === 'saved';
+        if (!(await backImageMissing(card))) return false;
+        const res = await apiFetch(`/dm-api/detail?id=${encodeURIComponent(card.id.slice(OFFICIAL_PREFIX.length))}`);
+        if (!res.ok || isProxyMissing(res)) return false;
+        const detail = (await res.json()) as OfficialCardDetail;
+        const backUrl = detail.faces[1]?.imageUrl;
+        if (!backUrl) return false;
+        const img = await apiFetch(`/dm-api/image?path=${encodeURIComponent(new URL(backUrl).pathname)}`);
+        if (!img.ok) return false;
+        await saveImage(`${card.imageRef}:b`, await img.blob(), backUrl);
+        return true;
+      } catch {
+        // 通信できない時は次の機会（起動・中継の接続・表示）にまた試す
+        return false;
+      } finally {
+        fixing.delete(card.id);
+      }
+    })();
+    fixing.set(card.id, p);
+  }
+  return p;
+}
+
+function canReachOfficial(): boolean {
+  return !needsBridge() || isBridgeConnected();
+}
+
 /**
  * 保存済みの公式カードのうち、裏面の画像がないもの（保存時に取得に失敗したなど）の画像だけを取り直す。
  * 古い版で保存した禁断・サイキックのカードは、カードごと保存し直す。
- * 起動時に裏で1回だけ動かす。中継がない環境（ブリッジ未接続）や失敗した時は何もしない。
+ * 起動時と中継がつながった時に裏で動かす。中継がない環境（ブリッジ未接続）や失敗した時は何もしない。
  */
 let repairing = false;
 export async function repairBackImages(): Promise<number> {
-  if (repairing || (needsBridge() && !isBridgeConnected())) return 0;
+  if (repairing || !canReachOfficial()) return 0;
   repairing = true;
   let fixed = 0;
   try {
     const cards = Object.values(useApp.getState().registry).filter((c) => c.id.startsWith(OFFICIAL_PREFIX));
-    for (const card of cards) {
-      // 古い版で保存したカードは、裏側のパワーなどが欠けている（禁断解放した途端に破壊されるなど）ので、まるごと保存し直す
-      if (isStaleOfficial(card)) {
-        try {
-          if ((await saveOfficialCard(card.id.slice(OFFICIAL_PREFIX.length))) === 'saved') fixed++;
-        } catch {
-          // 通信できない時は次の起動でまた試す
-        }
-        continue;
-      }
-      if (!(await backImageMissing(card))) continue;
-      try {
-        const res = await apiFetch(`/dm-api/detail?id=${encodeURIComponent(card.id.slice(OFFICIAL_PREFIX.length))}`);
-        if (!res.ok || isProxyMissing(res)) continue;
-        const detail = (await res.json()) as OfficialCardDetail;
-        const backUrl = detail.faces[1]?.imageUrl;
-        if (!backUrl) continue;
-        const img = await apiFetch(`/dm-api/image?path=${encodeURIComponent(new URL(backUrl).pathname)}`);
-        if (!img.ok) continue;
-        await saveImage(`${card.imageRef}:b`, await img.blob(), backUrl);
-        fixed++;
-      } catch {
-        // 通信できない時は次の起動でまた試す
-      }
-    }
+    for (const card of cards) if (await repairCard(card)) fixed++;
   } finally {
     repairing = false;
   }
   return fixed;
 }
+
+// 裏面の画像（「…:b」）を表示しようとして無かった時は、その場でそのカードの画像を取りに行く。
+// 取れたら saveImage が表示中のカードに知らせる
+setMissingImageHandler((key) => {
+  if (!key.endsWith(':b') || !canReachOfficial()) return;
+  const front = key.slice(0, -2);
+  const card = Object.values(useApp.getState().registry).find((c) => c.imageRef === front && c.id.startsWith(OFFICIAL_PREFIX));
+  if (card) void repairCard(card);
+});
 
 /** 複数枚を順番に保存する（公式サーバー側の間隔制御は中継サーバーが行う） */
 export async function saveOfficialCards(ids: string[], onProgress: (done: number, total: number, errors: string[]) => void, signal?: { cancelled: boolean }): Promise<{ saved: number; skipped: number; errors: string[] }> {

@@ -7,6 +7,12 @@ import { db } from './db';
 const urls = new Map<string, string>();
 const loading = new Map<string, Promise<string | null>>();
 
+/** 表示しようとした画像が保存されていなかった時に呼ぶ（公式カードの裏面を取り直すため。store 側が登録する） */
+let onMissing: ((key: string) => void) | null = null;
+export function setMissingImageHandler(fn: (key: string) => void): void {
+  onMissing = fn;
+}
+
 export async function getImageUrl(key: string): Promise<string | null> {
   const hit = urls.get(key);
   if (hit) return hit;
@@ -105,7 +111,10 @@ export function useCachedImage(key: string | undefined): string | null {
     let set = listeners.get(key);
     if (!set) listeners.set(key, (set = new Set()));
     set.add(onArrive);
-    void getImageUrl(key).then((u) => alive && setUrl(u ?? urls.get(key) ?? null));
+    void getImageUrl(key).then((u) => {
+      if (!u && !urls.has(key)) onMissing?.(key);
+      if (alive) setUrl(u ?? urls.get(key) ?? null);
+    });
     return () => {
       alive = false;
       listeners.get(key)?.delete(onArrive);
