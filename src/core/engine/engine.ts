@@ -1856,8 +1856,11 @@ export class Ctx {
     if (losers.size === 2) return this.gameOver(null, '両者の敗北条件（引き分け）');
     if (s.pending) return;
     // パワー0以下のクリーチャーは破壊される（入力待ちの間は、中断中のタスクより前に割り込ませない）
+    // パワーが分からないカード（古い版で保存した禁断クリーチャーなど）は、0とみなして破壊しない
     const queued = new Set(s.queue.flatMap((t) => (t.kind === 'leave' ? [t.iid] : [])));
-    const dead = [...battleCards(s, this.reg, 0), ...battleCards(s, this.reg, 1)].filter((iid) => !queued.has(iid) && power(s, this.reg, iid) <= 0);
+    const dead = [...battleCards(s, this.reg, 0), ...battleCards(s, this.reg, 1)].filter(
+      (iid) => !queued.has(iid) && def(s, this.reg, iid).power !== undefined && power(s, this.reg, iid) <= 0,
+    );
     if (dead.length) this.insertFront(...dead.map((iid): Task => ({ kind: 'leave', iid, to: 'graveyard', cause: 'destroy' })));
   }
 

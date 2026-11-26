@@ -141,6 +141,23 @@ describe('禁断の鼓動の処理', () => {
     expect(s.log.some((l) => l.text.includes('禁断解放'))).toBe(true);
   });
 
+  it('古い版で保存した（パワーが分からない）ドキンダムXでも、禁断解放した途端に破壊されて負けにはならない', () => {
+    const stale = { ...KINDAN, id: 'stale-kindan', forbidden: { ...KINDAN.forbidden!, creature: { ...KINDAN.forbidden!.creature, power: undefined } } };
+    const reg2 = buildRegistry([...SAMPLE_CARDS, stale, ...Object.values(C)]);
+    let s = createGame({ players: [{ name: 'A', deck: [stale.id, ...filler] }, { name: 'B', deck: [...filler, 'S01-043'] }], seed: 7, firstPlayer: 0 }, reg2);
+    const k = s.players[0].zones.battle[0];
+    const ctx = new Ctx(s, reg2);
+    while ((s.cards[k].seals?.length ?? 0) > 1) ctx.moveCard(s.cards[k].seals![0], 'graveyard');
+    const fire = put(s, 0, C.command.id, 'hand');
+    put(s, 0, 'S01-031', 'mana');
+    const r = applyAction(s, { type: 'PLAY_CARD', player: 0, iid: fire }, reg2);
+    expect(r.error).toBeUndefined();
+    s = r.state;
+    expect(s.cards[k].flipped).toBe(true);
+    expect(s.cards[k].zone).toBe('battle');
+    expect(s.gameOverReason).toBeNull();
+  });
+
   it('コスト4以下の呪文では選べず、ドキンダムXがバトルゾーンを離れると負ける', () => {
     let s = newGame();
     const k = kodou(s);
