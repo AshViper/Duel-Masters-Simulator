@@ -103,7 +103,7 @@ input.num { width: 56px; }
 .screen > :not(.screen-header) { padding-left: var(--content-padding); padding-right: var(--content-padding); }
 .screen.fill { overflow: hidden; }
 .screen-body { flex: 1; min-height: 0; overflow: auto; padding-top: var(--content-padding); padding-bottom: var(--content-padding); }
-.screen > .settings, .screen > .setup, .screen > .history, .screen > .online-actions, .screen > .toolbar, .screen > div:not(.screen-body):not(.builder-body):not(.library):not(.home-body):not(.modal-backdrop) { margin-top: var(--content-padding); }
+.screen > .history, .screen > .toolbar, .screen > div:not(.screen-body):not(.builder-body):not(.library):not(.home-body):not(.setup-body):not(.settings-body):not(.modal-backdrop) { margin-top: var(--content-padding); }
 .screen-header {
   position: sticky; top: 0; z-index: 10; flex: none; display: flex; align-items: center; gap: 12px;
   height: var(--topbar-height); padding: 0 var(--content-padding) 0 16px;
@@ -406,13 +406,7 @@ button.stat-num:disabled { opacity: 1; }
 .result h2 { font-size: 32px; margin: 0 0 8px; }
 
 /* ───── 設定・その他 ───── */
-.settings, .setup { display: flex; flex-direction: column; gap: 14px; max-width: 720px; margin-bottom: var(--content-padding); padding: 16px 18px; border-radius: 11px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(21, 31, 48, 0.92), rgba(14, 22, 36, 0.92)); box-shadow: var(--shadow-panel), inset 0 1px 0 rgba(233, 196, 106, 0.07); }
-.settings label, .setup label { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.settings label.col { flex-direction: column; align-items: stretch; }
 .mode-tabs { display: flex; gap: 6px; }
-/* 対戦開始画面：パネルを画面の真ん中に置く */
-.screen > .setup.battle-setup { margin: auto; width: 100%; box-sizing: border-box; }
-.battle-setup .mode-tabs { justify-content: center; }
 .mode-tabs button.on { background: linear-gradient(180deg, #7fe4fa, #3fb8d8); border-color: #b8f1ff; color: #06243a; font-weight: 800; }
 .history-row { margin-bottom: 4px; }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #2a1830; border: 1px solid var(--ng); padding: 10px 18px; border-radius: 8px; z-index: 60; }
@@ -498,12 +492,6 @@ a.btn { display: inline-block; padding: 6px 12px; border: 1px solid var(--line);
 .text-import .warn { color: #f4d35e; }
 .text-import pre { white-space: pre-wrap; }
 
-/* オンライン対戦 */
-.online-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-.online-box { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
-.online-box h3 { margin: 0; }
-.room-code { font: 700 40px/1.1 ui-monospace, Consolas, monospace; letter-spacing: 0.25em; text-align: center; padding: 10px; border-radius: 8px; background: rgba(0, 0, 0, 0.25); user-select: all; }
-.room-input { font: 600 20px ui-monospace, Consolas, monospace; letter-spacing: 0.15em; text-align: center; }
 .net-banner { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 60; display: flex; gap: 10px; align-items: center; padding: 8px 14px; border-radius: 8px; background: #6b2330; color: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); }
 .net-banner button { padding: 4px 10px; }
 
@@ -516,4 +504,139 @@ a.bookmarklet, .official a.bookmarklet { display: inline-block; padding: 2px 10p
 .bridge-banner { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 70; display: flex; gap: 10px; align-items: center; padding: 8px 14px; border-radius: 8px; background: #1d5a3a; color: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); }
 .bridge-banner.warn { background: #6b5323; }
 .bridge-banner button { padding: 4px 10px; }
+
+/* ───── 対戦開始・オンライン（設定｜デッキ｜VS｜デッキ） ───── */
+.setup-body {
+  flex: 1; min-height: 0; display: grid; gap: var(--panel-gap); padding-top: var(--panel-gap); padding-bottom: var(--panel-gap);
+  grid-template-columns: clamp(290px, 24vw, 400px) minmax(0, 1fr) auto minmax(0, 1fr);
+}
+.setup-body > * { min-width: 0; min-height: 0; }
+.setup-config { display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+/* スクロールするパネルでは角の飾りがはみ出してスクロールバーが出るので内側に収める */
+.setup-config::before, .online-room::before, .settings-col .panel::before { inset: 0; }
+.setup-config .panel-title:not(:first-child) { margin-top: 8px; }
+.mode-cards { display: flex; flex-direction: column; gap: 6px; }
+.mode-card {
+  display: grid; grid-template-columns: 40px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 10px; align-items: center;
+  text-align: left; padding: 9px 12px; border-radius: 9px; background: rgba(8, 13, 23, 0.55);
+}
+.mode-card b { font-size: 15px; letter-spacing: .04em; }
+.mode-card small { grid-column: 2; color: var(--muted); font-size: 12px; }
+.mode-card-icon { grid-row: 1 / 3; font-size: 24px; text-align: center; color: rgba(93, 217, 245, 0.55); }
+.mode-card.on { border-color: var(--gold); background: linear-gradient(90deg, rgba(233, 196, 106, 0.18), rgba(8, 13, 23, 0.55)); box-shadow: var(--glow-gold); }
+.mode-card.on .mode-card-icon { color: var(--gold); }
+.segmented { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: rgba(8, 13, 23, 0.55); flex: none; }
+.segmented button { flex: 1; border: none; border-radius: 0; background: transparent; min-height: 34px; }
+.segmented button + button { border-left: 1px solid var(--line); }
+.segmented button:hover:not(:disabled) { box-shadow: none; background: rgba(93, 217, 245, 0.08); }
+.segmented button.on { background: linear-gradient(180deg, rgba(93, 217, 245, 0.32), rgba(63, 184, 216, 0.18)); color: #dff8ff; font-weight: 800; box-shadow: inset 0 -2px 0 var(--accent); }
+.segmented.col { flex-direction: column; }
+.segmented.col button { display: flex; align-items: baseline; gap: 10px; text-align: left; padding: 7px 12px; }
+.segmented.col button + button { border-left: none; border-top: 1px solid var(--line); }
+.segmented.col button.on { box-shadow: inset 3px 0 0 var(--accent); }
+.segmented.col b { width: 64px; flex: none; letter-spacing: .06em; }
+.segmented.col small { color: var(--muted); font-size: 12px; font-weight: 400; }
+.setup-config-foot { margin-top: auto; padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.setup-config-foot p { margin: 0; }
+.start-btn { min-height: 54px; font-size: 18px; letter-spacing: .12em; border-radius: 9px; }
+.start-btn:not(:disabled) { animation: start-glow 2.4s ease-in-out infinite; }
+@keyframes start-glow { 50% { box-shadow: 0 0 22px rgba(233, 196, 106, 0.45); } }
+.vs-mark {
+  align-self: center; font-size: clamp(26px, 2.6vw, 44px); font-weight: 900; font-style: italic; letter-spacing: .04em; padding: 0 2px;
+  background: linear-gradient(180deg, #fff3c4, var(--gold) 55%, #a8772a); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 12px rgba(233, 196, 106, 0.45));
+}
+
+/* デッキを選ぶパネル（DeckPicker） */
+.deck-picker { display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+.deck-picker .panel-title { color: var(--accent); }
+.deck-picker.red .panel-title { color: #ff9aa5; }
+.picker-hero {
+  flex: none; display: flex; gap: 14px; align-items: center; padding: 12px; border-radius: 10px;
+  background: radial-gradient(ellipse at 20% 50%, rgba(93, 217, 245, 0.16), transparent 70%), rgba(8, 13, 23, 0.55); border: 1px solid var(--line-subtle);
+}
+.deck-picker.red .picker-hero { background: radial-gradient(ellipse at 20% 50%, rgba(244, 91, 105, 0.16), transparent 70%), rgba(8, 13, 23, 0.55); }
+.picker-cover .card, .picker-cover .cover-empty { --w: clamp(96px, 8.5vw, 150px); width: var(--w); }
+.picker-hero-info { min-width: 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.picker-name { font-size: clamp(16px, 1.3vw, 21px); line-height: 1.3; overflow-wrap: anywhere; }
+.legal-chip { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 10px; border: 1px solid currentColor; }
+.legal-chip.ok { background: rgba(97, 208, 149, 0.1); }
+.legal-chip.ng { background: rgba(244, 91, 105, 0.1); }
+.picker-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 2px; }
+.picker-row { flex: none; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto 16px; gap: 10px; align-items: center; text-align: left; padding: 4px 10px 4px 6px; background: rgba(8, 13, 23, 0.45); border-color: var(--line-subtle); }
+.picker-row-cover .card, .picker-row-cover .cover-empty { --w: 34px; width: 34px; }
+.picker-row-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.picker-row-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.picker-row.bad .picker-row-name { color: var(--muted); }
+.picker-row.on { border-color: var(--accent); background: linear-gradient(90deg, rgba(93, 217, 245, 0.2), rgba(8, 13, 23, 0.45)); box-shadow: inset 3px 0 0 var(--accent); }
+.deck-picker.red .picker-row.on { border-color: var(--ng); background: linear-gradient(90deg, rgba(244, 91, 105, 0.2), rgba(8, 13, 23, 0.45)); box-shadow: inset 3px 0 0 var(--ng); }
+
+/* オンライン：プレイヤーとデッキ｜部屋 */
+.setup-body.online { grid-template-columns: minmax(0, 1fr) clamp(340px, 34vw, 560px); }
+.online-left { display: flex; flex-direction: column; gap: var(--panel-gap); }
+.online-left .deck-picker { flex: 1; }
+.online-player { flex: none; display: flex; flex-direction: column; }
+.online-player input { font-size: 15px; min-height: 36px; }
+.online-room { display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+.room-choices { display: flex; flex-direction: column; gap: 6px; }
+.room-choice { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 10px; border: 1px solid var(--line-subtle); background: rgba(8, 13, 23, 0.55); }
+.room-choice-head { display: flex; gap: 12px; align-items: center; }
+.room-choice-head b { display: block; font-size: 16px; letter-spacing: .04em; }
+.room-choice-head small { color: var(--muted); font-size: 12px; }
+.room-choice-icon { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 50%; font-size: 18px; color: var(--gold); border: 1px solid rgba(233, 196, 106, 0.45); background: rgba(233, 196, 106, 0.08); }
+.room-choice button.big { padding: 10px 20px; font-size: 16px; }
+.room-or { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; }
+.room-or::before, .room-or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.room-input { font: 700 24px ui-monospace, Consolas, monospace; letter-spacing: 0.3em; text-align: center; min-height: 48px; }
+.room-waiting { display: flex; flex-direction: column; gap: 14px; text-align: center; padding: 10px 0; }
+.room-waiting p { margin: 0; color: var(--muted); line-height: 1.7; }
+.room-code {
+  font: 800 clamp(36px, 3.6vw, 56px)/1.1 ui-monospace, Consolas, monospace; letter-spacing: 0.25em; text-align: center; padding: 18px 10px; border-radius: 10px; user-select: all;
+  color: var(--gold); text-shadow: 0 0 16px rgba(233, 196, 106, 0.5); border: 1px solid rgba(233, 196, 106, 0.5); background: rgba(8, 13, 23, 0.7); box-shadow: inset 0 0 30px rgba(233, 196, 106, 0.08);
+}
+.waiting-pulse { display: flex; justify-content: center; gap: 8px; }
+.waiting-pulse span { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); animation: wait-dot 1.2s ease-in-out infinite; }
+.waiting-pulse span:nth-child(2) { animation-delay: .2s; }
+.waiting-pulse span:nth-child(3) { animation-delay: .4s; }
+@keyframes wait-dot { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: none; } }
+.online-note { margin: auto 0 0; padding-top: 10px; border-top: 1px solid var(--line-subtle); font-size: 11.5px; line-height: 1.7; color: var(--faint); }
+.net-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); }
+.net-status i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.net-status.opening i, .net-status.waiting i, .net-status.connecting i { background: var(--gold); box-shadow: var(--glow-gold); animation: wait-dot 1.2s infinite; }
+.net-status.playing i { background: var(--ok); }
+.net-status.error i, .net-status.disconnected i { background: var(--ng); }
+
+/* ───── 設定（項目｜殿堂レギュレーション） ───── */
+.settings-body {
+  flex: 1; min-height: 0; display: grid; gap: var(--panel-gap); padding-top: var(--panel-gap); padding-bottom: var(--panel-gap);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.settings-col { display: flex; flex-direction: column; gap: var(--panel-gap); min-width: 0; min-height: 0; overflow: auto; }
+.settings-group { display: flex; flex-direction: column; flex: none; }
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 2px; }
+.setting-row + .setting-row { border-top: 1px solid var(--line-subtle); }
+.setting-label { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.setting-label b { font-size: 14px; }
+.setting-label small { color: var(--faint); font-size: 12px; }
+.setting-control { flex: none; display: flex; align-items: center; gap: 8px; }
+.setting-control input[type="range"] { width: clamp(120px, 12vw, 220px); accent-color: var(--accent); min-height: 0; padding: 0; border: none; background: none; box-shadow: none; }
+.setting-control .unit { color: var(--faint); font-size: 12px; width: 18px; }
+.settings-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 8px; }
+.danger-zone { border-color: rgba(244, 91, 105, 0.35); }
+.danger-zone .panel-title { color: #ff9aa5; }
+.settings-group.restricted { flex: 1; min-height: 0; overflow: hidden; }
+.restricted p { margin: 0 0 8px; }
+.restricted-split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.restricted-split textarea { min-height: 0; height: 100%; resize: none; font: 12.5px/1.5 ui-monospace, Consolas, monospace; }
+.restricted-list { list-style: none; margin: 0; padding: 6px; overflow: auto; border-radius: 8px; border: 1px solid var(--line-subtle); background: rgba(8, 13, 23, 0.55); display: flex; flex-direction: column; gap: 3px; }
+.restricted-list li { display: flex; gap: 8px; align-items: center; font-size: 12.5px; min-width: 0; }
+.restricted-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.restricted-tag { flex: none; font-size: 10.5px; font-weight: 800; padding: 0 6px; border-radius: 4px; }
+.restricted-tag.hall { background: var(--gold); color: #1a1406; }
+.restricted-tag.premium { background: var(--ng); color: #fff; }
+
+@media (max-width: 1100px) {
+  .settings-body { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  .settings-group.restricted { min-height: 360px; }
+}
 

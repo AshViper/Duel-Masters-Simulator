@@ -1,39 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { CardRegistry } from '../../core/cards/registry';
-import { CIV_LABEL, type CardDefinition, type Civilization } from '../../core/cards/types';
 import { deckCountLabel, isDeckLegal, type Deck } from '../../core/deck/rules';
 import { db, type SavedGame } from '../../db/db';
 import { useApp } from '../../store/appStore';
 import { useBattle } from '../../store/battleStore';
 import { Header } from '../components/AppShell';
-import { CardView, CIV_COLOR } from '../components/CardView';
-
-/** デッキの代表カード（指定したカード、なければコストが一番高いカード）と文明ごとの枚数 */
-function deckSummary(d: Deck, registry: CardRegistry) {
-  const chosen = d.coverCardId && d.cards[d.coverCardId] ? registry[d.coverCardId] : undefined;
-  let cover: CardDefinition | undefined;
-  const civ = new Map<Civilization, number>();
-  for (const [id, n] of Object.entries(d.cards)) {
-    const c = registry[id];
-    if (!c) continue;
-    if (!cover || c.cost > cover.cost || (c.cost === cover.cost && !cover.imageRef && c.imageRef)) cover = c;
-    for (const v of c.civilizations) civ.set(v, (civ.get(v) ?? 0) + n);
-  }
-  return { cover: chosen ?? cover, civ: [...civ.entries()].sort((a, b) => b[1] - a[1]) };
-}
-
-function CivDots({ civ }: { civ: [Civilization, number][] }) {
-  return (
-    <span className="civ-dots">
-      {civ.map(([c, n]) => (
-        <span key={c} style={{ ['--c' as string]: CIV_COLOR[c] }} title={`${CIV_LABEL[c]} ${n}枚`}>
-          {CIV_LABEL[c]}
-          <b>{n}</b>
-        </span>
-      ))}
-    </span>
-  );
-}
+import { CardView } from '../components/CardView';
+import { CivDots, deckSummary } from '../components/DeckPicker';
 
 const HOME_MENU: { icon: string; art: string; label: string; desc: string; testId?: string; primary?: boolean; run: () => void }[] = [
   { icon: '⚔', art: 'battle', label: '対戦開始', desc: 'CPU戦・1人回し', testId: 'menu-battle', primary: true, run: () => useApp.getState().go('setup') },
