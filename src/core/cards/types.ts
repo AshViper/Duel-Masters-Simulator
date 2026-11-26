@@ -120,6 +120,8 @@ export interface TargetSpec {
   ref?: 'event' | 'chosen';
   /** エンジン内部用：ref: 'event' を誘発の時に決めたカード */
   iids?: string[];
+  /** ref で指すカードが、どのゾーンにあってもよい（「その呪文を相手の墓地から唱える」「選んだ呪文を唱える」） */
+  anyZone?: boolean;
   /** zone のほかに選べるゾーン（「自分の手札または墓地から」） */
   extraZones?: TargetSpec['zone'][];
 }
@@ -146,11 +148,16 @@ export type Condition =
   | { type: 'castThisTurn'; who: 'self' | 'opponent' }
   /** このターンにそのプレイヤーのシールドが min 個以上ブレイクされた */
   | { type: 'shieldsBrokenThisTurn'; who: 'self' | 'opponent'; min: number }
+  /** 誘発の原因になったクリーチャーが、コストを支払わずに出ていた（iid はエンジンが誘発の時に入れる） */
+  | { type: 'subjectEnteredFree'; iid?: string }
+  /** このターンに出たクリーチャーの数が min 以上（who: 誰のクリーチャーか） */
+  | { type: 'enteredThisTurn'; who: 'self' | 'opponent' | 'any'; min: number }
   /** いまが相手のターン（S・トリガーで使った時の追加能力の判定用） */
   | { type: 'opponentTurn' };
 
 /** 効果でカードを動かす先（deckTop / deckBottom は山札の上 / 下） */
-export type MoveDest = 'hand' | 'mana' | 'graveyard' | 'shield' | 'deckTop' | 'deckBottom' | 'battle';
+/** under: 効果の発生源（このクリーチャー）の下に置く */
+export type MoveDest = 'hand' | 'mana' | 'graveyard' | 'shield' | 'deckTop' | 'deckBottom' | 'battle' | 'under';
 
 /** 構造化された効果定義 */
 export type EffectDef =
@@ -159,7 +166,7 @@ export type EffectDef =
   | { type: 'addManaFromDeck'; count: number }
   | { type: 'addShieldFromDeck'; count: number }
   /** 山札の上から N 枚を指定ゾーンへ（墓地肥やし・マナ加速など） */
-  | { type: 'deckTopTo'; count: number; to: 'graveyard' | 'mana' | 'shield' | 'hand'; who?: 'self' | 'opponent'; tapped?: boolean }
+  | { type: 'deckTopTo'; count: number; to: 'graveyard' | 'mana' | 'shield' | 'hand' | 'under'; who?: 'self' | 'opponent'; tapped?: boolean }
   /** 「相手は〜してもよい」：相手が選んで、相手が行う（effects は相手から見た効果） */
   | { type: 'opponentMay'; effects: EffectDef[] }
   | { type: 'destroy'; target: TargetSpec }
@@ -187,7 +194,8 @@ export type EffectDef =
       count: number;
       pickCount: number;
       pickFilter?: CardFilter;
-      pickTo: 'hand' | 'battle' | 'mana' | 'shield' | 'graveyard' | 'deckBottom';
+      /** none: 選ぶだけで動かさない（後の文の「選んだ呪文を唱える」で使う） */
+      pickTo: 'hand' | 'battle' | 'mana' | 'shield' | 'graveyard' | 'deckBottom' | 'none';
       /** 選んだカードをタップして置く（マナゾーン） */
       pickTapped?: boolean;
       /** 選んだカードを表向きで置く（シールドゾーン） */
@@ -236,7 +244,7 @@ export type EffectDef =
    * 効果の発生源（このクリーチャー）自身に対する処理。移動先（MoveDest）なら move と同じ移動をする。
    * 'toHand' / 'toMana' は旧形式（'hand' / 'mana' と同じ）。tapped: タップして置く
    */
-  | { type: 'selfAction'; action: 'destroy' | 'tap' | 'untap' | 'toHand' | 'toMana' | Exclude<MoveDest, 'battle'>; tapped?: boolean }
+  | { type: 'selfAction'; action: 'destroy' | 'tap' | 'untap' | 'toHand' | 'toMana' | Exclude<MoveDest, 'battle' | 'under'>; tapped?: boolean }
   /** ターン終了時まで、パワーを変更する */
   | { type: 'powerMod'; target: TargetSpec | 'self'; amount: number }
   /** ターン終了時まで、キーワード能力を与える */
@@ -272,6 +280,8 @@ export type EffectDef =
   | { type: 'magibomber'; maxCost: number }
   /** 数字を1つ選ぶ（後の文の「その数字と同じコストの」で使う） */
   | { type: 'chooseNumber' }
+  /** 対象のカードを、コストを支払わずに使う（唱える・出す）。「その呪文を」「選んだ呪文を」は target.ref で指す */
+  | { type: 'playFree'; target: TargetSpec }
   /** 相手の手札を見る */
   | { type: 'lookAtHand' }
   /** 選んだクリーチャーを、それぞれタップまたはアンタップする。iid: エンジン内部用（どちらにするか聞いているクリーチャー） */
@@ -606,6 +616,8 @@ export interface CardDefinition {
   soul?: Pick<CardDefinition, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
   /** 別のコストでの使い方 */
   altPlays?: AltPlay[];
+  /** 手札にある間の誘発：相手のターンの終わりに、条件を満たしていれば、コストを支払わずに使ってもよい */
+  handTriggers?: { when: 'opponentTurnEnd'; condition?: Condition }[];
   /** 自分のターンのはじめに、表向きで自分のシールドゾーンにあれば、コストを支払ったものとして召喚する（ギャラクシールド） */
   galaxyReturn?: boolean;
   /** サバイバー：自分の他のサバイバーすべてにも与える能力（{S} の付いた能力） */

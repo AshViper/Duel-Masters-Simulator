@@ -79,6 +79,16 @@ const C = {
     ['進化：自分の火のクリーチャー１体の上に置く。', 'メテオバーン：このクリーチャーが攻撃する時、このクリーチャーの下にあるカードを１枚墓地に置いてもよい。', 'カードがこのクリーチャーの下を離れた時、次のうちいずれかひとつを選ぶ。\n▶自分の山札の上から１枚をシールド化する。\n▶相手のクリーチャーを１体選び、破壊する。'],
     { type: '進化クリーチャー', power: '6000' },
   ),
+  taxFree: mk('m-70', ['相手のクリーチャーが出た時、そのターン、そのクリーチャーは攻撃できない。そのクリーチャーがコストを支払わずに出ていたら、カードを１枚引いてもよい。']),
+  toShield: spell('m-71', ['バトルゾーンにある、進化クリーチャーでないクリーチャーを１体選び、裏向きにして持ち主のシールドに加える。']),
+  underHand: mk('m-72', ['このクリーチャーが出た時または自分のターンの終わりに、カードを１枚引いてもよい。その後、自分の手札を１枚、表向きでこのクリーチャーの下に置いてもよい。']),
+  lookCast: spell('m-73', ['自分の山札の上から４枚を見る。その中から「S・トリガー」付きの呪文を１枚選んでもよい。残りを好きな順序で山札の一番下に戻し、選んだ呪文があればコストを支払わずに唱える。']),
+  stSpell: spell('m-74', ['S・トリガー', 'カードを２枚引く。']),
+  stealCast: mk('m-75', ['相手が手札から呪文を捨てた時、自分はその呪文を相手の墓地からコストを支払わずに唱えてもよい。']),
+  endCast: spell('m-76', ['相手のターンの終わりに、そのターン、クリーチャーが３体以上出ていれば、この呪文をコストを支払わずに唱えてもよい。', 'カードを２枚引く。']),
+  twice: spell('m-77', ['次の中から２回選ぶ。同じものを選んでもよい。\n▶カードを２枚引き、自分の手札を１枚捨てる。\n▶「S・トリガー」を持つカードを１枚、自分の墓地からコストを支払わずに実行する。こうして呪文を唱えたなら、それを唱えた後、墓地のかわりに山札の下に置く。\n▶クリーチャーを１体選び、シールド化する。']),
+  handMana: mk('m-78', ['このクリーチャーがバトルゾーンに出た時、自分の手札をすべてマナゾーンに置く。その後、それと同じ枚数のカードを自分のマナゾーンから手札に戻す。']),
+  discard: spell('m-79', ['自分の手札を１枚捨てる。']),
   plus: mk('m-15', ['{STP} S・トリガー・プラス（このクリーチャーを自分のシールドゾーンから手札に加える時、コストを支払わずにすぐ召喚してもよい）', '{x+}このクリーチャーが出た時、相手のクリーチャーをすべてタップする。']),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
@@ -642,5 +652,122 @@ describe('カードがこのクリーチャーの下を離れた時', () => {
     expect(s.pending).toMatchObject({ kind: 'chooseMode', player: 0 });
     s = act(s, { type: 'RESPOND', player: 0, selected: ['1'] });
     expect(s.cards[victim].zone).toBe('graveyard');
+  });
+});
+
+describe('前の文のカード・枚数を使う効果、下に置く、手札にある間の誘発', () => {
+  it('読み取り：すべて自動になる', () => {
+    for (const c of [C.taxFree, C.toShield, C.underHand, C.lookCast, C.stealCast, C.endCast, C.twice, C.handMana]) expect([c.id, c.support]).toEqual([c.id, 'full']);
+  });
+
+  it('相手のクリーチャーが出た時：そのターン攻撃できず、コストを支払わずに出ていたら引いてもよい', () => {
+    let s = newGame();
+    put(s, 0, C.taxFree.id, 'battle');
+    const hand = zone(s, 0, 'hand');
+    // 効果で（コストを支払わずに）出る
+    const free = put(s, 1, C.vanilla.id, 'hand');
+    s.queue.push({ kind: 'enterBattle', player: 1, iid: free });
+    new Ctx(s, reg).run();
+    expect(keywords(s, reg, free).cannotAttack).toBe(true);
+    expect(s.pending).toMatchObject({ kind: 'confirm', player: 0 });
+    s = act(s, { type: 'RESPOND', player: 0, accept: true });
+    expect(zone(s, 0, 'hand')).toBe(hand + 1);
+    // コストを支払って出たクリーチャーでは引けない
+    const paid = put(s, 1, C.vanilla.id, 'hand');
+    s.queue.push({ kind: 'enterBattle', player: 1, iid: paid, summoned: true, paid: true });
+    new Ctx(s, reg).run();
+    expect(s.pending).toBeFalsy();
+    expect(zone(s, 0, 'hand')).toBe(hand + 1);
+  });
+
+  it('進化クリーチャーでないクリーチャーを選び、持ち主のシールドに加える', () => {
+    let s = newGame();
+    const o = put(s, 1, C.vanilla.id, 'battle');
+    const shields = zone(s, 1, 'shield');
+    const sp = put(s, 0, C.toShield.id, 'hand');
+    mana(s, 1);
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: sp });
+    if (s.pending) s = act(s, { type: 'RESPOND', player: 0, selected: [o] });
+    expect(s.cards[o].zone).toBe('shield');
+    expect(zone(s, 1, 'shield')).toBe(shields + 1);
+  });
+
+  it('手札を1枚、このクリーチャーの下に置く', () => {
+    let s = newGame();
+    const c = put(s, 0, C.underHand.id, 'hand');
+    mana(s, 1);
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: c });
+    s = act(s, { type: 'RESPOND', player: 0, accept: false });
+    s = act(s, { type: 'RESPOND', player: 0, accept: true });
+    const pick = s.pending?.kind === 'selectCards' ? s.pending.candidates[0] : '';
+    const hand = zone(s, 0, 'hand');
+    s = act(s, { type: 'RESPOND', player: 0, selected: [pick] });
+    expect(s.cards[c].under).toEqual([pick]);
+    expect(zone(s, 0, 'hand')).toBe(hand - 1);
+    expect(s.players[0].zones.battle).not.toContain(pick);
+  });
+
+  it('山札の上から4枚を見て「S・トリガー」付きの呪文を選び、残りを下に置いてから唱える', () => {
+    let s = newGame();
+    const st = put(s, 0, C.stSpell.id, 'deck');
+    const sp = put(s, 0, C.lookCast.id, 'hand');
+    mana(s, 1);
+    const hand = zone(s, 0, 'hand');
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: sp });
+    expect(s.pending?.kind === 'selectCards' && s.pending.candidates).toEqual([st]);
+    s = act(s, { type: 'RESPOND', player: 0, selected: [st] });
+    if (s.pending?.kind === 'confirm') s = act(s, { type: 'RESPOND', player: 0, accept: true });
+    expect(s.pending).toBeFalsy();
+    expect(s.cards[st].zone).toBe('graveyard');
+    expect(zone(s, 0, 'hand')).toBe(hand - 1 + 2);
+  });
+
+  it('相手が手札から呪文を捨てた時、その呪文を相手の墓地から唱えてもよい', () => {
+    let s = newGame();
+    put(s, 1, C.stealCast.id, 'battle');
+    for (const h of [...s.players[0].zones.hand]) new Ctx(s, reg).moveCard(h, 'deck');
+    const d = put(s, 0, C.discard.id, 'hand');
+    const drawSpell = put(s, 0, C.stSpell.id, 'hand');
+    mana(s, 1);
+    const theirs = zone(s, 1, 'hand');
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: d });
+    expect(s.pending).toMatchObject({ kind: 'confirm', player: 1 });
+    s = act(s, { type: 'RESPOND', player: 1, accept: true });
+    if (s.pending?.kind === 'confirm') s = act(s, { type: 'RESPOND', player: 1, accept: true });
+    // 唱えたのはプレイヤー1（2枚引く）。呪文は持ち主（プレイヤー0）の墓地に置かれる
+    expect(zone(s, 1, 'hand')).toBe(theirs + 2);
+    expect(s.cards[drawSpell].zone).toBe('graveyard');
+    expect(s.cards[drawSpell].owner).toBe(0);
+  });
+
+  it('手札にある間の誘発：相手のターンの終わりに、クリーチャーが3体以上出ていれば唱えてもよい', () => {
+    let s = newGame();
+    const sp = put(s, 1, C.endCast.id, 'hand');
+    s = act(s, { type: 'END_TURN', player: 0 });
+    // 3体出ていないので聞かれない
+    expect(s.activePlayer).toBe(1);
+    expect(s.cards[sp].zone).toBe('hand');
+    s = act(s, { type: 'END_TURN', player: 1 });
+    s.players[0].creaturesThisTurn = 3;
+    const hand = zone(s, 1, 'hand');
+    s = act(s, { type: 'END_TURN', player: 0 });
+    expect(s.pending).toMatchObject({ kind: 'confirm', player: 1 });
+    s = act(s, { type: 'RESPOND', player: 1, accept: true });
+    expect(s.cards[sp].zone).toBe('graveyard');
+    // 唱えて1枚減り、2枚引く（次のターンのドローの前後は問わず、2枚以上増える）
+    expect(zone(s, 1, 'hand')).toBeGreaterThanOrEqual(hand - 1 + 2);
+  });
+
+  it('手札をすべてマナゾーンに置き、それと同じ枚数をマナゾーンから手札に戻す', () => {
+    let s = newGame();
+    const c = put(s, 0, C.handMana.id, 'hand');
+    mana(s, 1);
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: c });
+    const moved = zone(s, 0, 'mana') - 1;
+    expect(zone(s, 0, 'hand')).toBe(0);
+    expect(s.pending).toMatchObject({ kind: 'selectCards', min: moved, max: moved });
+    const pick = s.pending?.kind === 'selectCards' ? s.pending.candidates.slice(0, moved) : [];
+    s = act(s, { type: 'RESPOND', player: 0, selected: pick });
+    expect(zone(s, 0, 'hand')).toBe(moved);
   });
 });

@@ -573,7 +573,7 @@ export function targetCandidates(state: GameState, reg: CardRegistry, controller
   if (fixed) {
     return fixed.filter((iid) => {
       const inst = state.cards[iid];
-      if (!inst || !zones.includes(inst.zone as TargetSpec['zone']) || !owners.includes(inst.owner)) return false;
+      if (!inst || (!spec.anyZone && !zones.includes(inst.zone as TargetSpec['zone'])) || !owners.includes(inst.owner)) return false;
       if (inst.zone === 'battle' && isIgnored(state, reg, iid)) return false;
       return matchFilter(state, reg, iid, spec.filter, source);
     });
@@ -621,6 +621,12 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
     }
     case 'castThisTurn':
       return (state.players[c.who === 'self' ? controller : other(controller)].spellsThisTurn ?? 0) > 0;
+    case 'subjectEnteredFree':
+      return !!c.iid && state.cards[c.iid]?.zone === 'battle' && !!state.cards[c.iid].enteredFree;
+    case 'enteredThisTurn': {
+      const ps: PlayerId[] = c.who === 'self' ? [controller] : c.who === 'opponent' ? [other(controller)] : [controller, other(controller)];
+      return ps.reduce<number>((a, p) => a + (state.players[p].creaturesThisTurn ?? 0), 0) >= c.min;
+    }
     case 'opponentTurn':
       return state.activePlayer !== controller;
     case 'shieldsBrokenThisTurn':

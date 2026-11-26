@@ -28,9 +28,12 @@ describe('能力テキストの読み取り', () => {
 
   it('「〜てもよい」は任意効果、「その後」は続けて処理', () => {
     const p = creature('このクリーチャーがバトルゾーンに出た時、カードを1枚引く。その後、自分の手札を1枚捨ててもよい。');
+    // カードに書かれた1つの能力は1つの誘発にまとめ、途中の「〜てもよい」は聞いてから行う効果にする
     expect(p.abilities).toEqual([
-      { when: 'onSummon', effects: [{ type: 'draw', count: 1 }] },
-      { when: 'onSummon', optional: true, effects: [{ type: 'move', to: 'graveyard', target: { owner: 'self', zone: 'hand', count: 1 } }] },
+      {
+        when: 'onSummon',
+        effects: [{ type: 'draw', count: 1 }, { type: 'optional', effects: [{ type: 'move', to: 'graveyard', target: { owner: 'self', zone: 'hand', count: 1 } }] }],
+      },
     ]);
   });
 

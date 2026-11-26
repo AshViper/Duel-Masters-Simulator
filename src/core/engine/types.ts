@@ -38,6 +38,8 @@ export interface CardInstance {
   evolvedOnNonEvolution?: boolean;
   /** Dスイッチを使った（D2フィールドを上下逆さまにした） */
   dSwitched?: boolean;
+  /** コストを支払わずに出た（「そのクリーチャーがコストを支払わずに出ていたら」） */
+  enteredFree?: boolean;
   /** このターン（turn）の終わりにバトルゾーンを離れる（B・A・D・J・O・E・アビスラッシュ） */
   leaveAtTurnEnd?: { turn: number; how: 'destroy' | 'deckBottom' | 'deckBottomDraw' };
   /** 覚醒リンクでこのクリーチャーとリンクしているサイキック・セル（バトルゾーンの一覧には入らない） */
@@ -151,7 +153,7 @@ export type Task =
   /** after: 唱えた後、墓地のかわりに置く場所 */
   | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin'; after?: 'deckBottom' | 'hand' }
   /** summoned: 召喚で出る（効果で「出す」のではない） */
-  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
+  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; paid?: boolean; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
   /** 呪文を解決し終えたら墓地へ */
   | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin'; after?: 'deckBottom' | 'hand' }
   | { kind: 'hyperize'; player: PlayerId; iid: string }

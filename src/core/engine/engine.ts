@@ -112,7 +112,7 @@ const INSTEAD_LABEL: Record<ReplacementAbility['instead'], string> = {
 const CHOOSING_EFFECTS = new Set<EffectDef['type']>(['move', 'destroy', 'tap', 'untap', 'discardUnder', 'discardRandom', 'bounce', 'toHand', 'toGraveyard', 'toMana', 'toShield', 'toDeckBottom', 'toDeckTop', 'shieldToHand', 'graveyardToHand', 'putIntoBattle', 'seal']);
 
 /** 山札を見て選んだカードの行き先（選ぶ時の説明用） */
-const LOOK_DEST_LABEL = { hand: '手札へ', battle: 'バトルゾーンへ', mana: 'マナゾーンへ', shield: 'シールドゾーンへ', graveyard: '墓地へ', deckBottom: '山札の下へ' } as const;
+const LOOK_DEST_LABEL = { hand: '手札へ', battle: 'バトルゾーンへ', mana: 'マナゾーンへ', shield: 'シールドゾーンへ', graveyard: '墓地へ', deckBottom: '山札の下へ', none: 'この後の効果で使う' } as const;
 
 /** 順番を選ぶ時に出す、能力のかんたんな説明 */
 const EFFECT_HINT: Partial<Record<EffectDef['type'], string>> = {
@@ -146,7 +146,14 @@ function bindEvent(effects: EffectDef[], subject: string | undefined): EffectDef
   return effects.map((e): EffectDef => {
     let out = e;
     if ('target' in out && typeof out.target === 'object' && out.target.ref === 'event') out = { ...out, target: { ...out.target, iids: subject ? [subject] : [] } } as EffectDef;
-    if (out.type === 'conditional') out = { ...out, then: bindEvent(out.then, subject), ...(out.else ? { else: bindEvent(out.else, subject) } : {}) };
+    if (out.type === 'conditional')
+      out = {
+        ...out,
+        condition: out.condition.type === 'subjectEnteredFree' ? { ...out.condition, iid: subject } : out.condition,
+        then: bindEvent(out.then, subject),
+        ...(out.else ? { else: bindEvent(out.else, subject) } : {}),
+      };
+    if (out.type === 'optional') out = { ...out, effects: bindEvent(out.effects, subject) };
     if (out.type === 'chooseOne') out = { ...out, options: out.options.map((o) => ({ ...o, effects: bindEvent(o.effects, subject) })) };
     if (out.type === 'gachinko') out = { ...out, then: bindEvent(out.then, subject) };
     return out;
@@ -286,7 +293,7 @@ export class Ctx {
           const sd = def(s, this.reg, sh);
           if (!s.cards[sh].faceUp || !sd.galaxyReturn || sd.type === 'spell' || sd.type === 'evolution') continue;
           this.log(`${sd.name} をシールドゾーンから召喚する（コストを支払ったものとして）`, pl);
-          s.queue.push({ kind: 'enterBattle', player: pl, iid: sh, ...(isCreatureType(sd.type) ? { summoned: true } : {}) });
+          s.queue.push({ kind: 'enterBattle', player: pl, iid: sh, paid: true, ...(isCreatureType(sd.type) ? { summoned: true } : {}) });
         }
         break;
       }
@@ -297,6 +304,14 @@ export class Ctx {
       }
       case 'end':
         this.emit({ type: 'TURN_ENDED', player: pl, turn: s.turn });
+        // 手札にある間の誘発：「相手のターンの終わりに、〜していれば、この呪文をコストを支払わずに唱えてもよい」
+        for (const h of [...s.players[other(pl)].zones.hand]) {
+          const hd = def(s, this.reg, h);
+          for (const ht of hd.handTriggers ?? []) {
+            if (ht.when !== 'opponentTurnEnd' || (ht.condition && !evalCondition(s, this.reg, other(pl), ht.condition, false, h))) continue;
+            this.addTrigger(other(pl), h, this.effectTasks(other(pl), h, [{ type: 'playRevealed', iid: h, as: isCreatureType(hd.type) ? 'creature' : 'spell' }]));
+          }
+        }
         // 「このターンの終わりに破壊する／山札の下に置く」（B・A・D・J・O・E・アビスラッシュ）
         for (const b of [...s.players[0].zones.battle, ...s.players[1].zones.battle]) {
           const l = s.cards[b].leaveAtTurnEnd;
@@ -403,7 +418,7 @@ export class Ctx {
     const verb = face.type === 'spell' ? '唱える' : face.type === 'field' ? 'バトルゾーンに出す' : face.type === 'tamaseed' ? '使う' : inst.zone === 'hand' ? '召喚' : `${inst.zone === 'graveyard' ? '墓地' : 'マナゾーン'}から召喚`;
     this.log(`${face.name} を${verb}（${cost}マナ）`, player);
     this.emit({ type: 'CARD_PLAYED', player, iid });
-    s.queue.push(face.type === 'spell' ? { kind: 'castSpell', player, iid, side } : { kind: 'enterBattle', player, iid, evolveOn, ...(isCreatureType(face.type) ? { summoned: true } : {}) });
+    s.queue.push(face.type === 'spell' ? { kind: 'castSpell', player, iid, side } : { kind: 'enterBattle', player, iid, evolveOn, paid: cost > 0, ...(isCreatureType(face.type) ? { summoned: true } : {}) });
     this.run();
   }
 
@@ -452,6 +467,7 @@ export class Ctx {
         player,
         iid,
         ...(isCreatureType(d.type) ? { summoned: true } : {}),
+        paid: true,
         ...(alt.endOfTurn ? { endOfTurn: alt.endOfTurn } : {}),
         ...(alt.speed ? { grant: { keywords: { speedAttacker: true }, by: player } } : {}),
       });
@@ -713,6 +729,7 @@ export class Ctx {
         }
         if (task.tapped) inst.tapped = true;
         if (task.endOfTurn) inst.leaveAtTurnEnd = { turn: s.turn, how: task.endOfTurn };
+        inst.enteredFree = !task.paid;
         // 出したクリーチャーに能力を与える
         if (task.grant) {
           if (task.grant.untilNextTurn) inst.keywordsUntil = { keywords: { ...(inst.keywordsUntil?.keywords ?? {}), ...task.grant.keywords }, player: task.grant.by };
@@ -1362,9 +1379,16 @@ export class Ctx {
         return this.execEffect(controller, source, { type: 'deckTopTo', count: e.count, to: 'shield' });
       case 'deckTopTo': {
         const who = e.who === 'opponent' ? opp : controller;
+        // 動かしたカードは、後の文の「そのカード」で指せる
+        s.lastChosen = [];
         for (let i = 0; i < e.count; i++) {
           const top = this.topOfDeck(who);
           if (!top) break;
+          s.lastChosen.push(top);
+          if (e.to === 'under') {
+            this.putUnder(top, source, controller);
+            continue;
+          }
           this.moveCard(top, e.to);
           if (e.tapped && e.to === 'mana') s.cards[top].tapped = true;
           const shown = e.to === 'shield' || e.to === 'hand' ? '1枚' : this.name(top);
@@ -1604,6 +1628,10 @@ export class Ctx {
         this.log(`${this.name(source)} の効果が${e.untilNextTurn ? '次の自分のターンのはじめまで' : 'このターンの間'}有効`, controller);
         return false;
       }
+      case 'playFree':
+        return this.withTargets(controller, source, e.target, 'コストを支払わずに使う', false, (iid) => {
+          this.playFree(controller, iid, isCreatureType(def(s, this.reg, iid).type) ? 'creature' : 'spell');
+        });
       case 'chooseNumber': {
         const r = this.takeResponse();
         if (!r) {
@@ -1896,6 +1924,9 @@ export class Ctx {
           const t = this.putIntoBattle(iid, controller);
           return t && e.grant && t.kind === 'enterBattle' ? { ...t, grant: { ...e.grant, by: controller } } : t;
         }
+        case 'under':
+          this.putUnder(iid, source, controller);
+          return;
         case 'deckTop':
           if (s.cards[iid].zone === 'battle') return this.moveTo(iid, 'deck', controller);
           this.moveCard(iid, 'deck');
@@ -1915,6 +1946,23 @@ export class Ctx {
         }
       }
     });
+  }
+
+  /** カードを、バトルゾーンのクリーチャー（host）の下に置く */
+  private putUnder(iid: string, host: string, controller: PlayerId): void {
+    const s = this.s;
+    const h = s.cards[host];
+    const inst = s.cards[iid];
+    if (h?.zone !== 'battle' || !inst || inst.zone === 'battle' || iid === host) return;
+    const list = s.players[inst.owner].zones[inst.zone];
+    const k = list.indexOf(iid);
+    if (k >= 0) list.splice(k, 1);
+    // 下にあるカードは、ゾーンの一覧には入れずにクリーチャーに持たせる（進化元と同じ扱い）
+    inst.zone = 'battle';
+    inst.tapped = false;
+    inst.faceUp = true;
+    h.under.push(iid);
+    this.log(`${this.name(iid)} を ${this.name(host)} の下に置いた`, controller);
   }
 
   /** タップする（効果・攻撃以外）。アンタップ状態からタップした時だけ「タップした時」を誘発させる */
@@ -1974,8 +2022,11 @@ export class Ctx {
     }
     const followUps: Task[] = [];
     // 「手札に加えるかマナゾーンに置く」：行き先は1枚ずつ後で選ぶ
-    if (e.pickToAlt && picked.length) followUps.push(...this.effectTasks(controller, source, [{ type: 'chooseDest', iids: picked, options: [e.pickTo === 'deckBottom' ? 'hand' : e.pickTo, e.pickToAlt] }]));
+    if (e.pickToAlt && picked.length) followUps.push(...this.effectTasks(controller, source, [{ type: 'chooseDest', iids: picked, options: [e.pickTo === 'deckBottom' || e.pickTo === 'none' ? 'hand' : e.pickTo, e.pickToAlt] }]));
+    // 選んだカードは、後の文の「選んだ呪文」「そのカード」で指せる
+    s.lastChosen = [...picked];
     for (const iid of e.pickToAlt ? [] : picked) {
+      if (e.pickTo === 'none') continue;
       if (e.pickTo === 'deckBottom') {
         this.moveCard(iid, 'deck', { toTop: false });
         this.log('カード1枚を山札の下に置いた', controller);

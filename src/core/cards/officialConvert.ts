@@ -266,6 +266,7 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     survivor: main.survivor && hasAny(main.survivor) ? compact(main.survivor) : undefined,
     altPlays: main.altPlays?.length ? main.altPlays : undefined,
     galaxyReturn: main.galaxyReturn,
+    handTriggers: main.handTriggers?.length ? main.handTriggers : undefined,
     support,
   };
 }
