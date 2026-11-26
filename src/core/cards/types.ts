@@ -114,6 +114,9 @@ export type Condition =
   /** このクリーチャーがこのターンに攻撃していた */
   | { type: 'attackedThisTurn' };
 
+/** 効果でカードを動かす先（deckTop / deckBottom は山札の上 / 下） */
+export type MoveDest = 'hand' | 'mana' | 'graveyard' | 'shield' | 'deckTop' | 'deckBottom' | 'battle';
+
 /** 構造化された効果定義 */
 export type EffectDef =
   /** upTo: 0〜count 枚の範囲で引く枚数を選ぶ（「N枚まで引く」） */
@@ -123,19 +126,19 @@ export type EffectDef =
   /** 山札の上から N 枚を指定ゾーンへ（墓地肥やし・マナ加速など） */
   | { type: 'deckTopTo'; count: number; to: 'graveyard' | 'mana' | 'shield' | 'hand'; who?: 'self' | 'opponent' }
   | { type: 'destroy'; target: TargetSpec }
-  | { type: 'bounce'; target: TargetSpec }
+  /**
+   * カードを動かす共通の効果：対象（どこの・どのカードを・何枚）を移動先へ。
+   * 手札に戻す・マナ送り・墓地送り・シールド化・山札の上/下・バトルゾーンに出す はすべてこれで表す。
+   * tapped: タップして置く。grant: バトルゾーンに出したクリーチャーに与える能力
+   */
+  | { type: 'move'; target: TargetSpec; to: MoveDest; tapped?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean } }
   | { type: 'tap'; target: TargetSpec }
   | { type: 'untap'; target: TargetSpec }
-  /** tapped: タップして置く */
+  /** @deprecated 旧形式（保存済みのデータ用）。エンジンが move に読み替える */
+  | { type: 'bounce' | 'toHand' | 'toGraveyard' | 'toShield' | 'toDeckBottom' | 'toDeckTop' | 'shieldToHand' | 'graveyardToHand'; target: TargetSpec }
+  /** @deprecated 旧形式。move（to: 'mana'）に読み替える */
   | { type: 'toMana'; target: TargetSpec; tapped?: boolean }
-  | { type: 'toHand'; target: TargetSpec }
-  | { type: 'toGraveyard'; target: TargetSpec }
-  | { type: 'toShield'; target: TargetSpec }
-  | { type: 'toDeckBottom'; target: TargetSpec }
-  | { type: 'shieldToHand'; target: TargetSpec }
-  | { type: 'graveyardToHand'; target: TargetSpec }
-  /** 指定ゾーンのクリーチャーをバトルゾーンに出す（コストを払わない） */
-  /** grant：出したクリーチャーに与える能力（「次の自分のターンのはじめまで、そのクリーチャーに「ブロッカー」を与える」） */
+  /** @deprecated 旧形式。move（to: 'battle'）に読み替える */
   | { type: 'putIntoBattle'; target: TargetSpec; grant?: { keywords: Keywords; untilNextTurn?: boolean } }
   /** ツインパクトの呪文側を唱えた後、このカードをバトルゾーンに出す（「このカードを出す」） */
   | { type: 'putSelfIntoBattle' }
@@ -157,8 +160,6 @@ export type EffectDef =
       /** opponent：相手に選ばせる */
       chooser?: 'opponent';
     }
-  /** 手札のカードを山札の上に置く（選んだ順に上へ） */
-  | { type: 'toDeckTop'; target: TargetSpec }
   | { type: 'shuffleDeck' }
   /** 自分の墓地のカードをすべて山札に加えてシャッフルする */
   | { type: 'graveyardToDeck' }
@@ -179,8 +180,11 @@ export type EffectDef =
   /** 相手のシールドをブレイクする（S・トリガー可） */
   | { type: 'breakShields'; count: number }
   | { type: 'extraTurn' }
-  /** 効果の発生源（このクリーチャー）自身に対する処理 */
-  | { type: 'selfAction'; action: 'destroy' | 'toHand' | 'toMana' | 'tap' | 'untap' }
+  /**
+   * 効果の発生源（このクリーチャー）自身に対する処理。移動先（MoveDest）なら move と同じ移動をする。
+   * 'toHand' / 'toMana' は旧形式（'hand' / 'mana' と同じ）。tapped: タップして置く
+   */
+  | { type: 'selfAction'; action: 'destroy' | 'tap' | 'untap' | 'toHand' | 'toMana' | Exclude<MoveDest, 'battle'>; tapped?: boolean }
   /** ターン終了時まで、パワーを変更する */
   | { type: 'powerMod'; target: TargetSpec | 'self'; amount: number }
   /** ターン終了時まで、キーワード能力を与える */

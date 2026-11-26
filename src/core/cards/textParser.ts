@@ -12,11 +12,13 @@ import type {
   ReplacementAbility,
   EffectDef,
   Keywords,
+  MoveDest,
   StaticAbility,
   TargetSpec,
   TriggeredAbility,
   TriggerEvent,
 } from './types';
+import { move } from './effects';
 
 export interface ParsedAbilities {
   keywords: Keywords;
@@ -368,24 +370,57 @@ function parseObject(s: string): { target: TargetSpec; noun: string; filter: Car
 
 type Zone = TargetSpec['zone'];
 type VerbRule = { re: RegExp; zones: Zone[]; build: (t: TargetSpec, m: RegExpMatchArray) => EffectDef | null };
-/** 動詞の一覧。どのゾーンのカードに使えるかと、作る効果 */
+
+/**
+ * 移動の言い方の表：言い方 → 移動先と、動かせる元のゾーン。
+ * 新しい言い方・新しい元のゾーンはこの表に1行（または from に1語）足すだけで、エンジンの変更はいらない
+ * （エンジンは move 1つで全部の移動を処理する）。
+ * tapped: この言い方が「タップして置く」を含む。creatureOnly: クリーチャーだけが対象（「出す」）
+ */
+const MOVE_VERBS: { re: RegExp; to: MoveDest; from: Zone[]; tapped?: RegExp; creatureOnly?: boolean }[] = [
+  { re: /^手札に(?:戻す|加える)$/, to: 'hand', from: ['battle', 'shield', 'graveyard', 'mana'] },
+  { re: /^(?:タップして)?マナゾーンに(?:タップして)?置く$/, to: 'mana', from: ['battle', 'hand', 'graveyard', 'shield', 'deck'], tapped: /タップして/ },
+  { re: /^墓地に置く$/, to: 'graveyard', from: ['battle', 'hand', 'mana', 'shield', 'deck'] },
+  { re: /^捨てる$/, to: 'graveyard', from: ['hand'] },
+  { re: /^(?:好きな順序で)?山札の(?:一番)?下に(?:置く|戻す)$/, to: 'deckBottom', from: ['battle', 'hand', 'mana', 'graveyard', 'shield'] },
+  { re: /^(?:好きな順序で)?山札の(?:一番)?上に(?:置く|戻す)$/, to: 'deckTop', from: ['battle', 'hand', 'mana', 'graveyard', 'shield'] },
+  {
+    re: /^(?:裏向きにして)?(?:新しい)?シールド(?:化する|ゾーンに(?:裏向きにして)?置く|に加える|として(?:シールドゾーンに)?(?:置く|加える))$/,
+    to: 'shield',
+    from: ['battle', 'hand', 'graveyard', 'mana'],
+  },
+  { re: /^(?:バトルゾーンに)?出す$/, to: 'battle', from: ['hand', 'graveyard', 'mana', 'hyperspatial'], creatureOnly: true },
+];
+
+/** 移動以外の動詞の一覧。どのゾーンのカードに使えるかと、作る効果 */
 const VERBS: VerbRule[] = [
   { re: /^破壊する$/, zones: ['battle'], build: (t) => ({ type: 'destroy', target: t }) },
-  { re: /^手札に(?:戻す|加える)$/, zones: ['battle'], build: (t) => ({ type: 'bounce', target: t }) },
-  { re: /^手札に(?:戻す|加える)$/, zones: ['shield'], build: (t) => ({ type: 'shieldToHand', target: t }) },
-  { re: /^手札に(?:戻す|加える)$/, zones: ['graveyard'], build: (t) => ({ type: 'graveyardToHand', target: t }) },
-  { re: /^手札に(?:戻す|加える)$/, zones: ['mana'], build: (t) => ({ type: 'toHand', target: t }) },
   { re: /^タップする$/, zones: ['battle', 'mana'], build: (t) => ({ type: 'tap', target: t }) },
   { re: /^アンタップする$/, zones: ['battle', 'mana'], build: (t) => ({ type: 'untap', target: t }) },
-  { re: /^(タップして)?マナゾーンに(?:タップして)?置く$/, zones: ['battle', 'hand', 'graveyard', 'shield', 'deck'], build: (t, m) => ({ type: 'toMana', target: t, ...(m[0].includes('タップして') ? { tapped: true } : {}) }) },
-  { re: /^墓地に置く$/, zones: ['battle', 'hand', 'mana', 'shield', 'deck'], build: (t) => ({ type: 'toGraveyard', target: t }) },
-  { re: /^捨てる$/, zones: ['hand'], build: (t) => ({ type: 'toGraveyard', target: t }) },
-  { re: /^(?:好きな順序で)?山札の(?:一番)?下に(?:置く|戻す)$/, zones: ['battle', 'hand', 'mana', 'graveyard', 'shield'], build: (t) => ({ type: 'toDeckBottom', target: t }) },
-  { re: /^(?:好きな順序で)?山札の(?:一番)?上に(?:置く|戻す)$/, zones: ['hand'], build: (t) => ({ type: 'toDeckTop', target: t }) },
-  { re: /^(?:裏向きにして)?(?:新しい)?シールド(?:化する|ゾーンに(?:裏向きにして)?置く|に加える|として(?:シールドゾーンに)?(?:置く|加える))$/, zones: ['battle', 'hand', 'graveyard', 'mana'], build: (t) => ({ type: 'toShield', target: t }) },
   { re: /^(?:相手は)?(?:それら?に|そのクリーチャーに)?封印を1つ(?:ずつ)?付ける$/, zones: ['battle'], build: (t) => ({ type: 'seal', target: t }) },
-  { re: /^(?:バトルゾーンに)?出す$/, zones: ['hand', 'graveyard', 'mana', 'hyperspatial'], build: (t) => ({ type: 'putIntoBattle', target: { ...t, filter: { ...(t.filter ?? {}), cardType: 'creature' } } }) },
+  ...MOVE_VERBS.map(
+    (r): VerbRule => ({
+      re: r.re,
+      zones: r.from,
+      build: (t, m) =>
+        move(r.creatureOnly ? { ...t, filter: { ...(t.filter ?? {}), cardType: 'creature' } } : t, r.to, r.tapped?.test(m[0]) ? { tapped: true } : {}),
+    }),
+  ),
 ];
+
+/** 「このクリーチャーを〜」の動詞部分：移動の言い方の表（MOVE_VERBS）をそのまま使う */
+function parseSelfVerb(verb: string): EffectDef | null {
+  const v = verb.replace(/^(?:持ち主の|自分の)/, '');
+  if (v === '破壊する') return { type: 'selfAction', action: 'destroy' };
+  if (v === 'タップする') return { type: 'selfAction', action: 'tap' };
+  if (v === 'アンタップする') return { type: 'selfAction', action: 'untap' };
+  for (const r of MOVE_VERBS) {
+    if (r.to === 'battle' || !r.from.includes('battle')) continue;
+    const m = v.match(r.re);
+    if (m) return { type: 'selfAction', action: r.to, ...(r.tapped?.test(m[0]) ? { tapped: true } : {}) };
+  }
+  return null;
+}
 
 /** 「パワーを0にする」をパワー修正で表す時の下げ幅 */
 const POWER_ZERO = 1_000_000;
@@ -471,16 +506,16 @@ function parseSentence(s: string): EffectDef[] | null {
     const rest = parseSentence(m[3]);
     return rest && [draw(m[1], m[2]), ...rest];
   }
-  if ((m = s.match(/^自分の手札を(\d+)枚、?(?:好きな順序で)?(?:自分の)?山札の上に(?:置く|戻す)$/))) return [{ type: 'toDeckTop', target: { owner: 'self', zone: 'hand', count: n(m[1]) } }];
+  if ((m = s.match(/^自分の手札を(\d+)枚、?(?:好きな順序で)?(?:自分の)?山札の上に(?:置く|戻す)$/))) return [move({ owner: 'self', zone: 'hand', count: n(m[1]) }, 'deckTop')];
   if (/^自分の墓地にある(?:カードを)?すべて(?:の)?(?:カードを)?(?:自分の)?山札に(?:加え|戻し)、(?:山札を)?シャッフルする$/.test(s) || s === '自分の墓地にあるカードをすべて山札に加え、シャッフルする')
     return [{ type: 'graveyardToDeck' }];
   if ((m = s.match(/^自分の手札を(\d+)枚捨て、(.+)$/))) {
     const rest = parseSentence(m[2]);
-    return rest && [{ type: 'toGraveyard', target: { owner: 'self', zone: 'hand', count: n(m[1]) } }, ...rest];
+    return rest && [move({ owner: 'self', zone: 'hand', count: n(m[1]) }, 'graveyard'), ...rest];
   }
   if ((m = s.match(/^自分の山札の上から(\d+)枚(?:目)?(?:まで)?を?、?(?:タップして)?(?:自分の)?マナゾーンに置く$/))) return [{ type: 'deckTopTo', count: n(m[1]), to: 'mana' }];
   if ((m = s.match(/^(相手は自身|自分)の手札をすべて捨てる$/)))
-    return [{ type: 'toGraveyard', target: { owner: m[1] === '自分' ? 'self' : 'opponent', zone: 'hand', count: 'all' } }];
+    return [move({ owner: m[1] === '自分' ? 'self' : 'opponent', zone: 'hand', count: 'all' }, 'graveyard')];
   if ((m = s.match(/^(?:このターン、)?このクリーチャーに(「.+」を与える)$/))) {
     const kw = parseGrant(m[1]);
     return kw && [{ type: 'grantKeyword', target: 'self', keywords: kw }];
@@ -505,8 +540,8 @@ function parseSentence(s: string): EffectDef[] | null {
     return [{ type: 'playFromHandFree', ...(Object.keys(filter).length ? { filter } : {}) }];
   }
   if ((m = s.match(/^相手は自身の手札を(\d+)枚選び、捨てる$/)))
-    return [{ type: 'toGraveyard', target: { owner: 'opponent', zone: 'hand', count: n(m[1]), chooser: 'owner' } }];
-  if ((m = s.match(/^(?:自分の)?手札を(\d+)枚(?:選び、)?捨て(?:る)?$/))) return [{ type: 'toGraveyard', target: { owner: 'self', zone: 'hand', count: n(m[1]) } }];
+    return [move({ owner: 'opponent', zone: 'hand', count: n(m[1]), chooser: 'owner' }, 'graveyard')];
+  if ((m = s.match(/^(?:自分の)?手札を(\d+)枚(?:選び、)?捨て(?:る)?$/))) return [move({ owner: 'self', zone: 'hand', count: n(m[1]) }, 'graveyard')];
   // 「相手は自身のクリーチャーを1体選び、破壊する」：相手が選ぶ
   if ((m = s.match(/^相手は、?自身の([^、。]*?を\d+(?:体|つ|枚)(?:選び|選んで)、?.+)$/))) {
     const r = parseTargeted(`相手の${m[1]}`);
@@ -521,11 +556,10 @@ function parseSentence(s: string): EffectDef[] | null {
     return [{ type: 'seal', target: { owner, zone: 'battle', count: 'all', ...(Object.keys(filter).length ? { filter } : {}) } }];
   }
   if ((m = s.match(/^(?:このターン、)?このクリーチャーのパワーを\+(\d+)する$/))) return [{ type: 'powerMod', target: 'self', amount: n(m[1]) }];
-  if (s === 'このクリーチャーをアンタップする') return [{ type: 'selfAction', action: 'untap' }];
-  if (s === 'このクリーチャーをタップする') return [{ type: 'selfAction', action: 'tap' }];
-  if (s === 'このクリーチャーを破壊する') return [{ type: 'selfAction', action: 'destroy' }];
-  if (/^このクリーチャーを(?:持ち主の)?手札に戻す$/.test(s)) return [{ type: 'selfAction', action: 'toHand' }];
-  if (s === 'このクリーチャーをマナゾーンに置く') return [{ type: 'selfAction', action: 'toMana' }];
+  if ((m = s.match(/^このクリーチャーを、?(.+)$/))) {
+    const self = parseSelfVerb(m[1]);
+    if (self) return [self];
+  }
   if (s === 'このターンの後、自分のターンを追加する' || s === 'このターンの後にもう一度自分のターンを行う') return [{ type: 'extraTurn' }];
   // 「このターン、相手は呪文を唱えられない」「次の自分のターンのはじめまで、相手のクリーチャーは攻撃できない」
   if ((m = s.replace(/^次の、?相手のターンの終わりまで、/, '次の自分のターンのはじめまで、').match(/^(このターン|次の自分のターンのはじめまで)、(.+)$/))) {
@@ -713,7 +747,7 @@ function parseBody(body: string, options: string[]): Group[] | null {
     const give = s.match(/^(このターン|次の自分のターンのはじめまで)、そのクリーチャーに(「.+」を与える)$/);
     const lastG = groups[groups.length - 1];
     const lastE = lastG?.effects[lastG.effects.length - 1];
-    if (give && lastE?.type === 'putIntoBattle') {
+    if (give && lastE?.type === 'move' && lastE.to === 'battle') {
       const kw = parseGrant(give[2]);
       if (!kw) return null;
       lastE.grant = { keywords: kw, ...(give[1] !== 'このターン' ? { untilNextTurn: true } : {}) };

@@ -19,24 +19,24 @@ describe('部品の組み合わせで読む', () => {
       { type: 'destroy', target: { owner: 'opponent', zone: 'battle', count: 1 } },
       { type: 'discardRandom', count: 1 },
     ]);
-    expect(sp('相手のクリーチャーを1体選び、持ち主の手札に戻し、カードを1枚引く。').abilities[0].effects.map((e) => e.type)).toEqual(['bounce', 'draw']);
+    expect(sp('相手のクリーチャーを1体選び、持ち主の手札に戻し、カードを1枚引く。').abilities[0].effects.map((e) => e.type)).toEqual(['move', 'draw']);
   });
 
   it('目的語の言い方：移動元が後ろ・「にある」・好きな数・名詞のない種族', () => {
-    expect(sp('カードを2枚、自分のマナゾーンから手札に戻す。').abilities[0].effects).toEqual([{ type: 'toHand', target: { owner: 'self', zone: 'mana', count: 2 } }]);
+    expect(sp('カードを2枚、自分のマナゾーンから手札に戻す。').abilities[0].effects).toEqual([{ type: 'move', to: 'hand', target: { owner: 'self', zone: 'mana', count: 2 } }]);
     expect(sp('自分のマナゾーンにあるカードを好きな数、墓地に置く。').abilities[0].effects).toEqual([
-      { type: 'toGraveyard', target: { owner: 'self', zone: 'mana', count: 99, upTo: true } },
+      { type: 'move', to: 'graveyard', target: { owner: 'self', zone: 'mana', count: 99, upTo: true } },
     ]);
     expect(sp('自分のドラゴンを1体選び、アンタップする。').abilities[0].effects).toEqual([{ type: 'untap', target: { owner: 'self', zone: 'battle', count: 1, filter: { race: 'ドラゴン' } } }]);
     expect(sp('相手のクリーチャーを1体選び、持ち主のマナゾーンにタップして置く。').abilities[0].effects).toEqual([
-      { type: 'toMana', target: { owner: 'opponent', zone: 'battle', count: 1 }, tapped: true },
+      { type: 'move', to: 'mana', target: { owner: 'opponent', zone: 'battle', count: 1 }, tapped: true },
     ]);
-    expect(sp('自分のシールドをひとつ墓地に置いてもよい。').abilities[0]).toMatchObject({ optional: true, effects: [{ type: 'toGraveyard', target: { zone: 'shield', count: 1 } }] });
+    expect(sp('自分のシールドをひとつ墓地に置いてもよい。').abilities[0]).toMatchObject({ optional: true, effects: [{ type: 'move', to: 'graveyard', target: { zone: 'shield', count: 1 } }] });
   });
 
   it('2文：相手のシールドを選び、相手がそれを手札に加える', () => {
     expect(cr('このクリーチャーが攻撃する時、相手のシールドをふたつ選ぶ。相手はそのシールドを自身の手札に加える。').abilities[0].effects).toEqual([
-      { type: 'shieldToHand', target: { owner: 'opponent', zone: 'shield', count: 2 } },
+      { type: 'move', to: 'hand', target: { owner: 'opponent', zone: 'shield', count: 2 } },
     ]);
   });
 

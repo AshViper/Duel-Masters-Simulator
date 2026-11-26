@@ -23,21 +23,21 @@ describe('能力テキストの読み取り', () => {
   it('新しい書き方「出た時」と「出た時または攻撃する時」', () => {
     const p = creature('このクリーチャーが出た時または攻撃する時、相手のクリーチャーを1体選び、持ち主の手札に戻す。');
     expect(p.abilities.map((a) => a.when)).toEqual(['onSummon', 'onAttack']);
-    expect(p.abilities[0].effects[0]).toMatchObject({ type: 'bounce', target: { owner: 'opponent', count: 1 } });
+    expect(p.abilities[0].effects[0]).toMatchObject({ type: 'move', to: 'hand', target: { owner: 'opponent', count: 1 } });
   });
 
   it('「〜てもよい」は任意効果、「その後」は続けて処理', () => {
     const p = creature('このクリーチャーがバトルゾーンに出た時、カードを1枚引く。その後、自分の手札を1枚捨ててもよい。');
     expect(p.abilities).toEqual([
       { when: 'onSummon', effects: [{ type: 'draw', count: 1 }] },
-      { when: 'onSummon', optional: true, effects: [{ type: 'toGraveyard', target: { owner: 'self', zone: 'hand', count: 1 } }] },
+      { when: 'onSummon', optional: true, effects: [{ type: 'move', to: 'graveyard', target: { owner: 'self', zone: 'hand', count: 1 } }] },
     ]);
   });
 
   it('「〜てもよい。そうしたら」は1つの任意効果にまとめる', () => {
     const p = creature('このクリーチャーがバトルゾーンに出た時、自分の手札を１枚捨ててもよい。そうしたら、カードを２枚引く。');
     expect(p.abilities).toEqual([
-      { when: 'onSummon', optional: true, effects: [{ type: 'toGraveyard', target: { owner: 'self', zone: 'hand', count: 1 } }, { type: 'draw', count: 2 }] },
+      { when: 'onSummon', optional: true, effects: [{ type: 'move', to: 'graveyard', target: { owner: 'self', zone: 'hand', count: 1 } }, { type: 'draw', count: 2 }] },
     ]);
   });
 
@@ -57,7 +57,7 @@ describe('能力テキストの読み取り', () => {
 
   it('墓地から出す・条件付き', () => {
     expect(creature('このクリーチャーが破壊された時、コスト5以下のクリーチャーを1体、自分の墓地から出してもよい。').abilities).toEqual([
-      { when: 'onDestroyed', optional: true, effects: [{ type: 'putIntoBattle', target: { owner: 'self', zone: 'graveyard', count: 1, filter: { maxCost: 5, cardType: 'creature' } } }] },
+      { when: 'onDestroyed', optional: true, effects: [{ type: 'move', to: 'battle', target: { owner: 'self', zone: 'graveyard', count: 1, filter: { maxCost: 5, cardType: 'creature' } } }] },
     ]);
     const c = creature('このクリーチャーがバトルゾーンに出た時、バトルゾーンに自分の水のクリーチャーがあれば、カードを1枚引く。');
     expect(c.abilities[0].condition).toEqual({ type: 'compare', left: { who: 'self', zone: 'battle', filter: { civilization: 'water' } }, op: '>=', right: 1 });
@@ -211,7 +211,7 @@ describe('能力テキストの読み取り（公式の書式・キーワード�
 
   it('種族・進化ではない・多色の条件', () => {
     expect(creature('このクリーチャーが攻撃する時、コスト5以下のアビス・クリーチャーを2体まで、自分の墓地から出してもよい。').abilities[0].effects).toEqual([
-      { type: 'putIntoBattle', target: { owner: 'self', zone: 'graveyard', count: 2, upTo: true, filter: { maxCost: 5, race: 'アビス', cardType: 'creature' } } },
+      { type: 'move', to: 'battle', target: { owner: 'self', zone: 'graveyard', count: 2, upTo: true, filter: { maxCost: 5, race: 'アビス', cardType: 'creature' } } },
     ]);
     expect(creature('このクリーチャーが破壊された時、闇のコスト6以下の、進化ではないクリーチャーを1体、自分の墓地から出してもよい。').abilities[0].effects[0]).toMatchObject({
       target: { filter: { civilization: 'darkness', maxCost: 6, nonEvolution: true } },
@@ -248,7 +248,7 @@ describe('能力テキストの読み取り（公式の書式・キーワード�
     expect(spell('相手は自身のエレメントを1つ選び、破壊する。').abilities[0].effects).toEqual([
       { type: 'destroy', target: { owner: 'opponent', zone: 'battle', count: 1, chooser: 'owner' } },
     ]);
-    expect(spell('相手は自身の手札をすべて捨てる。').abilities[0].effects).toEqual([{ type: 'toGraveyard', target: { owner: 'opponent', zone: 'hand', count: 'all' } }]);
+    expect(spell('相手は自身の手札をすべて捨てる。').abilities[0].effects).toEqual([{ type: 'move', to: 'graveyard', target: { owner: 'opponent', zone: 'hand', count: 'all' } }]);
     expect(creature('このクリーチャーが出た時、自分の山札の上から4枚までマナゾーンに置く。').abilities[0].effects).toEqual([{ type: 'deckTopTo', count: 4, to: 'mana' }]);
   });
 });

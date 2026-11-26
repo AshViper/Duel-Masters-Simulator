@@ -328,6 +328,6 @@ describe('同じ行に並んだ選択肢', () => {
   it('「次のうちいずれかひとつを選ぶ。▼…▼…」', () => {
     const p = parseAbilityText('次のうちいずれかひとつを選ぶ。▼手札を１枚捨て、その後、カードを２枚引く。▼相手のパワー2000以下のクリーチャーを１体破壊する。', 'spell');
     expect(p.manualLines).toEqual([]);
-    expect(p.abilities[0].effects[0]).toMatchObject({ type: 'chooseOne', options: [{ effects: [{ type: 'toGraveyard' }, { type: 'draw', count: 2 }] }, { effects: [{ type: 'destroy' }] }] });
+    expect(p.abilities[0].effects[0]).toMatchObject({ type: 'chooseOne', options: [{ effects: [{ type: 'move', to: 'graveyard' }, { type: 'draw', count: 2 }] }, { effects: [{ type: 'destroy' }] }] });
   });
 });

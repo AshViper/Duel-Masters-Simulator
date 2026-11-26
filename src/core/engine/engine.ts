@@ -4,6 +4,7 @@
 // 自動フェイズ（開始・ドロー・終了）もキューのタスクとして進めるので、
 // 「ターンのはじめに」などの誘発能力が次のフェイズより先に解決される。
 import type { CardRegistry } from '../cards/registry';
+import { asMove, MOVE_DEST, type MoveEffect } from '../cards/effects';
 import {
   CIV_LABEL,
   isCreatureType,
@@ -1018,6 +1019,9 @@ export class Ctx {
   private execEffect(controller: PlayerId, source: string, e: EffectDef): boolean {
     const s = this.s;
     const opp = other(controller);
+    // 移動系の効果（旧形式を含む）は move 1つで処理する
+    const mv = asMove(e);
+    if (mv) e = mv;
     switch (e.type) {
       case 'draw': {
         let count = e.count;
@@ -1088,8 +1092,16 @@ export class Ctx {
           this.log(`${this.name(source)} を${e.action === 'tap' ? 'タップ' : 'アンタップ'}`, controller);
           return false;
         }
-        const to: ZoneName = e.action === 'toHand' ? 'hand' : e.action === 'toMana' ? 'mana' : 'graveyard';
-        this.insertFront({ kind: 'leave', iid: source, to, cause: e.action === 'destroy' ? 'destroy' : 'effect' });
+        const dest = e.action === 'toHand' ? 'hand' : e.action === 'toMana' ? 'mana' : e.action === 'destroy' ? 'graveyard' : e.action;
+        const to: ZoneName = dest === 'deckTop' || dest === 'deckBottom' ? 'deck' : dest;
+        this.insertFront({
+          kind: 'leave',
+          iid: source,
+          to,
+          cause: e.action === 'destroy' ? 'destroy' : 'effect',
+          ...(dest === 'deckBottom' ? { toTop: false } : {}),
+          ...(e.tapped ? { tapped: true } : {}),
+        });
         return false;
       }
       case 'turnStatic':
@@ -1171,28 +1183,24 @@ export class Ctx {
         }
         return this.withTargets(controller, source, e.target, '能力を与える', false, apply);
       }
-      case 'destroy':
-        return this.withTargets(controller, source, e.target, '破壊する', true, (iid) =>
-          s.cards[iid].zone === 'battle' ? { kind: 'leave', iid, to: 'graveyard', cause: 'destroy' } : this.moveCard(iid, 'graveyard'),
-        );
+      case 'move':
+        return this.execMove(controller, source, e);
+      // 旧形式の移動系は上の asMove で move に読み替え済み
       case 'bounce':
       case 'toHand':
       case 'shieldToHand':
       case 'graveyardToHand':
-        return this.withTargets(controller, source, e.target, '手札に戻す', e.target.zone === 'battle', (iid) => this.moveTo(iid, 'hand', controller));
       case 'toMana':
-        return this.withTargets(controller, source, e.target, 'マナゾーンに置く', e.target.zone !== 'deck', (iid) => {
-          const t = this.moveTo(iid, 'mana', controller);
-          if (t && t.kind === 'leave') return e.tapped ? { ...t, tapped: true } : t;
-          if (e.tapped) s.cards[iid].tapped = true;
-          return t;
-        });
       case 'toGraveyard':
-        return this.withTargets(controller, source, e.target, '墓地に置く', true, (iid) => this.moveTo(iid, 'graveyard', controller));
       case 'toShield':
-        return this.withTargets(controller, source, e.target, 'シールドに加える', e.target.zone === 'battle', (iid) => this.moveTo(iid, 'shield', controller));
       case 'toDeckBottom':
-        return this.withTargets(controller, source, e.target, '山札の下に置く', true, (iid) => this.moveTo(iid, 'deck', controller, false));
+      case 'toDeckTop':
+      case 'putIntoBattle':
+        return false;
+      case 'destroy':
+        return this.withTargets(controller, source, e.target, '破壊する', true, (iid) =>
+          s.cards[iid].zone === 'battle' ? { kind: 'leave', iid, to: 'graveyard', cause: 'destroy' } : this.moveCard(iid, 'graveyard'),
+        );
       case 'tap':
         return this.withTargets(controller, source, e.target, 'タップする', true, (iid) => {
           s.cards[iid].tapped = true;
@@ -1203,11 +1211,6 @@ export class Ctx {
           s.cards[iid].tapped = false;
           this.log(`${this.name(iid)} をアンタップ`, controller);
         });
-      case 'putIntoBattle':
-        return this.withTargets(controller, source, e.target, 'バトルゾーンに出す', false, (iid) => {
-          const t = this.putIntoBattle(iid, controller);
-          return t && e.grant && t.kind === 'enterBattle' ? { ...t, grant: { ...e.grant, by: controller } } : t;
-        });
       case 'putSelfIntoBattle': {
         // ツインパクトの呪文側を唱えた後、このカードをクリーチャーとしてバトルゾーンに出す（墓地には置かない）
         const inst = s.cards[source];
@@ -1215,12 +1218,6 @@ export class Ctx {
         this.insertFront({ kind: 'enterBattle', player: inst.owner, iid: source });
         return false;
       }
-      case 'toDeckTop':
-        return this.withTargets(controller, source, e.target, '山札の上に置く', false, (iid) => {
-          if (s.cards[iid].zone === 'battle') return this.moveTo(iid, 'deck', controller);
-          this.moveCard(iid, 'deck');
-          this.log(`${e.target.zone === 'hand' ? 'カード1枚' : this.name(iid)} を山札の上に置いた`, controller);
-        });
       case 'shuffleDeck':
         this.shuffle(controller);
         this.log('山札をシャッフル', controller);
@@ -1330,6 +1327,34 @@ export class Ctx {
   }
 
   /** ゾーン移動。バトルゾーンから離れる場合は置換効果を通すタスクにする */
+  /** カードを動かす共通の効果。移動先ごとの違いはここだけに書く */
+  private execMove(controller: PlayerId, source: string, e: MoveEffect): boolean {
+    const s = this.s;
+    const info = MOVE_DEST[e.to];
+    return this.withTargets(controller, source, e.target, info.verb, info.harmful(e.target.zone), (iid) => {
+      switch (e.to) {
+        case 'battle': {
+          const t = this.putIntoBattle(iid, controller);
+          return t && e.grant && t.kind === 'enterBattle' ? { ...t, grant: { ...e.grant, by: controller } } : t;
+        }
+        case 'deckTop':
+          if (s.cards[iid].zone === 'battle') return this.moveTo(iid, 'deck', controller);
+          this.moveCard(iid, 'deck');
+          this.log(`${e.target.zone === 'hand' ? 'カード1枚' : this.name(iid)} を山札の上に置いた`, controller);
+          return;
+        case 'deckBottom':
+          return this.moveTo(iid, 'deck', controller, false);
+        default: {
+          const t = this.moveTo(iid, e.to, controller);
+          if (!e.tapped) return t;
+          if (t && t.kind === 'leave') return { ...t, tapped: true };
+          s.cards[iid].tapped = true;
+          return t;
+        }
+      }
+    });
+  }
+
   private moveTo(iid: string, to: ZoneName, controller: PlayerId, toTop = true): Task | void {
     const inst = this.s.cards[iid];
     if (inst.zone === 'battle') return { kind: 'leave', iid, to, cause: 'effect', toTop };
