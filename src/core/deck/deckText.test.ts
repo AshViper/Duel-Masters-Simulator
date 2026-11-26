@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fallbackKeywords, nameMatchScore, normalizeCardName, parseDeckText, searchKeywords } from './deckText';
+import { deckToText, fallbackKeywords, nameMatchScore, normalizeCardName, parseDeckText, searchKeywords } from './deckText';
 
 const SAMPLE_TSV = `修正版40枚
 カード\t枚数\t役割
@@ -81,5 +81,24 @@ describe('カード名の照合', () => {
   it('検索キーワードの候補', () => {
     expect(searchKeywords('エターナル・ブレイン／ブレイン珊瑚の仙樹')).toEqual(['エターナル・ブレイン／ブレイン珊瑚の仙樹', 'エターナル・ブレイン', 'ブレイン珊瑚の仙樹']);
     expect(searchKeywords('水上第九院 シャコガイル')).toEqual(['水上第九院 シャコガイル', 'シャコガイル']);
+  });
+});
+
+describe('deckToText', () => {
+  it('コスト順に書き出し、超次元ゾーンを分け、parseDeckText で読み戻せる', () => {
+    const registry = {
+      a: { name: 'ロジック・サークル', cost: 1 },
+      b: { name: '水上第九院 シャコガイル', cost: 9 },
+      p: { name: '時空の喧嘩屋キル', cost: 2, psychic: {} },
+    };
+    const text = deckToText({ name: 'テスト', cards: { b: 4, a: 3, p: 1, z: 0 } }, registry);
+    expect(text).toBe('# テスト\n\n## メインデッキ（7枚）\n《ロジック・サークル》×3\n《水上第九院 シャコガイル》×4\n\n## 超次元ゾーン（1枚）\n《時空の喧嘩屋キル》×1\n');
+    const r = parseDeckText(text);
+    expect(r.entries.map((e) => [e.name, e.count])).toEqual([
+      ['ロジック・サークル', 3],
+      ['水上第九院 シャコガイル', 4],
+      ['時空の喧嘩屋キル', 1],
+    ]);
+    expect(r.skipped).toEqual([]);
   });
 });

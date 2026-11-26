@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent }
 import { searchCards, type CardQuery } from '../../core/cards/registry';
 import { CIVILIZATIONS, CIV_LABEL, type CardDefinition } from '../../core/cards/types';
 import { deckCount, HYPERSPATIAL_MAX, hyperspatialCount, validateDeck, type Deck } from '../../core/deck/rules';
+import { deckToText } from '../../core/deck/deckText';
 import { useApp } from '../../store/appStore';
 import { Header } from '../components/AppShell';
 import { CardDetail, CardInfoPanel } from '../components/CardDetail';
@@ -61,6 +62,7 @@ export function DeckBuilderScreen() {
     if (useApp.getState().pendingTextImport) useApp.setState({ pendingTextImport: false });
   }, []);
   const [printing, setPrinting] = useState(false);
+  const [copied, setCopied] = useState(false);
   const results = useMemo(() => searchCards(cards, q), [cards, q]);
 
   const entries = useMemo(
@@ -203,6 +205,14 @@ export function DeckBuilderScreen() {
         <button className="gold" onClick={() => { void saveDeck(deck); setSaved(true); }} disabled={saved} data-testid="save-deck">保存</button>
         <button onClick={async () => { const c = await duplicateDeck(deck.id); if (c) { editDeck(c.id); setDeck(c); } }}>複製</button>
         <button onClick={() => setTextImport(true)} data-testid="open-text-import">テキスト取込</button>
+        <button
+          onClick={() => void navigator.clipboard?.writeText(deckToText(deck, registry)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
+          disabled={total + hyper === 0}
+          title="デッキ構成を「《カード名》×枚数」のテキストでコピーする（テキスト取込で読み戻せます）"
+          data-testid="copy-deck-text"
+        >
+          {copied ? '✓ コピーしました' : 'テキストでコピー'}
+        </button>
         <button onClick={() => go('decks')}>一覧へ</button>
         <button onClick={() => setPrinting(true)} disabled={total + hyper === 0} data-testid="proxy-pdf">プロキシPDF</button>
         <button className="danger" onClick={() => { if (confirm('このデッキを削除しますか？')) { void deleteDeck(deck.id); go('decks'); } }}>削除</button>

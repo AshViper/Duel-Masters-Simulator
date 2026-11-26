@@ -78,6 +78,7 @@ export function parseDeckText(text: string): DeckTextParseResult {
     const line = raw.trim();
     if (!line) continue;
     if (/^\|?[\s:|-]+\|?$/.test(line) && line.includes('-')) continue; // Markdown の表の区切り行
+    if (/^#+\s/.test(line) && !line.includes('《')) continue; // Markdown の見出し（書き出したデッキリストの「## 超次元ゾーン」など）
     let entry: DeckTextEntry | null;
     if (line.includes('\t')) entry = parseCells(line.split('\t'), line);
     else if (line.startsWith('|') || (line.match(/\|/g)?.length ?? 0) >= 2) entry = parseCells(line.replace(/^\||\|$/g, '').split('|'), line);
@@ -88,6 +89,26 @@ export function parseDeckText(text: string): DeckTextParseResult {
     else if (!/^(合計|計|総数|total)/i.test(line.normalize('NFKC').replace(/^[|\s*#]+/, ''))) skipped.push(line);
   }
   return { entries, skipped };
+}
+
+/** デッキ構成をテキストにする（parseDeckText でそのまま読み戻せる形）。超次元ゾーンのカードは別の見出しに分ける。 */
+export function deckToText(
+  deck: { name: string; cards: Record<string, number> },
+  registry: Record<string, { name: string; cost?: number; psychic?: unknown } | undefined>,
+): string {
+  const rows = Object.entries(deck.cards)
+    .filter(([, n]) => n > 0)
+    .map(([id, n]) => ({ id, n, card: registry[id] }))
+    .sort((a, b) => (a.card?.cost ?? 99) - (b.card?.cost ?? 99) || (a.card?.name ?? a.id).localeCompare(b.card?.name ?? b.id, 'ja'));
+  const section = (title: string, list: typeof rows) => {
+    const total = list.reduce((a, r) => a + r.n, 0);
+    return [`## ${title}（${total}枚）`, ...list.map((r) => `《${r.card?.name ?? r.id}》×${r.n}`)].join('\n');
+  };
+  const main = rows.filter((r) => !r.card?.psychic);
+  const hyper = rows.filter((r) => r.card?.psychic);
+  const parts = [`# ${deck.name}`, section('メインデッキ', main)];
+  if (hyper.length) parts.push(section('超次元ゾーン', hyper));
+  return parts.join('\n\n') + '\n';
 }
 
 // ───────────────────────── カード名の照合 ─────────────────────────
