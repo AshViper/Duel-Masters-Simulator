@@ -83,6 +83,54 @@ function normalizeKeepSpace(s: string): string {
   return stripIcons(t).replace(/[\s　]+/g, ' ').trim();
 }
 
+/**
+ * キーワード能力・決まった言い方の能力の表：言い方（完全一致の文字列・その候補・正規表現）→ 付く Keywords。
+ * 言い方の揺れは候補を足し、新しいキーワードは1行足す（エンジンが Keywords を見て処理する）。
+ * 「このクリーチャーは、」は「このクリーチャーは」にそろえてから引く
+ */
+const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArray | string[]) => Keywords)][] = [
+  ['マッハファイター', { machFighter: true }],
+  ['パワード・ブレイカー', { poweredBreaker: true }],
+  ['チャージャー', { charger: true }],
+  ['EXライフ', { exLife: true }],
+  ['エクストラEXライフ', { extraExLife: true }],
+  ['メガ・ラスト・バースト', { megaLastBurst: true }],
+  ['シールド・ゴー', { shieldGo: true }],
+  ['ガードマン', { guardman: true }],
+  ['スーパーガードマン', { superGuardman: true }],
+  ['マナゾーンに置く時、このカードはタップして置く', { manaTapped: true }],
+  ['自分の山札の最後の1枚を引く時、ゲームに負けるかわりに勝つ', { winOnLastDraw: true }],
+  ['ジャストダイバー', { justDiver: true }],
+  [/^コスト(\d+)以下の呪文(?:の効果)?によって、相手がクリーチャーを選ぶ時、このクリーチャーは選べない$/, (m) => ({ untargetableBySpellCost: Number(m[1]) })],
+  ['このカードがバトルゾーン以外のゾーンにあれば、自分はゲームに負ける', { loseIfNotInBattle: true }],
+  ['G・ストライク', { gStrike: true }],
+  ['このクリーチャーはブロックできない', { cannotBlock: true }],
+  ['このクリーチャーは攻撃されない', { cannotBeAttacked: true }],
+  [['相手はこのクリーチャーを選べない', 'このクリーチャーは相手に選ばれない'], { untargetable: true }],
+  ['このクリーチャーは攻撃もブロックもできない', { cannotAttack: true, cannotBlock: true }],
+  ['このクリーチャーがシールドをブレイクする時、相手はそのシールドを手札に加えるかわりに墓地に置く', { shieldBurn: true }],
+  ['ブロッカー', { blocker: true }],
+  [['S・トリガー', 'S·トリガー', 'スーパー・S・トリガー', 'S・トリガー・プラス'], { shieldTrigger: true }],
+  ['スピードアタッカー', { speedAttacker: true }],
+  ['スレイヤー', { slayer: true }],
+  ['W・ブレイカー', { breaker: 2 }],
+  ['T・ブレイカー', { breaker: 3 }],
+  ['Q・ブレイカー', { breaker: 4 }],
+  ['ワールド・ブレイカー', { breaker: 99 }],
+  [/^パワーアタッカー\+(\d+)$/, (m) => ({ powerAttacker: Number(m[1]) })],
+  ['このクリーチャーは相手プレイヤーを攻撃できない', { cannotAttackPlayers: true }],
+  ['このクリーチャーはクリーチャーを攻撃できない', { cannotAttackCreatures: true }],
+  ['このクリーチャーは攻撃できない', { cannotAttack: true }],
+  ['このクリーチャーはブロックされない', { unblockable: true }],
+  [['このクリーチャーはアンタップしているクリーチャーを攻撃できる', 'このクリーチャーはアンタップされているクリーチャーを攻撃できる'], { attackUntapped: true }],
+  ['このクリーチャーはすべてのバトルに勝つ', { winsAllBattles: true }],
+  ['このクリーチャーは自分のターンのはじめにアンタップしない', { noUntap: true }],
+  ['ハンティング', { hunting: true }],
+  [/^ササゲール(\d+)$/, (m) => ({ sasageru: Number(m[1]) })],
+  [/^(?:バトル中、このクリーチャーのパワーを\+(\d+)する|このクリーチャーのパワーは、?バトル中、?\+(\d+)される)$/, (m) => ({ battlePower: Number(m[1] ?? m[2]) })],
+  [['このクリーチャーはバトルに勝った時、破壊される', 'このクリーチャーがバトルに勝った時、このクリーチャーを破壊する'], { suicideOnWin: true }],
+];
+
 /** 能力1行がキーワード能力なら Keywords に反映して true を返す */
 export function applyKeywordLine(line: string, kw: Keywords): boolean {
   const t = stripIcons(normalizeText(line)).replace(/。$/, '').replace(/^このクリーチャーは、/, 'このクリーチャーは');
@@ -93,75 +141,76 @@ export function applyKeywordLine(line: string, kw: Keywords): boolean {
     const tmp: Keywords = {};
     if (words.every((w) => applyKeywordLine(w, tmp))) return !!Object.assign(kw, tmp);
   }
-  if (t === 'マッハファイター') return (kw.machFighter = true);
-  if (t === 'パワード・ブレイカー') return (kw.poweredBreaker = true);
-  if (t === 'チャージャー') return (kw.charger = true);
-  if (t === 'EXライフ') return (kw.exLife = true);
-  if (t === 'エクストラEXライフ') return (kw.extraExLife = true);
-  if (t === 'メガ・ラスト・バースト') return (kw.megaLastBurst = true);
-  if (t === 'シールド・ゴー') return (kw.shieldGo = true);
-  if (t === 'S・トリガー・プラス') return (kw.shieldTrigger = true);
-  if (t === 'ガードマン') return (kw.guardman = true);
-  if (t === 'スーパーガードマン') return (kw.superGuardman = true);
-  if (/^マナゾーンに置く時、このカードはタップして置く$/.test(t)) return (kw.manaTapped = true);
-  if (/^自分の山札の最後の1枚を引く時、ゲームに負けるかわりに勝つ$/.test(t)) return (kw.winOnLastDraw = true);
-  if (t === 'ジャストダイバー') return (kw.justDiver = true);
-  const spellUt = t.match(/^コスト(\d+)以下の呪文(?:の効果)?によって、相手がクリーチャーを選ぶ時、このクリーチャーは選べない$/);
-  if (spellUt) {
-    kw.untargetableBySpellCost = Number(spellUt[1]);
-    return true;
+  for (const [match, value] of KEYWORD_LINES) {
+    const m = typeof match === 'string' ? (t === match ? [t] : null) : Array.isArray(match) ? (match.includes(t) ? [t] : null) : t.match(match);
+    if (m) return !!Object.assign(kw, typeof value === 'function' ? value(m) : value);
   }
-  if (/^このカードがバトルゾーン以外のゾーンにあれば、自分はゲームに負ける$/.test(t)) return (kw.loseIfNotInBattle = true);
-  if (t === 'G・ストライク') return (kw.gStrike = true);
-  if (t === 'このクリーチャーはブロックできない') return (kw.cannotBlock = true);
-  if (t === 'このクリーチャーは攻撃されない') return (kw.cannotBeAttacked = true);
-  if (t === '相手はこのクリーチャーを選べない' || t === 'このクリーチャーは相手に選ばれない') return (kw.untargetable = true);
-  if (t === 'このクリーチャーは攻撃もブロックもできない') return !!Object.assign(kw, { cannotAttack: true, cannotBlock: true });
-  if (t === 'このクリーチャーがシールドをブレイクする時、相手はそのシールドを手札に加えるかわりに墓地に置く') return (kw.shieldBurn = true);
-  if (t === 'ブロッカー') return (kw.blocker = true);
-  if (t === 'S・トリガー' || t === 'S·トリガー' || t === 'スーパー・S・トリガー') return (kw.shieldTrigger = true);
-  if (t === 'スピードアタッカー') return (kw.speedAttacker = true);
-  if (t === 'スレイヤー') return (kw.slayer = true);
-  if (t === 'W・ブレイカー') return !!(kw.breaker = 2);
-  if (t === 'T・ブレイカー') return !!(kw.breaker = 3);
-  if (t === 'Q・ブレイカー') return !!(kw.breaker = 4);
-  if (t === 'ワールド・ブレイカー') return !!(kw.breaker = 99);
-  const pa = t.match(/^パワーアタッカー\+(\d+)$/);
-  if (pa) return !!(kw.powerAttacker = Number(pa[1]));
-  if (t === 'このクリーチャーは相手プレイヤーを攻撃できない') return (kw.cannotAttackPlayers = true);
-  if (t === 'このクリーチャーは攻撃できない') return (kw.cannotAttack = true);
-  if (t === 'このクリーチャーはブロックされない') return (kw.unblockable = true);
-  if (t === 'このクリーチャーはアンタップしているクリーチャーを攻撃できる') return (kw.attackUntapped = true);
-  if (t === 'このクリーチャーはすべてのバトルに勝つ') return (kw.winsAllBattles = true);
-  if (t === 'ハンティング') return (kw.hunting = true);
-  const sasa = t.match(/^ササゲール(\d+)$/);
-  if (sasa) return !!(kw.sasageru = Number(sasa[1]));
-  const bp = t.match(/^(?:バトル中、このクリーチャーのパワーを\+(\d+)する|このクリーチャーのパワーは、?バトル中、?\+(\d+)される)$/);
-  if (bp) return !!(kw.battlePower = Number(bp[1] ?? bp[2]));
-  if (t === 'このクリーチャーはバトルに勝った時、破壊される' ||t === 'このクリーチャーがバトルに勝った時、このクリーチャーを破壊する') return (kw.suicideOnWin = true);
   return false;
 }
 
 // ───────────────────────── 誘発タイミング ─────────────────────────
 
-/** 「このクリーチャーが」に続く1つの出来事 */
-const SELF_EVENTS: [RegExp, TriggerEvent][] = [
-  [/^(?:召喚によって)?(?:バトルゾーンに)?出た時/, 'onSummon'],
-  [/^攻撃する時/, 'onAttack'],
-  [/^破壊された時/, 'onDestroyed'],
-  [/^(?:バトルゾーンを)?離れた時/, 'onLeave'],
-  [/^ブロックした時/, 'onBlock'],
-  [/^禁断解放した時/, 'onUnleash'],
-  [/^バトルに勝った時/, 'onBattleWin'],
+/**
+ * 誘発の出来事の表：言い方 → このクリーチャー自身に起きた時（self）／他のクリーチャーに起きた時（other）。
+ * 新しいタイミングはここに1行足し、エンジンの emit でその出来事を誘発させるだけでよい。
+ * ownIncludesSelf: 「自分のクリーチャーが〜時」（「他の」なし）はこのクリーチャー自身にも誘発する
+ */
+const EVENTS: { re: RegExp; self?: TriggerEvent; other?: TriggerEvent; ownIncludesSelf?: boolean }[] = [
+  { re: /^(?:召喚によって)?(?:バトルゾーンに)?出た時/, self: 'onSummon', other: 'onOtherSummon', ownIncludesSelf: true },
+  { re: /^攻撃する時/, self: 'onAttack', other: 'onOtherAttack' },
+  { re: /^破壊された時/, self: 'onDestroyed', other: 'onOtherDestroyed' },
+  { re: /^(?:バトルゾーンを)?離れた時/, self: 'onLeave', other: 'onOtherLeave' },
+  { re: /^ブロックした時/, self: 'onBlock' },
+  { re: /^禁断解放した時/, self: 'onUnleash' },
+  { re: /^バトルに勝った時/, self: 'onBattleWin', other: 'onOtherBattleWin' },
+  { re: /^タップした時/, self: 'onTap' },
+  { re: /^攻撃された時/, self: 'onAttacked' },
+  { re: /^相手に選ばれた時/, self: 'onTargeted' },
 ];
+/** 「このクリーチャーが」に続く1つの出来事 */
+const SELF_EVENTS: [RegExp, TriggerEvent][] = EVENTS.filter((e) => e.self).map((e) => [e.re, e.self!]);
 /** 主語なしで書ける出来事（「〜時または自分のターンのはじめに」） */
 const TURN_EVENTS: [RegExp, TriggerEvent][] = [
   [/^自分のターンのはじめに/, 'onTurnStart'],
   [/^自分のターンの終わりに/, 'onTurnEnd'],
 ];
 
+type ParsedTrigger = { when: TriggerEvent[]; who?: TriggeredAbility['who']; filter?: CardFilter; minDrawCount?: number; oncePerTurn?: boolean; rest: string };
+
+/**
+ * 他のクリーチャーが主語の誘発：「自分の他のドラゴンが破壊された時、」「相手のクリーチャーが攻撃する時、」
+ * 「このクリーチャーまたは自分のコスト6以上のクリーチャーが出た時、」（orSelf）
+ */
+function parseOtherTrigger(t: string): ParsedTrigger | null {
+  const orSelf = t.startsWith('このクリーチャーまたは');
+  const body = orSelf ? t.slice('このクリーチャーまたは'.length) : t;
+  const head = body.match(/^(?:(自分|相手)の)?(他の)?、?/)!;
+  const owner = head[1];
+  if (!owner && !orSelf) return null;
+  for (let i = body.indexOf('が', head[0].length); i > 0; i = body.indexOf('が', i + 1)) {
+    const after = body.slice(i + 1);
+    const ev = EVENTS.find((e) => e.other && e.re.test(after));
+    if (!ev) continue;
+    const rest = after.slice(after.match(ev.re)![0].length);
+    if (!rest.startsWith('、')) continue;
+    const filter: CardFilter = {};
+    if (!parseSubject(body.slice(head[0].length, i), filter)) return null;
+    if (head[2]) filter.excludeSelf = true;
+    const who: TriggeredAbility['who'] = owner === '自分' ? 'self' : owner === '相手' ? 'opponent' : 'any';
+    const f = Object.keys(filter).length ? { filter } : {};
+    if (orSelf) return { when: [ev.self!, ev.other!], who, ...f, rest: rest.slice(1) };
+    // 「自分のクリーチャーが出た時」：このクリーチャー自身も含む。条件つきだと自身が合うか分からないので読まない
+    if (ev.ownIncludesSelf && owner === '自分' && !head[2]) {
+      if (!matchesOwnFilter(filter)) return null;
+      return { when: [ev.self!, ev.other!], who, ...f, rest: rest.slice(1) };
+    }
+    return { when: [ev.other!], who, ...f, rest: rest.slice(1) };
+  }
+  return null;
+}
+
 /** 文頭の誘発条件を読む。「このクリーチャーが出た時または攻撃する時、」のような組み合わせにも対応 */
-function parseTrigger(t: string): { when: TriggerEvent[]; who?: TriggeredAbility['who']; filter?: CardFilter; minDrawCount?: number; oncePerTurn?: boolean; rest: string } | null {
+function parseTrigger(t: string): ParsedTrigger | null {
   // 「各ターンに1度、〜時、」
   const once = t.match(/^各ターンに(?:1|一)度、(.+)$/);
   if (once) {
@@ -169,25 +218,9 @@ function parseTrigger(t: string): { when: TriggerEvent[]; who?: TriggeredAbility
     return r && { ...r, oncePerTurn: true };
   }
   if (t.startsWith('このクリーチャーの攻撃の終わりに、')) return { when: ['onAttackEnd'], rest: t.slice('このクリーチャーの攻撃の終わりに、'.length) };
-  // 「相手のクリーチャーが攻撃する時」「自分の他のドラゴンが破壊された時」
-  const ev = t.match(/^(自分|相手)の(他の)?、?(.+?)が(攻撃する|破壊された|(?:バトルゾーンを)?離れた|バトルに勝った)時、(.+)$/);
-  if (ev) {
-    const filter: CardFilter = {};
-    if (!parseSubject(ev[3], filter)) return null;
-    if (ev[2]) filter.excludeSelf = true;
-    const when: TriggerEvent = ev[4] === '攻撃する' ? 'onOtherAttack' : ev[4] === '破壊された' ? 'onOtherDestroyed' : ev[4] === 'バトルに勝った' ? 'onOtherBattleWin' : 'onOtherLeave';
-    return { when: [when], who: ev[1] === '自分' ? 'self' : 'opponent', ...(Object.keys(filter).length ? { filter } : {}), rest: ev[5] };
-  }
-  let m = t.match(/^(自分|相手)の(他の)?(.*?)クリーチャーが(?:バトルゾーンに)?出た時、(.+)$/);
-  if (m) {
-    const filter: CardFilter = {};
-    if (!parseMods(m[3], filter)) return null;
-    const self = m[1] === '自分';
-    // 「自分のクリーチャーが出た時」はこのクリーチャー自身が出た時にも誘発する
-    const when: TriggerEvent[] = self && !m[2] && matchesOwnFilter(filter) ? ['onSummon', 'onOtherSummon'] : ['onOtherSummon'];
-    if (self && !m[2] && !matchesOwnFilter(filter)) return null;
-    return { when, who: self ? 'self' : 'opponent', ...(Object.keys(filter).length ? { filter } : {}), rest: m[4] };
-  }
+  const other = parseOtherTrigger(t);
+  if (other) return other;
+  let m: RegExpMatchArray | null;
   // 「相手がそのターン2枚目以降のカードを引いた時」「自分がカードを引いた時」
   m = t.match(/^(自分|相手)が(?:そのターン)?(?:(\d+)枚目以降の)?カードを引いた時、(.+)$/);
   if (m) return { when: ['onDraw'], who: m[1] === '自分' ? 'self' : 'opponent', ...(m[2] ? { minDrawCount: n(m[2]) } : {}), rest: m[3] };

@@ -457,6 +457,7 @@ function attackTargetsImpl(state: GameState, reg: CardRegistry, player: PlayerId
   const machOnly = isSummoningSick(state, reg, iid);
   const out: AttackTarget[] = [];
   if (!kw.cannotAttackPlayers && !machOnly) out.push({ kind: 'player' });
+  if (kw.cannotAttackCreatures) return out;
   for (const t of battleCards(state, reg, other(player))) {
     if (cannotBeAttacked(state, reg, t)) continue;
     if (state.cards[t].tapped || kw.attackUntapped || machOnly) out.push({ kind: 'creature', iid: t });

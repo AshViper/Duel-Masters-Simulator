@@ -99,6 +99,10 @@ export type GameEvent =
   | { type: 'CREATURE_LEFT'; player: PlayerId; iid: string; to: ZoneName }
   | { type: 'ATTACK_DECLARED'; player: PlayerId; attacker: string; target: AttackTarget }
   | { type: 'BLOCKED'; blocker: string; attacker: string }
+  /** バトルゾーンのクリーチャーがタップした（攻撃・効果） */
+  | { type: 'CREATURE_TAPPED'; iid: string }
+  /** バトルゾーンのクリーチャーが相手の能力で選ばれた（by: 選んだ能力の持ち主） */
+  | { type: 'CARD_TARGETED'; iid: string; by: PlayerId }
   | { type: 'BATTLE_WON'; winner: string; loser: string }
   | { type: 'SHIELD_BROKEN'; player: PlayerId; iid: string }
   | { type: 'CARD_MOVED'; iid: string; from: ZoneName; to: ZoneName }

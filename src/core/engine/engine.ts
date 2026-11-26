@@ -217,7 +217,9 @@ export class Ctx {
           // ハイパーモードは次の自分のターンのはじめまで
           if (c.hyper && c.owner === pl) delete c.hyper;
         }
-        for (const iid of [...P.zones.battle, ...P.zones.mana]) s.cards[iid].tapped = false;
+        for (const iid of P.zones.mana) s.cards[iid].tapped = false;
+        // 「自分のターンのはじめにアンタップしない」クリーチャーはタップしたまま
+        for (const iid of P.zones.battle) if (!keywords(s, this.reg, iid).noUntap) s.cards[iid].tapped = false;
         P.chargedThisTurn = false;
         this.log(`── ターン${s.turn}：${P.name} ──`, pl);
         this.emit({ type: 'TURN_STARTED', player: pl, turn: s.turn });
@@ -341,6 +343,7 @@ export class Ctx {
     }
     s.cards[attacker].tapped = true;
     s.cards[attacker].attackedTurn = s.turn;
+    this.emit({ type: 'CREATURE_TAPPED', iid: attacker });
     const sClass = sClassCards(s, this.reg, player);
     s.combat = { attacker, attackingPlayer: player, target, ...(sClass.length ? { sClassEligible: sClass } : {}) };
     const tname = target.kind === 'player' ? s.players[other(player)].name : this.name(target.iid);
@@ -1087,9 +1090,13 @@ export class Ctx {
       case 'selfAction': {
         const inst = s.cards[source];
         if (inst?.zone !== 'battle') return false;
-        if (e.action === 'tap' || e.action === 'untap') {
-          inst.tapped = e.action === 'tap';
-          this.log(`${this.name(source)} を${e.action === 'tap' ? 'タップ' : 'アンタップ'}`, controller);
+        if (e.action === 'tap') {
+          this.setTapped(source, controller);
+          return false;
+        }
+        if (e.action === 'untap') {
+          inst.tapped = false;
+          this.log(`${this.name(source)} をアンタップ`, controller);
           return false;
         }
         const dest = e.action === 'toHand' ? 'hand' : e.action === 'toMana' ? 'mana' : e.action === 'destroy' ? 'graveyard' : e.action;
@@ -1202,10 +1209,7 @@ export class Ctx {
           s.cards[iid].zone === 'battle' ? { kind: 'leave', iid, to: 'graveyard', cause: 'destroy' } : this.moveCard(iid, 'graveyard'),
         );
       case 'tap':
-        return this.withTargets(controller, source, e.target, 'タップする', true, (iid) => {
-          s.cards[iid].tapped = true;
-          this.log(`${this.name(iid)} をタップ`, controller);
-        });
+        return this.withTargets(controller, source, e.target, 'タップする', true, (iid) => this.setTapped(iid, controller));
       case 'untap':
         return this.withTargets(controller, source, e.target, 'アンタップする', false, (iid) => {
           s.cards[iid].tapped = false;
@@ -1353,6 +1357,15 @@ export class Ctx {
         }
       }
     });
+  }
+
+  /** タップする（効果・攻撃以外）。アンタップ状態からタップした時だけ「タップした時」を誘発させる */
+  private setTapped(iid: string, controller: PlayerId): void {
+    const inst = this.s.cards[iid];
+    const was = inst.tapped;
+    inst.tapped = true;
+    this.log(`${this.name(iid)} をタップ`, controller);
+    if (!was && inst.zone === 'battle') this.emit({ type: 'CREATURE_TAPPED', iid });
   }
 
   private moveTo(iid: string, to: ZoneName, controller: PlayerId, toTop = true): Task | void {
@@ -1598,6 +1611,10 @@ export class Ctx {
         return true;
       });
     }
+    // 「相手に選ばれた時」：相手の能力で選ばれたバトルゾーンのクリーチャー（「すべて」は選んでいない）
+    if (spec.count !== 'all') {
+      for (const iid of chosen) if (s.cards[iid].zone === 'battle' && s.cards[iid].owner !== controller) this.emit({ type: 'CARD_TARGETED', iid, by: controller });
+    }
     const tasks: Task[] = [];
     for (const iid of chosen) {
       const t = fn(iid);
@@ -1696,6 +1713,13 @@ export class Ctx {
       case 'ATTACK_DECLARED':
         this.triggerFrom(e.attacker, 'onAttack');
         this.triggerOthers(e.attacker, 'onOtherAttack', e.player);
+        if (e.target.kind === 'creature') this.triggerFrom(e.target.iid, 'onAttacked');
+        break;
+      case 'CREATURE_TAPPED':
+        this.triggerFrom(e.iid, 'onTap');
+        break;
+      case 'CARD_TARGETED':
+        this.triggerFrom(e.iid, 'onTargeted');
         break;
       case 'BLOCKED':
         this.triggerFrom(e.blocker, 'onBlock');

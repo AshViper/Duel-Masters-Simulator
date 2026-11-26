@@ -229,6 +229,12 @@ export const TRIGGER_EVENTS = [
   'onAttackEnd',
   /** このクリーチャーが禁断解放した時 */
   'onUnleash',
+  /** このクリーチャーがタップした時（攻撃・効果） */
+  'onTap',
+  /** このクリーチャーが攻撃された時 */
+  'onAttacked',
+  /** このクリーチャーが相手に選ばれた時（相手の能力の対象として選ばれた） */
+  'onTargeted',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
@@ -302,6 +308,10 @@ export interface Keywords {
   breaker?: number;
   cannotAttackPlayers?: boolean;
   cannotAttack?: boolean;
+  /** クリーチャーを攻撃できない（プレイヤーは攻撃できる） */
+  cannotAttackCreatures?: boolean;
+  /** 自分のターンのはじめにアンタップしない */
+  noUntap?: boolean;
   /** 攻撃中のみパワー加算 */
   powerAttacker?: number;
   /** バトルに負けた場合、相手も破壊する */
