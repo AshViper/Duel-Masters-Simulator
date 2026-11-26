@@ -26,6 +26,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+        env:
+          # 公式カード検索の中継（Cloudflare Worker）の URL。Settings → Secrets and variables → Actions → Variables で設定する
+          VITE_DM_API_BASE: ${{ vars.DM_API_BASE }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
