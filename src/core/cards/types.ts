@@ -314,6 +314,8 @@ export type EffectDef =
    * upTo: count 枚まで。each: 自分の各シールドの下に1枚ずつ（スーパー・シールド・プラス）
    */
   | { type: 'shieldPlus'; count: number; upTo?: boolean; each?: boolean }
+  /** エンジン内部用：手札（墓地）にあるカードを、コストを支払わずに使うか聞く（手札にある間の誘発） */
+  | { type: 'handPlay'; iid: string; endOfTurn?: 'deckBottom'; ninja?: boolean; spellAfter?: 'deckBottom' }
   /** 「その攻撃の後、〜」：いまの攻撃が終わった後に行う */
   | { type: 'afterAttack'; effects: EffectDef[] }
   /** 数字を1つ選ぶ（後の文の「その数字と同じコストの」で使う） */
@@ -669,9 +671,21 @@ export interface AltPlay {
  *       ownDestroyed 自分のクリーチャー（filter に合うもの）が破壊された時
  */
 export interface HandTrigger {
-  when: 'opponentTurnEnd' | 'ownTurnEnd' | 'anyTurnEnd' | 'ownDestroyed';
+  /**
+   * opponentAttackOrBlock: 相手のクリーチャーが攻撃またはブロックした時（ニンジャ・ストライク）
+   * anyAttack: クリーチャーが攻撃する時（鬼エンド）／ownAttack: 自分のクリーチャー（filter に合うもの）が攻撃する時（アタック・チャンスR）
+   */
+  when: 'opponentTurnEnd' | 'ownTurnEnd' | 'anyTurnEnd' | 'ownDestroyed' | 'opponentAttackOrBlock' | 'anyAttack' | 'ownAttack';
   condition?: Condition;
   filter?: CardFilter;
+  /** 手札のほかに使えるゾーン（アタック・チャンスR は墓地からも） */
+  zones?: ('hand' | 'graveyard')[];
+  /** 出したクリーチャーを、そのターンの終わりに山札の下に置く（ニンジャ・ストライク） */
+  endOfTurn?: 'deckBottom';
+  /** 1回の攻撃につき、1人1回だけ（「その攻撃中にニンジャ・ストライクを使っていなければ」） */
+  oncePerAttack?: boolean;
+  /** 唱えた呪文を墓地のかわりに置く場所 */
+  spellAfter?: 'deckBottom';
 }
 
 /**

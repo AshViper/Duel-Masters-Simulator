@@ -2088,6 +2088,19 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
   // 「そのターン、クリーチャーが3体以上出ていれば、」
   const entered = body.match(/^(?:その|この)ターン、?(?:(自分|相手)の)?クリーチャーが(\d+)体以上(?:バトルゾーンに)?出ていれば、(.+)$/);
   if (entered) return { body: entered[3], condition: { type: 'enteredThisTurn', who: entered[1] === '自分' ? 'self' : entered[1] === '相手' ? 'opponent' : 'any', min: n(entered[2]) } };
+  // 鬼エンド：「シールドが1つもないプレイヤーがいて、自分のマナゾーンに火、闇、自然の各文明があれば、」
+  const oniEnd = body.match(/^シールドが1つもないプレイヤーがいて、自分のマナゾーンに((?:光|水|闇|火|自然)(?:、(?:光|水|闇|火|自然))*)の各文明があれば、(.+)$/);
+  if (oniEnd)
+    return {
+      body: oniEnd[2],
+      condition: {
+        type: 'and',
+        conditions: [
+          { type: 'or', conditions: [{ type: 'compare', left: { who: 'self', zone: 'shield' }, op: '<=', right: 0 }, { type: 'compare', left: { who: 'opponent', zone: 'shield' }, op: '<=', right: 0 }] },
+          ...oniEnd[1].split('、').map((c): Condition => ({ type: 'compare', left: { who: 'self', zone: 'mana', filter: { civilization: CIV[c] } }, op: '>=', right: 1 })),
+        ],
+      },
+    };
   // 鬼タイム：「自分と相手のシールドの数が合計6つ以下なら、」
   const oni = body.match(/^自分と相手のシールドの数が合計(\d+)(?:つ|枚)以下なら、(.+)$/);
   if (oni) return { body: oni[2], condition: { type: 'compare', left: { who: 'any', zone: 'shield' }, op: '<=', right: n(oni[1]) } };
@@ -2240,6 +2253,46 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     return true;
   }
   // 手札にある間の誘発：「相手のターンの終わりに、そのターン、クリーチャーが3体以上出ていれば、この呪文をコストを支払わずに唱えてもよい」
+  // ニンジャ・ストライクN／ウラ・ニンジャ・ストライクN（文明）：相手のクリーチャーが攻撃またはブロックした時、マナがN枚以上あれば召喚してもよい。ターンの終わりに山札の下へ
+  const ninja = t.match(/^(ウラ・)?ニンジャ・ストライク(\d+)。?$/);
+  if (ninja && kind === 'creature') {
+    const conds: Condition[] = [{ type: 'compare', left: { who: 'self', zone: 'mana' }, op: '>=', right: n(ninja[2]) }];
+    if (ninja[1]) {
+      const civs = line.normalize('NFKC').match(/ウラ・ニンジャ・ストライク\s*\d+\s*\(([^()]+)\)/);
+      if (!civs) return false;
+      for (const c of civs[1].split(/[/／]/)) {
+        if (!CIV[c.trim()]) return false;
+        conds.push({ type: 'compare', left: { who: 'self', zone: 'mana', filter: { civilization: CIV[c.trim()] } }, op: '>=', right: 1 });
+      }
+    }
+    (out.handTriggers ??= []).push({ when: 'opponentAttackOrBlock', condition: conds.length > 1 ? { type: 'and', conditions: conds } : conds[0], endOfTurn: 'deckBottom', oncePerAttack: true });
+    return true;
+  }
+  // 鬼エンドなど：「クリーチャーが攻撃する時、〜あれば、このタマシードを自分の手札からコストを支払わずに実行してもよい」
+  const atkHand = t.match(/^クリーチャーが攻撃する時、(?:(.+)、)?この(?:タマシード|クリーチャー|呪文|カード)を自分の手札からコストを支払わずに(?:実行し|召喚し|唱え|使っ)てもよい。?$/);
+  if (atkHand) {
+    let condition: Condition | undefined;
+    if (atkHand[1]) {
+      const c = splitCondition(`${atkHand[1]}、x`);
+      if (!c.condition || c.body !== 'x') return false;
+      condition = c.condition;
+    }
+    (out.handTriggers ??= []).push({ when: 'anyAttack', ...(condition ? { condition } : {}) });
+    return true;
+  }
+  // アタック・チャンスR：自分の〜が攻撃する時、この呪文を手札または墓地からコストを支払わずに唱えてもよい。唱えた後は山札の下へ
+  const acr = t.match(/^アタック・チャンスR[:：](.+?)。?$/);
+  if (acr && kind === 'spell') {
+    const filter = parseSwapCondition(acr[1]);
+    if (!filter) return false;
+    (out.handTriggers ??= []).push({ when: 'ownAttack', filter, zones: ['hand', 'graveyard'], spellAfter: 'deckBottom' });
+    return true;
+  }
+  // マスターG・G・G：「自分の手札がこのカードだけなら、この呪文をコストを支払わずに唱えてもよい」
+  if (/^自分の手札がこのカードだけなら、この(?:呪文|クリーチャー|カード)をコストを支払わずに(?:唱え|召喚し|使っ|実行し)てもよい。?$/.test(t)) {
+    out.gZero = { type: 'compare', left: { who: 'self', zone: 'hand' }, op: '<=', right: 1 };
+    return true;
+  }
   // 「各ターンの終わりに、〜があれば、このクリーチャーをコストを支払わずに召喚してもよい」（リベンジ・チャンス・侵略ZERO）
   const ht = t.match(/^(相手|自分|各)のターンの終わりに、(?:(.+)、)?この(?:呪文|クリーチャー|カード)を(?:自分の手札から)?コストを支払わずに(?:唱え|召喚し|使っ|実行し)てもよい。?$/) ?? t.match(/^(各)ターンの終わりに、(?:(.+)、)?この(?:呪文|クリーチャー|カード)を(?:自分の手札から)?コストを支払わずに(?:唱え|召喚し|使っ|実行し)てもよい。?$/);
   if (ht) {
@@ -2552,6 +2605,12 @@ const ALT_PLAYS: { re: RegExp; kinds: ('creature' | 'spell')[]; build: (m: RegEx
     },
   },
   { re: /^D・D・D\[([a-z]+)(\d+)\]$/, kinds: ['creature', 'spell'], build: (m) => ({ name: 'D・D・D', ...parseMark(m[1], m[2]), timing: 'ownAttack' }) },
+  {
+    re: /^B・A・D・S(\d+)$/,
+    kinds: ['spell'],
+    // この呪文を、コストをN少なくして唱えてもよい。そうしたら、自分の手札を1枚捨てる
+    build: (m) => ({ name: 'B・A・D・S', reduce: n(m[1]), then: [{ type: 'move', target: { owner: 'self', zone: 'hand', count: 1 }, to: 'graveyard' }] }),
+  },
   { re: /^B・A・D(\d+)$/, kinds: ['creature'], build: (m) => ({ name: 'B・A・D', reduce: n(m[1]), endOfTurn: 'destroy' }) },
   { re: /^J・O・E(\d+)$/, kinds: ['creature'], build: (m) => ({ name: 'J・O・E', reduce: n(m[1]), endOfTurn: 'deckBottomDraw' }) },
   {

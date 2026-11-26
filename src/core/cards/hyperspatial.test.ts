@@ -361,3 +361,66 @@ describe('シールド・プラス／シールド・セイバー', () => {
     expect(s.players[1].zones.shield.length).toBe(5);
   });
 });
+
+describe('相手のターン中に手札から使う能力', () => {
+  const ninja = mk('h-40', ['ニンジャ・ストライク ２（相手のクリーチャーが攻撃またはブロックした時、自分のマナゾーンにカードが２枚以上あり、その攻撃中に「ニンジャ・ストライク」能力を使っていなければ、このシノビをコストを支払わずに召喚してもよい。そのターンの終わりに、このシノビを山札の下に置く）', 'ブロッカー'], { cost: '5', power: '4000' });
+  const acr = mk('h-41', ['アタック・チャンスR：テスト（自分のアビスが攻撃する時、この呪文を自分の手札または墓地からコストを支払わずに唱えてもよい。そうしたら、唱えた後、墓地のかわりに山札の下に置く）', 'カードを２枚引く。'], { type: '呪文', power: '', cost: '6' });
+  const r4 = buildRegistry([...SAMPLE_CARDS, ...Object.values(C), ninja, acr]);
+  const game = () => createGame({ players: [{ name: 'A', deck: filler }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, r4);
+  const add = (s: GameState, p: PlayerId, cardId: string, zone: ZoneName) => {
+    const iid = `t${s.nextIid++}`;
+    s.cards[iid] = { iid, cardId, owner: p, zone: 'deck', tapped: false, enteredTurn: 0, powerModTurn: 0, under: [], faceUp: false };
+    s.players[p].zones.deck.unshift(iid);
+    new Ctx(s, r4).moveCard(iid, zone);
+    s.cards[iid].enteredTurn = 0;
+    return iid;
+  };
+  const step = (s: GameState, a: Action) => {
+    const r = applyAction(s, a, r4);
+    if (r.error) throw new Error(r.error);
+    return r.state;
+  };
+
+  it('読み取り', () => {
+    expect([ninja.support, acr.support]).toEqual(['full', 'full']);
+    expect(ninja.handTriggers?.[0]).toMatchObject({ when: 'opponentAttackOrBlock', endOfTurn: 'deckBottom', oncePerAttack: true });
+    expect(acr.handTriggers?.[0]).toMatchObject({ when: 'ownAttack', zones: ['hand', 'graveyard'], spellAfter: 'deckBottom' });
+  });
+
+  it('ニンジャ・ストライク：相手の攻撃の時、マナが足りていれば召喚でき、ターンの終わりに山札の下に置く。1回の攻撃に1体だけ', () => {
+    let s = game();
+    const n1 = add(s, 1, ninja.id, 'hand');
+    const n2 = add(s, 1, ninja.id, 'hand');
+    add(s, 1, C.vanilla.id, 'mana');
+    const atk = add(s, 0, C.vanilla.id, 'battle');
+    // マナが1枚では使えない
+    let s0 = step(s, { type: 'ATTACK', player: 0, attacker: atk, target: { kind: 'player' } });
+    expect(s0.pending?.kind === 'confirm' && s0.pending.player === 1 && s0.cards[n1].zone === 'hand' && s0.pending.source === n1).toBeFalsy();
+    add(s, 1, C.vanilla.id, 'mana');
+    s = step(s, { type: 'ATTACK', player: 0, attacker: atk, target: { kind: 'player' } });
+    expect(s.pending).toMatchObject({ kind: 'confirm', player: 1 });
+    s = step(s, { type: 'RESPOND', player: 1, accept: true });
+    // 2枚目のニンジャは、同じ攻撃では使えない（聞かれない）
+    const summoned = [n1, n2].filter((x) => s.cards[x].zone === 'battle');
+    expect(summoned).toHaveLength(1);
+    for (let i = 0; i < 8 && s.pending; i++) {
+      const p = s.pending;
+      s = step(s, p.kind === 'selectCards' ? { type: 'RESPOND', player: p.player, selected: p.candidates.slice(0, Math.max(1, p.min)) } : { type: 'RESPOND', player: p.player, selected: [], accept: false });
+    }
+    expect([n1, n2].filter((x) => s.cards[x].zone === 'battle')).toHaveLength(1);
+    s = step(s, { type: 'END_TURN', player: 0 });
+    expect(s.cards[summoned[0]].zone).toBe('deck');
+  });
+
+  it('アタック・チャンスR：自分の条件に合うクリーチャーが攻撃する時、墓地からも唱えられ、唱えた後は山札の下に置く', () => {
+    let s = game();
+    const sp = add(s, 0, acr.id, 'graveyard');
+    const atk = add(s, 0, C.vanilla.id, 'battle');
+    const hand = s.players[0].zones.hand.length;
+    s = step(s, { type: 'ATTACK', player: 0, attacker: atk, target: { kind: 'player' } });
+    expect(s.pending).toMatchObject({ kind: 'confirm', player: 0 });
+    s = step(s, { type: 'RESPOND', player: 0, accept: true });
+    expect(s.players[0].zones.hand.length).toBe(hand + 2);
+    expect(s.players[0].zones.deck[0]).toBe(sp);
+  });
+});

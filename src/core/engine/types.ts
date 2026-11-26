@@ -225,6 +225,8 @@ export interface LogEntry {
 }
 
 export interface CombatState {
+  /** この攻撃中に「ニンジャ・ストライク」の仲間を使ったプレイヤー */
+  ninjaUsed?: PlayerId[];
   attacker: string;
   attackingPlayer: PlayerId;
   target: AttackTarget;

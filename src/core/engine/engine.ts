@@ -7,6 +7,7 @@ import type { CardRegistry } from '../cards/registry';
 import { asMove, MOVE_DEST, type MoveEffect } from '../cards/effects';
 import {
   type AltPlay,
+  type HandTrigger,
   type CardDefinition,
   CIV_LABEL,
   isCreatureType,
@@ -608,6 +609,21 @@ export class Ctx {
     // ルール：ターンプレイヤーの能力をすべて解決してから、相手の能力を解決する
     const player = s.waiting.some((g) => g.controller === s.activePlayer) ? s.activePlayer : other(s.activePlayer);
     this.insertFront({ kind: 'pickTrigger', player });
+  }
+
+  /** 手札（墓地）にある間の誘発：条件に合うカードごとに、使うか聞く処理を解決待ちに加える */
+  private offerHandTriggers(player: PlayerId, match: (ht: HandTrigger, iid: string) => boolean): void {
+    const s = this.s;
+    for (const z of ['hand', 'graveyard'] as const) {
+      for (const h of [...s.players[player].zones[z]]) {
+        for (const ht of def(s, this.reg, h).handTriggers ?? []) {
+          if (!(ht.zones ?? ['hand']).includes(z) || !match(ht, h)) continue;
+          if (ht.condition && !evalCondition(s, this.reg, player, ht.condition, false, h)) continue;
+          if (ht.oncePerAttack && s.combat?.ninjaUsed?.includes(player)) continue;
+          this.addTrigger(player, h, this.effectTasks(player, h, [{ type: 'handPlay', iid: h, ...(ht.endOfTurn ? { endOfTurn: ht.endOfTurn } : {}), ...(ht.oncePerAttack ? { ninja: true } : {}), ...(ht.spellAfter ? { spellAfter: ht.spellAfter } : {}) }]));
+        }
+      }
+    }
   }
 
   /** 誘発した能力を、解決待ちに加える */
@@ -1955,6 +1971,25 @@ export class Ctx {
         this.log(`山札の上から${e.count}枚を、シールド1つの下に置いた`, controller);
         return false;
       }
+      case 'handPlay': {
+        const inst = s.cards[e.iid];
+        if (!inst || (inst.zone !== 'hand' && inst.zone !== 'graveyard')) return false;
+        if (e.ninja && s.combat?.ninjaUsed?.includes(controller)) return false;
+        const r = this.takeResponse();
+        if (!r) {
+          s.pending = { kind: 'confirm', player: controller, source: e.iid, prompt: `${this.name(e.iid)} を、コストを支払わずに使いますか？` };
+          return true;
+        }
+        if (!r.accept) return false;
+        if (e.ninja && s.combat) s.combat.ninjaUsed = [...(s.combat.ninjaUsed ?? []), controller];
+        const d = def(s, this.reg, e.iid);
+        if (isCreatureType(d.type) && d.type !== 'evolution') {
+          this.log(`${d.name} をコストを支払わずに召喚する`, controller);
+          this.emit({ type: 'CARD_PLAYED', player: controller, iid: e.iid });
+          this.insertFront({ kind: 'enterBattle', player: controller, iid: e.iid, summoned: true, ...(e.endOfTurn ? { endOfTurn: e.endOfTurn } : {}) });
+        } else this.useFree(controller, e.iid, e.spellAfter);
+        return false;
+      }
       case 'afterAttack': {
         // 「その攻撃の後、〜」：攻撃の終わりの処理の直後に行う。攻撃中でなければすぐ行う
         const k = s.queue.findIndex((t) => t.kind === 'attackEnd');
@@ -2796,6 +2831,9 @@ export class Ctx {
         this.triggerOthers(e.attacker, 'onOtherAttack', e.player);
         if (e.target.kind === 'player') this.triggerOthers(e.attacker, 'onOtherAttackPlayer', e.player);
         if (e.target.kind === 'creature') this.triggerFrom(e.target.iid, 'onAttacked');
+        // 手札にある間の誘発：ニンジャ・ストライク（相手の攻撃）、鬼エンド（クリーチャーの攻撃）、アタック・チャンスR（自分の攻撃）
+        this.offerHandTriggers(other(e.player), (ht) => ht.when === 'opponentAttackOrBlock' || ht.when === 'anyAttack');
+        this.offerHandTriggers(e.player, (ht) => ht.when === 'anyAttack' || (ht.when === 'ownAttack' && matchFilter(s, this.reg, e.attacker, ht.filter)));
         break;
       case 'CREATURE_TAPPED':
         this.triggerFrom(e.iid, 'onTap');
@@ -2825,6 +2863,8 @@ export class Ctx {
         break;
       case 'BLOCKED':
         this.triggerFrom(e.blocker, 'onBlock');
+        // ニンジャ・ストライク：相手のクリーチャーがブロックした時
+        if (s.cards[e.blocker]) this.offerHandTriggers(other(s.cards[e.blocker].owner), (ht) => ht.when === 'opponentAttackOrBlock');
         break;
       case 'BATTLE_WON': {
         if (s.cards[e.winner]) {
