@@ -11,6 +11,8 @@ export interface LineDef {
   statics?: StaticAbility[];
   replacements?: ReplacementAbility[];
   altPlays?: AltPlay[];
+  /** 手札にある間の誘発（相手のターンの終わりに、条件を満たしていればコストを支払わずに使う） */
+  handTriggers?: { when: 'opponentTurnEnd'; condition?: Condition }[];
   /** メモ（どのカードの文か、など。処理には使わない） */
   note?: string;
 }
@@ -27,8 +29,70 @@ const ownCiv = (civilization: 'water' | 'darkness'): Condition => ({
   ],
 });
 
+/** 直前に墓地に置いた（選んだ）カードの中から選ぶ対象 */
+const fromChosen = (filter?: { maxCost: number }) => ({ owner: 'self' as const, zone: 'graveyard' as const, count: 1, upTo: true, ref: 'chosen' as const, refPick: true, ...(filter ? { filter } : {}) });
+
 /** アプリに入っている定義。新しい定義はここに足す */
 export const BUILT_IN_LINE_DEFS: LineDefs = {
+  '各ターン、このクリーチャーの最初の攻撃の終わりに、このクリーチャーをアンタップし、一番上のカードを破壊する。': {
+    note: '覇帝なき侵略 レッドゾーンF',
+    abilities: [{ when: 'onAttackEnd', oncePerTurn: true, effects: [{ type: 'selfAction', action: 'untap' }, { type: 'destroyTopCard' }] }],
+  },
+  'このクリーチャーが出た時、自分の山札の上から4枚を墓地に置く。それがすべて異なる名前なら、その中からコスト7以下のカードを1枚、コストを支払わずに実行してもよい。こうして実行しなければ、その中からカードを1枚、自分の手札に戻してもよい。': {
+    note: 'ボルメテウス・ホワイト・ドラゴン・ネクサス',
+    abilities: [
+      {
+        when: 'onSummon',
+        effects: [
+          { type: 'deckTopTo', count: 4, to: 'graveyard' },
+          {
+            type: 'conditional',
+            condition: { type: 'chosenDistinctNames' },
+            then: [
+              { type: 'playFree', target: fromChosen({ maxCost: 7 }) },
+              { type: 'conditional', condition: { type: 'didNot' }, then: [{ type: 'move', target: fromChosen(), to: 'hand' }] },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  '相手のクリーチャーを2体選ぶ。相手はその中から1体選んで手札に戻し、もう1体を破壊する。その後、カードを2枚、相手のマナゾーンから選ぶ。相手はその中から1枚選んで手札に戻し、もう1枚を墓地に置く。': {
+    note: '英知と追撃の宝剣',
+    abilities: [
+      {
+        when: 'onCast',
+        effects: [
+          { type: 'splitFate', target: { owner: 'opponent', zone: 'battle', count: 2 } },
+          { type: 'splitFate', target: { owner: 'opponent', zone: 'mana', count: 2 } },
+        ],
+      },
+    ],
+  },
+  'このクリーチャーが攻撃する時、コスト7以下の、呪文またはミリオン・フレイムを1つ、自分の手札または墓地からコストを支払わずに実行してもよい。こうして呪文を唱えたなら、それを唱えた後、墓地のかわりに山札の下に置く。': {
+    note: 'ネオ・ボルメテウス・ホワイト・ドラゴン',
+    abilities: [
+      {
+        when: 'onAttack',
+        effects: [{ type: 'playFromHandFree', filter: { maxCost: 7, anyOf: [{ cardType: 'spell' }, { typeLabelIncludes: 'ミリオン・フレイム' }] }, zones: ['hand', 'graveyard'], spellAfter: 'deckBottom' }],
+      },
+    ],
+  },
+  '相手のターンの終わりに、その相手のクリーチャーが自分より4体以上多く、自分の《ブルー・インパルス》がなければ、このクリーチャーをコストを支払わずに召喚してもよい。': {
+    note: 'ブルー・インパルス',
+    handTriggers: [
+      {
+        when: 'opponentTurnEnd',
+        condition: {
+          type: 'and',
+          conditions: [
+            { type: 'compare', left: { who: 'opponent', zone: 'battle' }, op: '>=', right: { who: 'self', zone: 'battle' }, rightPlus: 4 },
+            { type: 'not', condition: { type: 'compare', left: { who: 'self', zone: 'battle', filter: { nameIncludes: 'ブルー・インパルス' } }, op: '>=', right: 1 } },
+          ],
+        },
+      },
+    ],
+  },
   'このクリーチャーが出た時、自分の、リキッド・ピープルまたはハンター1つにつき、相手のクリーチャーを1体選んでもよい。次の自分のターンのはじめまで、それらは攻撃もブロックもできない。': {
     note: 'アクア・スターガール',
     abilities: [
@@ -118,7 +182,7 @@ export function validateLineDefs(value: unknown): { defs: LineDefs; errors: stri
     }
     const d = raw as Record<string, unknown>;
     let ok = true;
-    for (const f of ['abilities', 'statics', 'replacements', 'altPlays']) {
+    for (const f of ['abilities', 'statics', 'replacements', 'altPlays', 'handTriggers']) {
       if (d[f] !== undefined && !Array.isArray(d[f])) {
         errors.push(`「${short}」：${f} は配列にしてください`);
         ok = false;

@@ -92,6 +92,8 @@ export interface CardFilter {
   costIsChosenNumber?: boolean;
   /** 効果の発生源自身だけ（「このクリーチャーに封印を付ける」） */
   selfOnly?: boolean;
+  /** カードの種類名にこの文字列を含む（「ミリオン・フレイム」など、エンジンの種類にない種類） */
+  typeLabelIncludes?: string;
   /** このうちのどれかに合うもの（「呪文または名前に《X》とあるカード」） */
   anyOf?: CardFilter[];
   /** この条件に合わないもの（「闇ではない」「ドラゴンではない」「多色ではない」） */
@@ -120,6 +122,8 @@ export interface TargetSpec {
   ref?: 'event' | 'chosen';
   /** エンジン内部用：ref: 'event' を誘発の時に決めたカード */
   iids?: string[];
+  /** ref で指すカードの中から選ぶ（「その中からカードを1枚」）。選んでも「直前に選んだカード」は変えない */
+  refPick?: boolean;
   /** ref で指すカードが、どのゾーンにあってもよい（「その呪文を相手の墓地から唱える」「選んだ呪文を唱える」） */
   anyZone?: boolean;
   /** zone のほかに選べるゾーン（「自分の手札または墓地から」） */
@@ -137,7 +141,12 @@ export interface Quantity {
 }
 
 export type Condition =
-  | { type: 'compare'; left: Quantity; op: '>' | '>=' | '<' | '<=' | '=='; right: Quantity | number }
+  /** rightPlus: 右辺に足す数（「相手のクリーチャーが自分より4体以上多く」） */
+  | { type: 'compare'; left: Quantity; op: '>' | '>=' | '<' | '<=' | '=='; right: Quantity | number; rightPlus?: number }
+  /** 直前に選んだ（動かした）カードが、すべて異なる名前 */
+  | { type: 'chosenDistinctNames' }
+  /** 直前の「その中から選ぶ」効果で、何も選ばなかった（「こうして実行しなければ」） */
+  | { type: 'didNot' }
   | { type: 'not'; condition: Condition }
   | { type: 'and'; conditions: Condition[] }
   | { type: 'or'; conditions: Condition[] }
@@ -281,6 +290,15 @@ export type EffectDef =
   | { type: 'magibomber'; maxCost: number }
   /** 数字を1つ選ぶ（後の文の「その数字と同じコストの」で使う） */
   | { type: 'chooseNumber' }
+  /** このクリーチャーの一番上のカードを破壊する（下のカードがクリーチャーとして残る） */
+  | { type: 'destroyTopCard' }
+  /**
+   * 選んだカードの中から、持ち主が1枚選んで手札に戻し、残りを破壊する（マナゾーンのカードは墓地に置く）。
+   * picked: エンジン内部用（選んだカード）
+   */
+  | { type: 'splitFate'; target: TargetSpec; picked?: string[] }
+  /** このカードの呪文側を、バトルゾーンに置いたままコストを支払わずに唱える（スマッシュ・バースト） */
+  | { type: 'castOwnTwin' }
   /** 対象のカードを、コストを支払わずに使う（唱える・出す）。「その呪文を」「選んだ呪文を」は target.ref で指す */
   | { type: 'playFree'; target: TargetSpec }
   /** 相手の手札を見る */
@@ -402,6 +420,8 @@ export type StaticAbility = (
   | { type: 'nonSummonEntryToGrave'; who: 'self' | 'opponent' | 'both' }
   /** 条件に合うクリーチャーを出せない（召喚も、効果で出すこともできない。「相手は多色ではないクリーチャーを出せない」） */
   | { type: 'cannotEnter'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
+  /** 相手のカードによる「攻撃できない」効果を無視して攻撃できる */
+  | { type: 'ignoreAttackLocks'; appliesTo: Applies }
 ) & {
   /** 有効なターン（「自分のターン中」= self）。省略時は常に有効 */
   duringTurn?: 'self' | 'opponent';
@@ -503,6 +523,12 @@ export interface Keywords {
   lure?: boolean;
   /** このクリーチャーの攻撃中、相手は「G・ストライク」を使えない */
   noGStrikeAgainst?: boolean;
+  /** シンカライズ：クリーチャーであるかのように、この上に進化クリーチャーを置いてもよい（タマシード） */
+  shinkarize?: boolean;
+  /** Zラッシュ：シールドが離れたら、次の自分のターンのはじめまでハイパーモードになる */
+  zRush?: boolean;
+  /** 相手のターンに相手のクリーチャーが出て、その能力がトリガーした時、自分もその能力を使ってもよい */
+  mimicEnemySummon?: boolean;
 }
 
 /** 禁断の鼓動の裏側（禁断クリーチャー） */
@@ -562,7 +588,8 @@ export interface AltPlay {
   /** フシギバース：自分のクリーチャーを1体タップしてマナゾーンに置き、そのコストだけ少なくする（min より少なくならない） */
   fushigi?: { min: number };
   /** 使えるタイミング（省略時は自分のメインステップ）。attackEndBreak: 自分のクリーチャーの攻撃の終わりに、その攻撃でシールドをブレイクしていれば（キリフダッシュ） */
-  timing?: 'attackEndBreak';
+  /** ownAttack: 自分のクリーチャーが攻撃する時（D・D・D） */
+  timing?: 'attackEndBreak' | 'ownAttack';
 }
 
 export interface CardDefinition {
@@ -607,6 +634,8 @@ export interface CardDefinition {
   hyperText?: string;
   /** ハイパーモードで加わる能力（hyperText を読み取ったもの） */
   hyperForm?: Pick<CardDefinition, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
+  /** NEO進化クリーチャーとして召喚する（重ねて召喚する）なら、召喚コストをこの数だけ少なくする */
+  neoCostReduce?: number;
   /** NEO進化：このクリーチャーを、条件に合う自分のクリーチャーの上に重ねて召喚してもよい */
   neoEvolution?: CardFilter;
   /** 禁断の鼓動：ゲーム開始時に封印を付けてバトルゾーンに置き、封印がすべてなくなったら creature 側に裏返す（禁断解放） */

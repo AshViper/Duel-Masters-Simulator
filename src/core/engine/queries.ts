@@ -195,6 +195,7 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   if (f.not && matchFilter(state, reg, iid, f.not, source, noPower)) return false;
   if (f.anyOf && !f.anyOf.some((x) => matchFilter(state, reg, iid, x, source, noPower))) return false;
   if (f.selfOnly && iid !== source) return false;
+  if (f.typeLabelIncludes && !(d.typeLabel ?? '').includes(f.typeLabelIncludes)) return false;
   if (f.costIsChosenNumber && d.cost !== state.chosenNumber) return false;
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(d.type) : d.type !== f.cardType)) return false;
   if (f.civilization && !d.civilizations.includes(f.civilization)) return false;
@@ -322,12 +323,28 @@ export function keywords(state: GameState, reg: CardRegistry, iid: string): Keyw
 
 function keywordsImpl(state: GameState, reg: CardRegistry, iid: string): Keywords {
   const inst = state.cards[iid];
-  let kw = mergeKeywords(mergeKeywords({ ...(def(state, reg, iid).keywords ?? {}) }, inst.keywordsTurn), inst.keywordsUntil?.keywords);
+  // 「相手のカードによる攻撃できない効果を無視して攻撃できる」：相手が与えた攻撃の制限を外す
+  const free = inst.zone === 'battle' && ignoresAttackLocks(state, reg, iid);
+  const until = inst.keywordsUntil;
+  let kw = mergeKeywords(mergeKeywords({ ...(def(state, reg, iid).keywords ?? {}) }, inst.keywordsTurn), until && free && until.player !== inst.owner ? withoutAttackLocks(until.keywords) : until?.keywords);
   if (inst.zone !== 'battle') return kw;
   for (const a of activeStatics(state, reg)) {
-    if (a.static.type === 'grantKeyword' && appliesToCreature(state, reg, a, a.static.appliesTo, iid)) kw = mergeKeywords(kw, a.static.keywords);
+    if (a.static.type === 'grantKeyword' && appliesToCreature(state, reg, a, a.static.appliesTo, iid))
+      kw = mergeKeywords(kw, free && a.controller !== inst.owner ? withoutAttackLocks(a.static.keywords) : a.static.keywords);
   }
   return kw;
+}
+
+const ATTACK_LOCKS: (keyof Keywords)[] = ['cannotAttack', 'cannotAttackPlayers', 'cannotAttackCreatures', 'noAttackOnEnterTurn'];
+/** 「攻撃できない」系の制限を除いたキーワード */
+export function withoutAttackLocks(kw: Keywords): Keywords {
+  const out = { ...kw };
+  for (const k of ATTACK_LOCKS) delete out[k];
+  return out;
+}
+/** 相手のカードによる「攻撃できない」効果を無視できるクリーチャーか */
+export function ignoresAttackLocks(state: GameState, reg: CardRegistry, iid: string): boolean {
+  return activeStatics(state, reg).some((a) => a.static.type === 'ignoreAttackLocks' && appliesToCreature(state, reg, a, a.static.appliesTo, iid));
 }
 
 export function power(state: GameState, reg: CardRegistry, iid: string): number {
@@ -379,11 +396,12 @@ export function cannotBeAttacked(state: GameState, reg: CardRegistry, iid: strin
 }
 
 /** 常在効果込みのコスト */
-export function effectiveCost(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main', sacrifice: string[] = []): number {
-  return cached(state, `ec:${player}:${iid}:${side}:${sacrifice.join(",")}`, () => effectiveCostImpl(state, reg, player, iid, side, sacrifice));
+/** neo: NEO進化クリーチャーとして（重ねて）召喚する */
+export function effectiveCost(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main', sacrifice: string[] = [], neo = false): number {
+  return cached(state, `ec:${player}:${iid}:${side}:${sacrifice.join(",")}:${neo}`, () => effectiveCostImpl(state, reg, player, iid, side, sacrifice, neo));
 }
 
-function effectiveCostImpl(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main', sacrifice: string[] = []): number {
+function effectiveCostImpl(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main', sacrifice: string[] = [], neo = false): number {
   const d = def(state, reg, iid);
   const face = playFace(d, side);
   let cost = face.cost;
@@ -403,6 +421,11 @@ function effectiveCostImpl(state: GameState, reg: CardRegistry, player: PlayerId
   // 条件つきの自分のコスト軽減
   if (side === 'main' && d.condCost && evalCondition(state, reg, player, d.condCost.condition, true, iid)) {
     cost -= d.condCost.amount;
+    floor = Math.min(face.cost, Math.max(floor, 1));
+  }
+  // 「NEO進化クリーチャーとして召喚するなら、召喚コストを2少なくする」
+  if (neo && side === 'main' && d.neoCostReduce) {
+    cost -= d.neoCostReduce;
     floor = Math.min(face.cost, Math.max(floor, 1));
   }
   if (side === 'main' && d.selfCost) {
@@ -610,7 +633,7 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       return c.conditions.some((x) => evalCondition(state, reg, controller, x, noPower, source));
     case 'compare': {
       const l = countQuantity(state, reg, controller, c.left, noPower, source);
-      const r = typeof c.right === 'number' ? c.right : countQuantity(state, reg, controller, c.right, noPower, source);
+      const r = (typeof c.right === 'number' ? c.right : countQuantity(state, reg, controller, c.right, noPower, source)) + (c.rightPlus ?? 0);
       return c.op === '>' ? l > r : c.op === '>=' ? l >= r : c.op === '<' ? l < r : c.op === '<=' ? l <= r : l === r;
     }
     case 'attackedThisTurn':
@@ -623,6 +646,12 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
     }
     case 'castThisTurn':
       return (state.players[c.who === 'self' ? controller : other(controller)].spellsThisTurn ?? 0) > 0;
+    case 'chosenDistinctNames': {
+      const names = (state.lastChosen ?? []).filter((x) => state.cards[x]).map((x) => def(state, reg, x).name);
+      return names.length > 0 && new Set(names).size === names.length;
+    }
+    case 'didNot':
+      return !state.lastDid;
     case 'subjectEnteredFree':
       return !!c.iid && state.cards[c.iid]?.zone === 'battle' && !!state.cards[c.iid].enteredFree;
     case 'enteredThisTurn': {
@@ -642,9 +671,11 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
 export function evolutionBases(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string[] {
   const d = def(state, reg, iid);
   // NEO進化：条件に合うクリーチャーの上に重ねてもよい
-  if (d.neoEvolution) return battleCards(state, reg, player).filter((b) => matchFilter(state, reg, b, d.neoEvolution, undefined, true));
+  // シンカライズ：クリーチャーであるかのように進化元にできるタマシード
+  const bases = [...battleCards(state, reg, player), ...state.players[player].zones.battle.filter((b) => !isCreatureType(def(state, reg, b).type) && def(state, reg, b).keywords?.shinkarize)];
+  if (d.neoEvolution) return bases.filter((b) => matchFilter(state, reg, b, d.neoEvolution, undefined, true));
   if (d.type !== 'evolution') return [];
-  return battleCards(state, reg, player).filter((b) => matchesEvolvesFrom(def(state, reg, b), d));
+  return bases.filter((b) => matchesEvolvesFrom(def(state, reg, b), d));
 }
 
 function matchesEvolvesFrom(bd: CardDefinition, d: CardDefinition): boolean {
@@ -668,9 +699,9 @@ export function canBeEvolutionSource(state: GameState, reg: CardRegistry, iid: s
  * コストの支払いに使うマナを決める。払えなければ null。
  * 各文明について1枚ずつ別々のマナを割り当てる（小さな二部マッチング）。
  */
-export function choosePayment(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, preferred?: string[], side: 'main' | 'twin' = 'main', sacrifice: string[] = []): string[] | null {
+export function choosePayment(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, preferred?: string[], side: 'main' | 'twin' = 'main', sacrifice: string[] = [], neo = false): string[] | null {
   const face = playFace(def(state, reg, iid), side);
-  const cost = effectiveCost(state, reg, player, iid, side, sacrifice);
+  const cost = effectiveCost(state, reg, player, iid, side, sacrifice, neo);
   return payMana(state, reg, player, cost, face.civilizations, preferred);
 }
 
@@ -771,6 +802,8 @@ function canPlayImpl(state: GameState, reg: CardRegistry, player: PlayerId, iid:
   if (side === 'main' && d.type === 'evolution' && evolutionBases(state, reg, player, iid).length === 0) return false;
   if (playRestriction(state, reg, player, iid, side)) return false;
   if (choosePayment(state, reg, player, iid, undefined, side) !== null) return true;
+  // NEO進化クリーチャーとして召喚すれば払える
+  if (side === 'main' && d.neoCostReduce && evolutionBases(state, reg, player, iid).length && choosePayment(state, reg, player, iid, undefined, side, [], true) !== null) return true;
   // ササゲールを使えば払える
   return side === 'main' && minimalSacrifice(state, reg, player, iid) !== null;
 }

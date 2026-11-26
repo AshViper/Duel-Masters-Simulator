@@ -1,5 +1,5 @@
 import type { CardRegistry } from '../cards/registry';
-import { attackTargets, canPlay, canPlayAlt, def, evolutionBases, fushigiCandidates, isIdle, minimalSacrifice } from './queries';
+import { attackTargets, canPlay, canPlayAlt, choosePayment, def, evolutionBases, fushigiCandidates, isIdle, minimalSacrifice } from './queries';
 import type { Action, GameState, PlayerId } from './types';
 
 /**
@@ -22,6 +22,10 @@ export function getLegalActions(state: GameState, reg: CardRegistry, player: Pla
       const extra = sac.length ? { sacrifice: sac } : {};
       if (def(state, reg, iid).type === 'evolution') {
         for (const b of evolutionBases(state, reg, player, iid)) if (!sac.includes(b)) out.push({ type: 'PLAY_CARD', player, iid, evolveOn: b, ...extra });
+      } else if (def(state, reg, iid).neoCostReduce && !sac.length && choosePayment(state, reg, player, iid) === null) {
+        // NEO進化クリーチャーとして召喚しないと払えない：進化元に重ねる
+        const b = evolutionBases(state, reg, player, iid)[0];
+        if (b) out.push({ type: 'PLAY_CARD', player, iid, evolveOn: b });
       } else out.push({ type: 'PLAY_CARD', player, iid, ...extra });
     }
     // 別のコストでの使い方（リサイクル・ギャラクシールド・フシギバースなど）

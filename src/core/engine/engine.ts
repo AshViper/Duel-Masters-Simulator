@@ -30,6 +30,8 @@ import {
   evalCondition,
   countQuantity,
   entryBlocked,
+  ignoresAttackLocks,
+  withoutAttackLocks,
   altCost,
   altPayment,
   altUsable,
@@ -398,8 +400,10 @@ export class Ctx {
       if (new Set(sacrifice).size !== sacrifice.length || sacrifice.some((x) => !cands.includes(x) || x === evolveOn)) throw new IllegalAction(`${what}できないクリーチャーが含まれています`);
       if (hyperEnergy && new Set(sacrifice.map((x) => def(s, this.reg, x).cost)).size !== sacrifice.length) throw new IllegalAction('ハイパーエナジーでは、コストが異なるクリーチャーをタップします');
     }
-    const cost = effectiveCost(s, this.reg, player, iid, side, sacrifice);
-    const pay = choosePayment(s, this.reg, player, iid, manaIids, side, sacrifice);
+    // NEO進化クリーチャーとして（重ねて）召喚する
+    const neo = !!evolveOn && face.type !== 'evolution';
+    const cost = effectiveCost(s, this.reg, player, iid, side, sacrifice, neo);
+    const pay = choosePayment(s, this.reg, player, iid, manaIids, side, sacrifice, neo);
     if (!pay) throw new IllegalAction(`マナが足りません（コスト${cost}・${face.civilizations.map((c) => CIV_LABEL[c]).join('/')}）`);
     if (s.phase === 'charge') {
       s.phase = 'main';
@@ -504,7 +508,7 @@ export class Ctx {
     const tname = target.kind === 'player' ? s.players[other(player)].name : this.name(target.iid);
     this.log(`${this.name(attacker)} が ${tname} を攻撃`, player);
     this.emit({ type: 'ATTACK_DECLARED', player, attacker, target });
-    s.queue.push({ kind: 'attackSwap', player }, { kind: 'blockStep', attacker, defender: other(player) }, { kind: 'attackResolve', attacker }, { kind: 'attackEnd', attacker });
+    s.queue.push({ kind: 'attackSwap', player }, { kind: 'kirifudash', player, timing: 'ownAttack' }, { kind: 'blockStep', attacker, defender: other(player) }, { kind: 'attackResolve', attacker }, { kind: 'attackEnd', attacker });
     this.run();
   }
 
@@ -793,12 +797,12 @@ export class Ctx {
         return false;
 
       case 'kirifudash': {
-        const usable = (iid: string) => (def(s, this.reg, iid).altPlays ?? []).findIndex((a, i) => a.timing === 'attackEndBreak' && altUsable(s, this.reg, task.player, iid, i));
+        const usable = (iid: string) => (def(s, this.reg, iid).altPlays ?? []).findIndex((a, i) => a.timing === (task.timing ?? 'attackEndBreak') && altUsable(s, this.reg, task.player, iid, i));
         const cands = s.players[task.player].zones.hand.filter((iid) => usable(iid) >= 0);
         if (!cands.length) return false;
         const r = this.takeResponse();
         if (!r) {
-          s.pending = { kind: 'selectCards', player: task.player, prompt: 'キリフダッシュ：コストを支払って召喚するクリーチャーを1体選べます', candidates: cands, min: 0, max: 1, reveal: true };
+          s.pending = { kind: 'selectCards', player: task.player, prompt: task.timing === 'ownAttack' ? 'D・D・D：コストを支払って使うカードを1枚選べます' : 'キリフダッシュ：コストを支払って召喚するクリーチャーを1体選べます', candidates: cands, min: 0, max: 1, reveal: true };
           return true;
         }
         const pick = r.selected?.[0];
@@ -1630,8 +1634,77 @@ export class Ctx {
       }
       case 'playFree':
         return this.withTargets(controller, source, e.target, 'コストを支払わずに使う', false, (iid) => {
-          this.playFree(controller, iid, isCreatureType(def(s, this.reg, iid).type) ? 'creature' : 'spell');
+          this.useFree(controller, iid);
         });
+      case 'destroyTopCard': {
+        const inst = s.cards[source];
+        if (inst?.zone !== 'battle') return false;
+        // 下にカードがなければ、このクリーチャーが破壊される
+        if (!inst.under.length) {
+          this.insertFront({ kind: 'leave', iid: source, to: 'graveyard', cause: 'destroy' });
+          return false;
+        }
+        // すぐ下のカードが、残りのカードを下に持つクリーチャーとして残る（タップの状態は引き継ぐ）
+        const [next, ...rest] = inst.under;
+        const zone = s.players[inst.owner].zones.battle;
+        const k = zone.indexOf(source);
+        const n = s.cards[next];
+        inst.under = [];
+        n.under = rest;
+        n.tapped = inst.tapped;
+        n.zone = 'battle';
+        if (k >= 0) zone.splice(k, 1, next);
+        else zone.push(next);
+        this.log(`${this.name(source)} の一番上のカードを破壊した（${this.name(next)} が残る）`, controller);
+        this.moveCard(source, 'graveyard');
+        this.emit({ type: 'CREATURE_DESTROYED', player: inst.owner, iid: source });
+        this.emit({ type: 'CREATURE_LEFT', player: inst.owner, iid: source, to: 'graveyard' });
+        return false;
+      }
+      case 'splitFate': {
+        if (!e.picked) {
+          // まず、効果を使うプレイヤーが選ぶ
+          if (this.withTargets(controller, source, e.target, '選ぶ', true, () => undefined)) return true;
+          this.insertFront(...this.effectTasks(controller, source, [{ ...e, picked: [...(s.lastChosen ?? [])] }]));
+          return false;
+        }
+        const zones: ZoneName[] = [e.target.zone, ...(e.target.extraZones ?? [])];
+        const picked = e.picked.filter((x) => s.cards[x] && zones.includes(s.cards[x].zone));
+        if (!picked.length) return false;
+        // 次に、持ち主がその中から手札に戻す1枚を選ぶ。残りは破壊（マナゾーンのカードは墓地）
+        let keep = picked[0];
+        if (picked.length > 1) {
+          const r = this.takeResponse();
+          if (!r) {
+            s.pending = { kind: 'selectCards', player: s.cards[picked[0]].owner, source, prompt: `${this.name(source)}：手札に戻すカードを1枚選んでください（残りは${e.target.zone === 'battle' ? '破壊される' : '墓地に置かれる'}）`, candidates: picked, min: 1, max: 1 };
+            return true;
+          }
+          keep = r.selected?.[0] ?? keep;
+        }
+        const tasks: Task[] = [];
+        for (const iid of picked) {
+          if (s.cards[iid].zone === 'battle') tasks.push({ kind: 'leave', iid, to: iid === keep ? 'hand' : 'graveyard', cause: iid === keep ? 'effect' : 'destroy' });
+          else {
+            this.moveCard(iid, iid === keep ? 'hand' : 'graveyard');
+            this.log(`${this.name(iid)} を${iid === keep ? '手札に戻した' : '墓地に置いた'}`, controller);
+          }
+        }
+        this.insertFront(...tasks);
+        return false;
+      }
+      case 'castOwnTwin': {
+        const d = def(s, this.reg, source);
+        if (!d.twin || s.cards[source]?.zone !== 'battle') return false;
+        const restricted = playRestriction(s, this.reg, controller, source, 'twin');
+        if (restricted) {
+          this.log(`${d.twin.name}：${restricted}`, controller);
+          return false;
+        }
+        this.log(`${d.twin.name} を、バトルゾーンに置いたままコストを支払わずに唱える`, controller);
+        this.emit({ type: 'SPELL_CAST', player: controller, iid: source });
+        this.insertFront(...(d.twin.abilities ?? []).filter((ab) => ab.when === 'onCast').flatMap((ab) => this.abilityTasks(ab, controller, source)));
+        return false;
+      }
       case 'chooseNumber': {
         const r = this.takeResponse();
         if (!r) {
@@ -1760,7 +1833,9 @@ export class Ctx {
             inst.keywordsUntil = { keywords: { ...prev, ...e.keywords }, player: controller };
             this.log(`${this.name(iid)} は次の${s.players[controller].name}のターンのはじめまで能力を得た`, controller);
           } else {
-            inst.keywordsTurn = { ...(inst.keywordsTurn ?? {}), ...e.keywords };
+            // 「相手のカードによる攻撃できない効果を無視して攻撃できる」クリーチャーには、攻撃の制限を与えない
+            const add = controller !== inst.owner && inst.zone === 'battle' && ignoresAttackLocks(s, this.reg, iid) ? withoutAttackLocks(e.keywords) : e.keywords;
+            inst.keywordsTurn = { ...(inst.keywordsTurn ?? {}), ...add };
             this.log(`${this.name(iid)} はこのターン能力を得た`, controller);
           }
         };
@@ -1884,10 +1959,22 @@ export class Ctx {
           return true;
         }
         const pick = r.selected?.[0];
-        if (pick) this.playFree(controller, pick, isCreatureType(def(s, this.reg, pick).type) ? 'creature' : 'spell', e.spellAfter);
+        if (pick) this.useFree(controller, pick, e.spellAfter);
         return false;
       }
     }
+  }
+
+  /** カードの種類に合わせて、コストを支払わずに使う（クリーチャーは出す、呪文は唱える、それ以外はバトルゾーンに置く） */
+  private useFree(controller: PlayerId, iid: string, after?: 'deckBottom' | 'hand'): void {
+    const d = def(this.s, this.reg, iid);
+    if (isNonCreaturePermanent(d.type)) {
+      this.log(`${d.name} をコストを支払わずに使う`, controller);
+      this.emit({ type: 'CARD_PLAYED', player: controller, iid });
+      this.insertFront({ kind: 'enterBattle', player: this.s.cards[iid].owner, iid });
+      return;
+    }
+    this.playFree(controller, iid, isCreatureType(d.type) ? 'creature' : 'spell', after);
   }
 
   /** コストを支払わずにクリーチャーを出す／呪文を唱える（山札・シールド・手札から） */
@@ -2196,6 +2283,7 @@ export class Ctx {
         // 「相手に選ばれない」クリーチャーは、相手が選ぶ効果の候補にしない（「すべて」は選ばないので対象になる）
         !(spec.count !== 'all' && spec.chooser !== 'owner' && s.cards[c].owner !== controller && isUntargetable(s, this.reg, c, spellCost)),
     );
+    if (candidates.length === 0 && spec.refPick) s.lastDid = false;
     if (candidates.length === 0) {
       // 決まった相手（それ・そのクリーチャー）がもういない時は何もしない
       if (!spec.ref && !spec.iids) {
@@ -2210,7 +2298,7 @@ export class Ctx {
       spec.count === 'all' || spec.ref || spec.iids || spec.zone !== 'battle'
         ? []
         : candidates.filter((c) => s.cards[c].owner !== (spec.chooser === 'owner' ? s.cards[c].owner : controller) && keywords(s, this.reg, c).lure);
-    if (spec.ref || spec.iids || spec.count === 'all') chosen = candidates;
+    if (((spec.ref || spec.iids) && !spec.refPick) || spec.count === 'all') chosen = candidates;
     else if (lures.length >= Math.min(spec.count, candidates.length)) {
       if (lures.length > spec.count) {
         const r = this.takeResponse();
@@ -2273,6 +2361,8 @@ export class Ctx {
     }
     // 「それ」「その捨てたカード」で指すために覚える
     if (!spec.ref && !spec.iids) s.lastChosen = [...chosen];
+    // 「その中から選ぶ」：選んだかどうかを覚える（「こうして実行しなければ」）
+    if (spec.refPick) s.lastDid = chosen.length > 0;
     // 「相手に選ばれた時」：相手の能力で選ばれたバトルゾーンのクリーチャー（「すべて」は選んでいない）
     if (spec.count !== 'all' && !spec.ref && !spec.iids) {
       for (const iid of chosen) if (s.cards[iid].zone === 'battle' && s.cards[iid].owner !== controller) this.emit({ type: 'CARD_TARGETED', iid, by: controller });
@@ -2352,6 +2442,20 @@ export class Ctx {
         }
         // 「自分のパワー6000以上のクリーチャーが出た時」は、条件に合えばこのクリーチャー自身にも誘発する
         this.triggerFrom(e.iid, 'onSummon', (ab) => !ab.filter || matchFilter(s, this.reg, e.iid, ab.filter, e.iid));
+        // 「相手のターンに相手のクリーチャーが出て、その能力がトリガーした時、自分もその能力を使ってもよい」
+        {
+          const summoner = s.cards[e.iid]?.owner;
+          if (summoner !== undefined && s.activePlayer === summoner) {
+            const copier = s.players[other(summoner)].zones.battle.find((x) => !isIgnored(s, this.reg, x) && keywords(s, this.reg, x).mimicEnemySummon);
+            if (copier) {
+              for (const ab of def(s, this.reg, e.iid).abilities ?? []) {
+                if (ab.when !== 'onSummon' || ab.effects.some((x) => x.type === 'manual')) continue;
+                if (ab.condition && !evalCondition(s, this.reg, summoner, ab.condition, false, e.iid)) continue;
+                this.addTrigger(other(summoner), copier, [{ kind: 'confirmOptional', controller: other(summoner), source: e.iid, effects: bindEvent(ab.effects, e.iid) }]);
+              }
+            }
+          }
+        }
         for (const other_ of battleAll()) {
           if (other_ === e.iid) continue;
           this.triggerFrom(other_, 'onOtherSummon', (ab) => this.whoMatches(ab.who, s.cards[other_].owner, e.player) && matchFilter(s, this.reg, e.iid, ab.filter), e.iid);
@@ -2544,6 +2648,16 @@ export class Ctx {
     else owner.zones[to].push(iid);
     this.emit({ type: 'CARD_MOVED', iid, from, to });
     if (to === 'shield' && from !== 'shield') this.emit({ type: 'SHIELD_ADDED', player: inst.owner, iid });
+    // Zラッシュ：シールドが離れたら、次の自分のターンのはじめまでハイパーモードになる
+    if (from === 'shield' && to !== 'shield') {
+      for (const b of [...s.players[0].zones.battle, ...s.players[1].zones.battle]) {
+        const bi = s.cards[b];
+        if (!bi.hyper && this.reg[bi.cardId]?.keywords?.zRush) {
+          bi.hyper = true;
+          this.log(`${this.name(b)} のZラッシュ：ハイパーモードを解放`, bi.owner);
+        }
+      }
+    }
     // 進化元のカードも同じゾーンへ
     for (const u of under) {
       s.cards[u].zone = 'battle';

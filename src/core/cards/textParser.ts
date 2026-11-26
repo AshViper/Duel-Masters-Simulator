@@ -54,6 +54,8 @@ export interface ParsedAbilities {
   altPlays?: AltPlay[];
   /** 自分のターンのはじめに、表向きで自分のシールドゾーンにあれば召喚する */
   galaxyReturn?: boolean;
+  /** NEO進化クリーチャーとして召喚する時のコスト軽減 */
+  neoCostReduce?: number;
   /** 手札にある間の誘発 */
   handTriggers?: { when: 'opponentTurnEnd'; condition?: Condition }[];
   /** 覚醒リンクの条件 */
@@ -180,6 +182,8 @@ const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArr
   ['このクリーチャーの攻撃中、相手は「G・ストライク」を使えない', { noGStrikeAgainst: true }],
   ['水晶チャージャー', { crystalCharger: true }],
   ['ハイパーエナジー', { hyperEnergy: true }],
+  ['Zラッシュ', { zRush: true }],
+  ['相手のターンに相手のクリーチャーが出て、その能力がトリガーした時、自分もその能力を使ってもよい', { mimicEnemySummon: true }],
 ];
 
 /** 能力1行がキーワード能力なら Keywords に反映して true を返す */
@@ -1692,6 +1696,7 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
         dst.replacements.push(...(lineDef.replacements ?? []));
       }
       if (lineDef.altPlays?.length) (result.altPlays ??= []).push(...lineDef.altPlays);
+      if (lineDef.handTriggers?.length) (result.handTriggers ??= []).push(...lineDef.handTriggers);
       result.parsedLines.push([rawLine, ...options.map((o) => `▶${o}`)].join('\n'));
       continue;
     }
@@ -1859,6 +1864,25 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   const t = normalizeText(line);
   const opts = options.map(normalizeText);
   if (kind === 'other') return false;
+  // シンカライズ：このタマシードがクリーチャーであるかのように、この上に進化クリーチャーを置いてもよい
+  if (/^シンカライズ(?:[:：].*)?$/.test(t)) {
+    out.keywords.shinkarize = true;
+    return true;
+  }
+  // スマッシュ・バースト：攻撃する時、このカードの呪文側を、バトルゾーンに置いたままコストを支払わずに唱えてもよい
+  if (/^スマッシュ・バースト。?$/.test(t) && kind === 'creature') {
+    out.abilities.push({ when: 'onAttack', optional: true, effects: [{ type: 'castOwnTwin' }] });
+    return true;
+  }
+  if (/^自分のクリーチャーは、?相手のカードによる攻撃できない効果を無視して攻撃できる。?$/.test(t)) {
+    out.statics.push({ type: 'ignoreAttackLocks', appliesTo: { owner: 'self' } });
+    return true;
+  }
+  const neoCost = t.match(/^NEO進化クリーチャーとして召喚するなら、このクリーチャーの召喚コストを(\d+)少なくする。?$/);
+  if (neoCost && kind === 'creature') {
+    out.neoCostReduce = n(neoCost[1]);
+    return true;
+  }
   // 手札にある間の誘発：「相手のターンの終わりに、そのターン、クリーチャーが3体以上出ていれば、この呪文をコストを支払わずに唱えてもよい」
   const ht = t.match(/^相手のターンの終わりに、(?:(.+)、)?この(?:呪文|クリーチャー|カード)をコストを支払わずに(?:唱え|召喚し|使っ|実行し)てもよい。?$/);
   if (ht) {
@@ -2115,6 +2139,7 @@ const ALT_PLAYS: { re: RegExp; kinds: ('creature' | 'spell')[]; build: (m: RegEx
       return { name: 'フシギバース', ...parseMark(m[1], m[2]), from: 'graveyard', fushigi: { min: min ? n(min[1]) : 1 } };
     },
   },
+  { re: /^D・D・D\[([a-z]+)(\d+)\]$/, kinds: ['creature', 'spell'], build: (m) => ({ name: 'D・D・D', ...parseMark(m[1], m[2]), timing: 'ownAttack' }) },
   { re: /^B・A・D(\d+)$/, kinds: ['creature'], build: (m) => ({ name: 'B・A・D', reduce: n(m[1]), endOfTurn: 'destroy' }) },
   { re: /^J・O・E(\d+)$/, kinds: ['creature'], build: (m) => ({ name: 'J・O・E', reduce: n(m[1]), endOfTurn: 'deckBottomDraw' }) },
   {

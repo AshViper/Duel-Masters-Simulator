@@ -170,7 +170,8 @@ export type Task =
   /** 能力（呪文）1つの解決の終わりの印。これがキューにある間は、新しく誘発した能力は解決を待つ */
   | { kind: 'abilityEnd' }
   /** キリフダッシュを使うか聞く（攻撃の終わり、その攻撃でシールドをブレイクしていた時） */
-  | { kind: 'kirifudash'; player: PlayerId }
+  /** timing: 聞くタイミング（省略時はキリフダッシュ。ownAttack は D・D・D） */
+  | { kind: 'kirifudash'; player: PlayerId; timing?: 'ownAttack' }
   /** バトルゾーンから離れる（置換効果をここで適用） */
   /** chosen: 置換効果が2つ以上ある時に、離れるカードの持ち主が選んだもの（'ex' は EXライフ） */
   /** confirmed: 使うと答えた任意の置換効果（続けて対象を選ぶ時に、もう一度聞かない） */
@@ -244,6 +245,8 @@ export interface GameState {
   turnStatics: TurnStatic[];
   /** このターンに使った「各ターンに1度」の能力（カードID:能力の番号） */
   usedThisTurn?: string[];
+  /** 直前の「その中から選ぶ」効果で、1枚以上選んだか（「こうして実行しなければ」の判定用） */
+  lastDid?: boolean;
   /** 効果で選んだ数字（「数字を1つ選ぶ」） */
   chosenNumber?: number;
   /** 効果で直前に選んだ（動かした）カード（「それ」「その捨てたカード」で指す） */
