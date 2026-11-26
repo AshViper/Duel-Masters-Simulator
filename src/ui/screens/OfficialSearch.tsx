@@ -5,6 +5,8 @@ import { officialCardId } from '../../core/cards/officialConvert';
 import { useApp } from '../../store/appStore';
 import { saveOfficialCard, saveOfficialCards } from '../../store/officialCards';
 import { Modal } from '../components/CardDetail';
+import { OfficialBridgePanel } from '../components/OfficialBridgePanel';
+import { useBridgeConnected } from '../officialBridge';
 import { api } from '../officialApi';
 import { Header } from './Menus';
 
@@ -67,12 +69,15 @@ export function OfficialSearchScreen() {
     setBulkMsg(`${r.saved}枚を保存しました${r.errors.length ? `（失敗${r.errors.length}枚：${r.errors.slice(0, 2).join('、')}）` : ''}`);
   };
 
+  // 公式サイトとつながった時（Pages 版）にも読み直す
+  const bridged = useBridgeConnected();
   useEffect(() => {
     if (options) return;
+    setError('');
     api<OfficialOptions>('/dm-api/options')
       .then((o) => set({ options: o }))
       .catch((e: Error) => setError(`検索条件の読み込みに失敗しました: ${e.message}`));
-  }, [options, set]);
+  }, [options, set, bridged]);
 
   const update = (p: Partial<OfficialSearchQuery>) => set({ query: { ...query, ...p } });
   const run = async (page = 1) => {
@@ -152,6 +157,7 @@ export function OfficialSearchScreen() {
           </p>
         </aside>
         <main>
+          <OfficialBridgePanel />
           {error && <p className="ng">{error}</p>}
           {loading && <p className="muted">公式サイトから取得中…</p>}
           {result && !loading && (

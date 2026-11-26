@@ -1,14 +1,23 @@
 // 公式カード検索の中継（/dm-api/*）を呼ぶ小さなヘルパー
 
+import { handleDmApi } from '../server/dmApi';
+import { isBridgeConnected } from './officialBridge';
+
 /**
  * 中継の場所。ローカル版（npm run dev / preview）は同じサーバーの /dm-api/ を使う。
- * GitHub Pages 版は、ビルド時の VITE_DM_API_BASE（Cloudflare Worker の URL）を使う。
+ * ビルド時に VITE_DM_API_BASE（Cloudflare Worker などの URL）があればそれを使う。
+ * どちらもない GitHub Pages 版は、公式サイトのタブをブリッジにする（officialBridge.ts）。
  */
 const API_BASE = ((import.meta.env.VITE_DM_API_BASE as string | undefined) ?? '').trim().replace(/\/+$/, '');
 
 /** 中継サーバーがない環境（中継を設定せずに静的ホスティングした版）で出すメッセージ */
 export const NO_PROXY_MESSAGE =
-  '公式カード検索の中継が見つかりません。ローカル版（npm run dev / npm run preview）で使うか、中継（worker/）を公開して VITE_DM_API_BASE を設定してビルドしてください。手順は README の「GitHub Pages で公式カード検索を使う」にあります。';
+  '公式サイトとつながっていません。「公式サイトとつなぐ」の手順（公式カード検索の画面にあります）で、公式サイトのページからブックマークレットを押してください。';
+
+/** サーバーの中継がない環境か（GitHub Pages など。ブリッジの案内を出す） */
+export function needsBridge(): boolean {
+  return !API_BASE && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+}
 
 const UNREACHABLE_MESSAGE = '公式カード検索の中継に接続できませんでした。時間をおいて再度お試しください。';
 
@@ -24,6 +33,13 @@ export function isProxyMissing(res: Response): boolean {
 
 /** 中継を呼ぶ。接続できない時（Worker が止まっている・CORS で断られた）も分かるメッセージにする */
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  if (isBridgeConnected()) {
+    // 公式サイトのタブ経由で取得し、ローカル版の中継と同じ形の Response にする
+    const out = await handleDmApi(new URL(path, location.origin), init?.method ?? 'GET', async () => String(init?.body ?? ''));
+    if (!out) throw new Error('not found');
+    return new Response(out.body as BodyInit, { status: out.status, headers: { 'Content-Type': out.contentType } });
+  }
+  if (needsBridge()) throw new Error(NO_PROXY_MESSAGE);
   try {
     return await fetch(apiUrl(path), init);
   } catch {

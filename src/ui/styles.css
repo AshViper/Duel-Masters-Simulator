@@ -419,3 +419,10 @@ a.btn { display: inline-block; padding: 6px 12px; border: 1px solid var(--line);
 .room-input { font: 600 20px ui-monospace, Consolas, monospace; letter-spacing: 0.15em; text-align: center; }
 .net-banner { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 60; display: flex; gap: 10px; align-items: center; padding: 8px 14px; border-radius: 8px; background: #6b2330; color: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); }
 .net-banner button { padding: 4px 10px; }
+
+/* 公式サイトとつなぐ（GitHub Pages 版） */
+.bridge-panel { border: 1px solid var(--muted); border-radius: 8px; padding: 8px 12px; margin: 0 0 10px; }
+.bridge-panel.ok { border-color: var(--ok, #3fb950); color: var(--ok, #3fb950); }
+.bridge-panel ol { margin: 6px 0 0; padding-left: 20px; }
+.bridge-panel p { margin: 4px 0; }
+.bookmarklet { display: inline-block; padding: 2px 10px; border-radius: 12px; background: var(--accent, #4ea8ff); color: #fff; cursor: grab; text-decoration: none; }

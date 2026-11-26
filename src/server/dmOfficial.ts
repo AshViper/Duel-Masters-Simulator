@@ -200,26 +200,45 @@ async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
   return value;
 }
 
+/** 公式サイトから1件取得する方法。サーバーでは fetch、ブラウザ（GitHub Pages 版）では公式サイトのタブ経由に差し替える */
+export interface OfficialFetchInit {
+  method?: string;
+  body?: string;
+  headers?: Record<string, string>;
+}
+export type OfficialFetcher = (url: string, init: OfficialFetchInit) => Promise<{ status: number; bytes: ArrayBuffer; contentType: string }>;
+
+const serverFetcher: OfficialFetcher = async (url, init) => {
+  const res = await fetch(url, {
+    method: init.method,
+    body: init.body,
+    headers: { 'User-Agent': 'Mozilla/5.0 (local card viewer)', Referer: CARD_URL, ...(init.headers ?? {}) },
+    signal: AbortSignal.timeout(15000),
+  });
+  return { status: res.status, bytes: await res.arrayBuffer(), contentType: res.headers.get('content-type') ?? 'application/octet-stream' };
+};
+let fetcher: OfficialFetcher = serverFetcher;
+
+export function setOfficialFetcher(f: OfficialFetcher): void {
+  fetcher = f;
+}
+
 /** 公式サーバーへのリクエストを1本ずつ、間隔を空けて送る */
-function politeFetchRaw(url: string, init?: RequestInit): Promise<{ bytes: ArrayBuffer; contentType: string }> {
+function politeFetchRaw(url: string, init: OfficialFetchInit = {}): Promise<{ bytes: ArrayBuffer; contentType: string }> {
   const run = async () => {
     const wait = lastRequestAt + MIN_INTERVAL_MS - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     lastRequestAt = Date.now();
-    const res = await fetch(url, {
-      ...init,
-      headers: { 'User-Agent': 'Mozilla/5.0 (local card viewer)', Referer: CARD_URL, ...(init?.headers ?? {}) },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) throw new Error(`公式サイトが ${res.status} を返しました`);
-    return { bytes: await res.arrayBuffer(), contentType: res.headers.get('content-type') ?? 'application/octet-stream' };
+    const res = await fetcher(url, init);
+    if (res.status < 200 || res.status >= 300) throw new Error(`公式サイトが ${res.status} を返しました`);
+    return { bytes: res.bytes, contentType: res.contentType || 'application/octet-stream' };
   };
   const p = chain.then(run, run);
   chain = p.catch(() => undefined);
   return p;
 }
 
-async function politeFetch(url: string, init?: RequestInit): Promise<string> {
+async function politeFetch(url: string, init?: OfficialFetchInit): Promise<string> {
   return new TextDecoder('utf-8').decode((await politeFetchRaw(url, init)).bytes);
 }
 

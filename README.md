@@ -17,23 +17,23 @@ npm run test:e2e   # UIテスト（Playwright。初回は npx playwright install
 `main` に push すると `.github/workflows/pages.yml` がテスト・ビルドして GitHub Pages に公開します（公開先: https://ashviper.github.io/Duel-Masters-Simulator/ ）。
 初回だけ、リポジトリの Settings → Pages → Build and deployment の Source を「GitHub Actions」にしてください。
 
-Pages 版は静的ファイルだけで動くため、公式カード検索には別に中継（下記の Cloudflare Worker）が必要です。それ以外（カード・デッキの管理、ソロ対戦、オンライン対戦など）は中継なしで使えます。
+Pages 版はサーバーを使わずに、すべての機能（公式カード検索を含む）が動きます。
 
-#### GitHub Pages で公式カード検索を使う
+#### GitHub Pages で公式カード検索を使う（ブックマークレット）
 
-公式サイトはブラウザからの直接アクセス（CORS）を許可していないため、`worker/` の中継を Cloudflare Workers（無料枠で足ります）に公開し、その URL を Pages のビルドに渡します。中継の中身はローカル版と同じ `src/server/dmApi.ts` です。
+公式サイトはほかのサイトからの読み取り（CORS）を許可していないため、Pages 版のアプリからは直接取得できません。そこで、**あなたが開いた公式カード検索のタブに取得を代わりにしてもらいます**（サーバーや第三者のサービスは使いません。仕組みは `src/ui/officialBridge.ts`）。
 
-1. Cloudflare のアカウントでログインして公開する（初回はブラウザでログインを求められます）。
-   ```
-   npx wrangler login
-   npx wrangler deploy --config worker/wrangler.toml
-   ```
-   表示された URL（例: `https://dm-card-proxy.<あなたのサブドメイン>.workers.dev`）を控えます。
-   Pages 以外のサイトから使う場合は `worker/wrangler.toml` の `ALLOWED_ORIGINS` に追加します（localhost は常に許可）。
-2. GitHub のリポジトリの Settings → Secrets and variables → Actions → Variables で、`DM_API_BASE` に手順 1 の URL を登録する（末尾の `/` は不要）。
-3. Actions の「Deploy to GitHub Pages」を再実行する（または `main` に push する）。
+1. Pages 版の「公式カード検索」画面にある「DMシミュへ接続」ボタンを、ブラウザのブックマークバーへドラッグして登録する。
+2. [公式カード検索](https://dm.takaratomy.co.jp/card/) を開き、そのページで登録したブックマークを押す。
+3. Pages 版が開き（ポップアップの許可を求められたら許可）、「公式サイトとつながっています」と出たら、公式カード検索・保存・デッキ構築の「公式から探す」・デッキ文字列の読み込みがローカル版と同じように使えます。
 
-`DM_API_BASE` が空のままだと、公式カード検索は「中継が見つかりません」と表示します。その場合でも、データはブラウザごと・サイトごとに保存されるので、次の手順でローカル版から Pages 版へ公式カードを移せます（ファイルの受け渡しだけで完結します）。
+- 公式サイトのタブは開いたままにしてください（タイトルに「[接続中]」と付きます）。閉じたり別のページへ移ったりしたら、もう一度ブックマークを押します。
+- ブックマークレットは公式の `/card/` と `/wp-content/card/` 以外は取得せず、このアプリのオリジンからの依頼にしか応えません。
+- 解析・間隔制御（400ms）・キャッシュはローカル版と同じ `src/server/dmOfficial.ts` をブラウザ内で使います。
+
+ブックマークレットの代わりに、`worker/` の中継を Cloudflare Workers に公開して使うこともできます（`npx wrangler deploy --config worker/wrangler.toml` で公開し、リポジトリの Actions 変数 `DM_API_BASE` にその URL を登録してビルド）。設定した場合はブックマークレットなしで検索できます。
+
+ローカル版で保存したカードを Pages 版へ移すこともできます（データはブラウザごと・サイトごとに保存されるため）。
 
 1. ローカル版（`npm run dev`）の「公式カード検索」でカードを保存する。
 2. ローカル版の「カード図鑑 → バックアップ → 書き出す」で、カード・画像・デッキを1つの JSON ファイルに書き出す。
@@ -116,7 +116,7 @@ Pages 版は静的ファイルだけで動くため、公式カード検索に�
 - **保存**（詳細画面の「保存してデッキ構築・対戦で使う」、結果ページの「このページのカードを保存」、またはデッキ構築からの追加）したカードだけ、カード情報と画像をこのブラウザの IndexedDB に保存します。デッキ構築・カード図鑑・対戦では保存したデータを使うので、**公式サーバーへはアクセスしません**。保存済みのカードは再取得しません。
 - 保存したカードのキーワード能力（ブロッカー、S・トリガー、W/T/Q・ブレイカー、スピードアタッカー、スレイヤー、パワーアタッカー、攻撃制限など）は自動処理になります。それ以外の能力は「手動処理」扱いで、エンジンが勝手に処理することはありません。ツインパクトは呪文側も使えます。
 - 保存したカードと画像は、カード図鑑の「保存した公式カード」から一括削除できます。ファイルとしては保存しないので、リポジトリには入りません。
-- ブラウザから公式サイトへは CORS で直接アクセスできないため、Vite のサーバー（`npm run dev` / `npm run preview`）か、Pages 版では Cloudflare Worker（`worker/`）が中継します（本体は `src/server/dmApi.ts`）。中継は公式のカード画像パス以外を取りに行きません。
+- ブラウザから公式サイトへは CORS で直接アクセスできないため、Vite のサーバー（`npm run dev` / `npm run preview`）が中継します（本体は `src/server/dmApi.ts`）。Pages 版では公式サイトのタブがブックマークレットで中継します（上記）。中継は公式のカード画像パス以外を取りに行きません。
 - 公式サーバーへのリクエストは1本ずつ間隔（400ms）を空けて送り、同じ検索・詳細は10分間メモリにキャッシュします。
 - 公式サイトの HTML 構造に依存しているため、サイトが変わると取得できなくなる場合があります（解析は `src/server/dmOfficial.ts`、変換は `src/core/cards/officialConvert.ts`）。
 - 個人利用の範囲で使ってください。

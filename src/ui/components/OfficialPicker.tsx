@@ -6,6 +6,7 @@ import { useCachedImage } from '../../db/imageCache';
 import { useApp } from '../../store/appStore';
 import { saveOfficialCard } from '../../store/officialCards';
 import { api } from '../officialApi';
+import { OfficialBridgePanel } from './OfficialBridgePanel';
 
 // デッキ構築画面から公式カード検索を使い、見つけたカードをそのままデッキに入れる。
 // まだ保存していないカードは、入れる時に情報と画像をブラウザへ保存する（以後は通信しない）。
@@ -84,6 +85,7 @@ export function OfficialPicker({ onPick, count, max, onDetail }: Props) {
 
   return (
     <div className="official-picker">
+      <OfficialBridgePanel compact />
       <form
         className="filter"
         onSubmit={(e) => {
