@@ -249,7 +249,7 @@
 .field-cards .card::after { content: ''; position: absolute; left: 10%; right: 10%; bottom: -5px; height: 2px; border-radius: 2px; background: var(--civ-solid, #667); opacity: 0.8; box-shadow: 0 0 8px var(--civ-solid, #667); }
 .field-cards .card.tapped { margin: 0 calc(var(--w) * 0.15); transform: rotate(90deg) scale(0.86); filter: brightness(0.72); opacity: 1; }
 .field-cards .card.tapped::after { display: none; }
-/* D2フィールド・禁断の鼓動などは横向きに置く（タップとは違い、暗くしない） */
+/* D2フィールドなどは横向きに置く（タップとは違い、暗くしない） */
 .field-cards .card.sideways { margin: 0 calc(var(--w) * 0.15); transform: rotate(90deg) scale(0.86); }
 .field-cards .card.sideways::after { display: none; }
 .field-cards .card.sideways.tapped { filter: brightness(0.72); }

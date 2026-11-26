@@ -303,11 +303,9 @@ export function BattleScreen() {
     );
   };
 
-  /** バトルゾーンで横向きに置くカード：D2フィールドなどのフィールドと、裏返る前の禁断の鼓動 */
+  /** バトルゾーンで横向きに置くカード：D2フィールドなどのフィールド（禁断の鼓動は縦のまま） */
   function isSideways(iid: string): boolean {
-    const inst = g.cards[iid];
-    if (inst.zone !== 'battle') return false;
-    return def(iid).type === 'field' || (!!registry[inst.cardId]?.forbidden && !inst.flipped);
+    return g.cards[iid].zone === 'battle' && def(iid).type === 'field';
   }
 
   const side = (p: PlayerId) => {
