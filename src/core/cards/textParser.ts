@@ -192,6 +192,8 @@ const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArr
   ['水晶チャージャー', { crystalCharger: true }],
   ['ハイパーエナジー', { hyperEnergy: true }],
   ['Zラッシュ', { zRush: true }],
+  // ∞パワーアタッカー：攻撃中、パワーが無限大になる
+  ['攻撃中、このクリーチャーのパワーは無限大になる', { powerAttacker: 1_000_000_000 }],
   // 補足説明の言い方：「このクリーチャーはシールドを6つブレイクする」（H・ブレイカーなど）、Evoチャージャー
   [/^このクリーチャーはシールドを(\d+)(?:つ|枚)?ブレイクする$/, (m) => ({ breaker: Number(m[1]) })],
   ['この呪文を唱えた後、墓地に置くかわりに自分のマナゾーンに置く', { charger: true }],
@@ -229,6 +231,7 @@ const EVENTS: { re: RegExp; self?: TriggerEvent; other?: TriggerEvent; ownInclud
   { re: /^(?:バトルゾーンを)?離れた時/, self: 'onLeave', other: 'onOtherLeave' },
   { re: /^ブロック(?:した|する)時/, self: 'onBlock' },
   { re: /^進化する時/, self: 'onEvolved' },
+  { re: /^相手プレイヤーを攻撃してブロックされなかった時/, self: 'onUnblocked' },
   { re: /^EXライフシールドを失った時/, self: 'onExLifeLeft' },
   { re: /^禁断解放した時/, self: 'onUnleash' },
   { re: /^バトルに勝った時/, self: 'onBattleWin', other: 'onOtherBattleWin' },
@@ -670,7 +673,7 @@ function parseRefSentence(s: string): EffectDef[] | null {
     return target && kw && [{ type: 'grantKeyword', target, keywords: kw, ...(m[1] !== 'このターン' ? { untilNextTurn: true } : {}) }];
   }
   // 「次の相手のターンのはじめに、それらはアンタップしない」
-  if (/^次の相手のターンのはじめに、(?:それら?|その(?:クリーチャー)?|それらのクリーチャー)はアンタップしない$/.test(s)) {
+  if (/^(?:次の相手のターンのはじめに、(?:それら?|その(?:クリーチャー)?|それらのクリーチャー)は|(?:それら?|そのクリーチャー|それらのクリーチャー)は、?次の相手のターンのはじめに)アンタップ(?:し|され)ない$/.test(s)) {
     const target = refTarget();
     return target && [{ type: 'grantKeyword', target, keywords: { noUntap: true }, untilNextTurn: true }];
   }
@@ -713,6 +716,8 @@ function parseSentence(s: string): EffectDef[] | null {
       { type: 'playFree', target: { owner: 'self', zone: 'deck', count: 'all', ref: 'chosen', anyZone: true } },
     ];
   }
+  // ラスト・バースト：「このカードの呪文側をコストを支払わずに唱える」
+  if (/^このカードの呪文側を、?コストを支払わずに唱える$/.test(s)) return [{ type: 'castSelfTwin' }];
   // フレンド・バーストなど：「このクリーチャーの呪文側を、バトルゾーンに置いたままコストを支払わずに唱える」
   if (/^この(?:クリーチャー|カード)の呪文側を、?バトルゾーンに置いたまま、?コストを支払わずに唱える$/.test(s)) return [{ type: 'castOwnTwin' }];
   // 「その呪文を相手の墓地からコストを支払わずに唱える」「選んだ呪文があればコストを支払わずに唱える」：前の文のカードを使う
@@ -2374,6 +2379,9 @@ function parseAltPlay(t: string, rawLine: string, kind: 'creature' | 'spell'): A
     const m = body.match(r.re);
     if (m && r.kinds.includes(kind)) return r.build(m, raw);
   }
+  // リサイタル：「この呪文を墓地からコスト5を支払って唱えてもよい。そうして唱えた後、墓地に置くかわりに自分の山札の一番下に置く」
+  const recital = body.match(/^この呪文を(?:自分の)?墓地からコスト(\d+)を支払って唱えてもよい(。そうして唱えた後、墓地に置くかわりに(?:自分の)?山札の(?:一番)?下に置く)?$/);
+  if (recital && kind === 'spell') return { name: `墓地からコスト${n(recital[1])}で唱える`, cost: n(recital[1]), from: 'graveyard', ...(recital[2] ? { spellAfter: 'deckBottom' as const } : {}) };
   // 「自分の墓地にカードが6枚以上あれば、この呪文を[wdf04]支払って唱えてもよい」「この呪文を[ll04]支払って唱えてもよい。そうしたら、〜」
   const m = body.match(/^(?:(.+)、)?この呪文を\[([a-z]+)(\d+)\]支払って唱えてもよい(?:。そうしたら、(.+))?$/);
   if (!m || kind !== 'spell') return null;

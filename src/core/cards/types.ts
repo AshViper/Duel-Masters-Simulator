@@ -304,6 +304,8 @@ export type EffectDef =
    * picked: エンジン内部用（選んだカード）
    */
   | { type: 'splitFate'; target: TargetSpec; picked?: string[] }
+  /** このカードの呪文側を、コストを支払わずに唱える（ラスト・バースト：破壊された後、墓地などにあるこのカード） */
+  | { type: 'castSelfTwin' }
   /** このカードの呪文側を、バトルゾーンに置いたままコストを支払わずに唱える（スマッシュ・バースト） */
   | { type: 'castOwnTwin' }
   /** 対象のカードを、コストを支払わずに使う（唱える・出す）。「その呪文を」「選んだ呪文を」は target.ref で指す */
@@ -374,6 +376,8 @@ export const TRIGGER_EVENTS = [
   'onOwnUnderLeft',
   /** カードがシールドゾーンを離れた時（who で誰のシールドゾーンか） */
   'onShieldLeft',
+  /** このクリーチャーが相手プレイヤーを攻撃してブロックされなかった時 */
+  'onUnblocked',
   /** このクリーチャーの各ブレイクの前に（攻撃によるブレイクを1つずつに分け、その前に誘発する） */
   'onBeforeBreak',
   /** このクリーチャーの「EXライフ」シールドが離れた時 */

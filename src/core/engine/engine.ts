@@ -968,6 +968,8 @@ export class Ctx {
           return false;
         }
         this.insertFront({ kind: 'breakShields', breaker: c.attackingPlayer, source: task.attacker, defender, count: breakerCount(s, this.reg, task.attacker), byAttack: true });
+        // 「このクリーチャーが相手プレイヤーを攻撃してブロックされなかった時」：ブレイクの前に解決する
+        this.triggerFrom(task.attacker, 'onUnblocked');
         return false;
       }
 
@@ -1780,6 +1782,11 @@ export class Ctx {
           }
         }
         this.insertFront(...tasks);
+        return false;
+      }
+      case 'castSelfTwin': {
+        const d = def(s, this.reg, source);
+        if (d.twin && s.cards[source]?.zone !== 'battle') this.playFree(controller, source, 'spell');
         return false;
       }
       case 'castOwnTwin': {

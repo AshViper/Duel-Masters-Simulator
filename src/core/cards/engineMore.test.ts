@@ -1019,3 +1019,34 @@ describe('ブレイカーの変種', () => {
     expect(p.abilities).toEqual([{ when: 'onAttackEnd', effects: [{ type: 'breakShields', count: 99, self: true }] }]);
   });
 });
+
+describe('補足説明から読む能力語（続き）', () => {
+  it('フリーズ：相手プレイヤーを攻撃してブロックされなかった時、タップして次のターンのはじめにアンタップさせない', () => {
+    const p = parseAbilityText('フリーズ（このクリーチャーが相手プレイヤーを攻撃してブロックされなかった時、バトルゾーンにある相手のクリーチャーを１体選び、タップしてもよい。そのクリーチャーは、次の相手のターンのはじめにアンタップされない）', 'creature');
+    expect(p.manualLines).toHaveLength(0);
+    expect(p.abilities[0].when).toBe('onUnblocked');
+    const card = mk('m-120', ['このクリーチャーが相手プレイヤーを攻撃してブロックされなかった時、カードを１枚引く。']);
+    const r = buildRegistry([...SAMPLE_CARDS, ...Object.values(C), card]);
+    let s = createGame({ players: [{ name: 'A', deck: filler }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, r);
+    const iid = `t${s.nextIid++}`;
+    s.cards[iid] = { iid, cardId: card.id, owner: 0, zone: 'deck', tapped: false, enteredTurn: 0, powerModTurn: 0, under: [], faceUp: false };
+    s.players[0].zones.deck.unshift(iid);
+    new Ctx(s, r).moveCard(iid, 'battle');
+    s.cards[iid].enteredTurn = 0;
+    const hand = s.players[0].zones.hand.length;
+    s = applyAction(s, { type: 'ATTACK', player: 0, attacker: iid, target: { kind: 'player' } }, r).state;
+    for (let i = 0; i < 6 && s.pending; i++) {
+      const p2 = s.pending;
+      s = applyAction(s, p2.kind === 'selectCards' ? { type: 'RESPOND', player: p2.player, selected: p2.candidates.slice(0, Math.max(1, p2.min)) } : { type: 'RESPOND', player: p2.player, selected: [], accept: false }, r).state;
+    }
+    expect(s.players[0].zones.hand.length).toBe(hand + 1);
+  });
+
+  it('リサイタル・ラスト・バースト・∞パワーアタッカー', () => {
+    const rec = parseAbilityText('リサイタル５ （この呪文を墓地からコスト５を支払って唱えてもよい。そうして唱えた後、墓地に置くかわりに自分の山札の一番下に置く）', 'spell');
+    expect(rec.altPlays).toEqual([{ name: '墓地からコスト5で唱える', cost: 5, from: 'graveyard', spellAfter: 'deckBottom' }]);
+    const last = parseAbilityText('ラスト・バースト（このクリーチャーが破壊された時、このカードの呪文側をコストを支払わずに唱えてもよい）', 'creature');
+    expect(last.abilities).toEqual([{ when: 'onDestroyed', optional: true, effects: [{ type: 'castSelfTwin' }] }]);
+    expect(parseAbilityText('∞パワーアタッカー（攻撃中、このクリーチャーのパワーは無限大になる）', 'creature').keywords.powerAttacker).toBeGreaterThan(1e8);
+  });
+});
