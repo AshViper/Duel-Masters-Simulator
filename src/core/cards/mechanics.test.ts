@@ -1,7 +1,7 @@
 // 侵略・革命チェンジ・NEO進化など、能力テキストから読み取った特殊な処理がエンジンで動くことのテスト
 import { describe, expect, it } from 'vitest';
 import { Ctx, applyAction } from '../engine/engine';
-import { blockersFor, canAttackWith, keywords } from '../engine/queries';
+import { blockersFor, breakerCount, canAttackWith, hyperizeCandidates, keywords } from '../engine/queries';
 import { createGame } from '../engine/setup';
 import type { Action, GameState, PlayerId } from '../engine/types';
 import { SAMPLE_CARDS } from '../testing/fixtureCards';
@@ -26,6 +26,15 @@ const C = {
   toMana: mk('m-9', 'マナ還り', ['このクリーチャーが破壊される時、墓地に置くかわりに自分のマナゾーンに置く。']),
   escape: mk('m-10', '逃げ足', ['エスケープ（このクリーチャーが破壊される時、かわりに自分のシールドを1つ手札に加えてもよい）']),
   guard: mk('m-11', '守り手', ['ガードマン（…）']),
+  hyper: convertOfficialCard({
+    id: 'm-12',
+    detailUrl: '',
+    faces: [
+      { ...base, name: 'ハイパー犬', type: 'クリーチャー', power: '3000', race: 'テスト', abilities: ['ハイパー化：自分の他のクリーチャーを１体タップする。（…）'] },
+      { ...base, name: 'ハイパー犬', type: 'クリーチャー', power: '3000', race: 'テスト', abilities: ['ハイパー化：自分の他のクリーチャーを１体タップする。（…）', 'スピードアタッカー', 'W・ブレイカー'] },
+    ],
+  }),
+  peeker: mk('m-13', '覗き見', ['相手がそのターン２枚目以降のカードを引いた時、相手は自身の手札を１枚選び、捨てる。', '相手はカードをマナゾーンに置く時、タップして置く。']),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
 const filler = Array.from({ length: 40 }, () => 'S01-043');
@@ -198,5 +207,49 @@ describe('特殊な処理がエンジンで動く', () => {
     expect(s.pending).toMatchObject({ kind: 'block', blockers: [g] });
     // プレイヤーへの攻撃では使えない
     expect(blockersFor({ ...s, combat: { ...s.combat!, target: { kind: 'player' } } }, reg, 1, a)).toEqual([]);
+  });
+
+  it('ハイパー化：他のクリーチャーをタップしてハイパーモードの能力を得る。次の自分のターンのはじめに戻る', () => {
+    expect(C.hyper.twin).toBeUndefined();
+    let s = newGame();
+    const h = put(s, 0, 'dm:m-12', 'battle');
+    expect(hyperizeCandidates(s, reg, 0, h)).toBeNull(); // タップできる他のクリーチャーがいない
+    const a = put(s, 0, 'S01-031', 'battle');
+    const b = put(s, 0, 'S01-032', 'battle');
+    s = act(s, { type: 'HYPERIZE', player: 0, iid: h });
+    expect(s.pending).toMatchObject({ kind: 'selectCards', candidates: [a, b], min: 1, max: 1 });
+    s = act(s, { type: 'RESPOND', player: 0, selected: [b] });
+    expect(s.cards[b].tapped).toBe(true);
+    expect(keywords(s, reg, h).speedAttacker).toBe(true);
+    expect(breakerCount(s, reg, h)).toBe(2);
+    expect(canAttackWith(s, reg, 0, h)).toBe(true);
+    s = act(s, { type: 'END_TURN', player: 0 });
+    expect(s.cards[h].hyper).toBe(true); // 相手のターン中は続く
+    s = act(s, { type: 'END_TURN', player: 1 });
+    expect(s.cards[h].hyper).toBeFalsy();
+  });
+
+  it('相手がそのターン2枚目以降を引いた時に捨てさせる・相手のマナはタップして置かれる', () => {
+    let s = newGame();
+    put(s, 0, 'dm:m-13', 'battle');
+    s = act(s, { type: 'END_TURN', player: 0 });
+    // 相手のターン：通常のドローは1枚目なので誘発しない
+    expect(s.pending).toBeNull();
+    const before = s.players[1].zones.hand.length;
+    s = act(s, { type: 'MANUAL_DRAW', player: 1, target: 1 });
+    expect(s.pending).toMatchObject({ kind: 'selectCards', player: 1, min: 1, max: 1 });
+    s = act(s, { type: 'RESPOND', player: 1, selected: [s.players[1].zones.hand[0]] });
+    expect(s.players[1].zones.hand).toHaveLength(before);
+    const m = put(s, 1, 'S01-031', 'mana');
+    expect(s.cards[m].tapped).toBe(true);
+    expect(s.cards[put(s, 0, 'S01-031', 'mana')].tapped).toBe(false);
+  });
+});
+
+describe('同じ行に並んだ選択肢', () => {
+  it('「次のうちいずれかひとつを選ぶ。▼…▼…」', () => {
+    const p = parseAbilityText('次のうちいずれかひとつを選ぶ。▼手札を１枚捨て、その後、カードを２枚引く。▼相手のパワー2000以下のクリーチャーを１体破壊する。', 'spell');
+    expect(p.manualLines).toEqual([]);
+    expect(p.abilities[0].effects[0]).toMatchObject({ type: 'chooseOne', options: [{ effects: [{ type: 'toGraveyard' }, { type: 'draw', count: 2 }] }, { effects: [{ type: 'destroy' }] }] });
   });
 });

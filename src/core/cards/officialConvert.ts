@@ -51,7 +51,10 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
   const type = mapType(typeLabel, power !== undefined);
   const set = main.packName.match(/\(?\s*([A-Za-z0-9-]+)/)?.[1];
 
-  const spellFace = d.faces[1];
+  // ハイパー化のカードは、2面目が同じ名前のクリーチャー（ハイパーモード）
+  const hyperFace = d.faces[1] && d.faces[1].name === main.name && /クリーチャー/.test(d.faces[1].type) ? d.faces[1] : undefined;
+  const hyperText = hyperFace ? hyperFace.abilities.filter((a) => !main.abilities.includes(a)).join('\n') : undefined;
+  const spellFace = hyperFace ? undefined : d.faces[1];
   const twin: TwinSide | undefined = spellFace
     ? {
         name: spellFace.name,
@@ -75,6 +78,7 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
     set: set ? OFFICIAL_SET_PREFIX + set : `${OFFICIAL_SET_PREFIX}その他`,
     rarity: main.rarity || undefined,
     twin,
+    ...(hyperText !== undefined ? { hyperText } : {}),
     support: 'manual',
   });
 }
@@ -90,7 +94,13 @@ export function faceKind(card: CardDefinition): 'creature' | 'spell' | 'other' {
  * 保存済みのカードも読み込み時にこれを通すので、読み取りが改良されると自動で反映される。
  */
 export function applyParsedEffects(card: CardDefinition): CardDefinition {
+  // 以前の版で、ハイパーモードの面をツインパクトの呪文側として保存したカードを直す
+  if (card.twin && card.twin.name === card.name) {
+    const mainLines = new Set(card.text.split('\n'));
+    card = { ...card, hyperText: card.twin.text.split('\n').filter((l) => !mainLines.has(l)).join('\n'), twin: undefined };
+  }
   const main = parseAbilityText(card.text, faceKind(card));
+  const hyperParsed = card.hyperText !== undefined ? parseAbilityText(card.hyperText, 'creature') : undefined;
   let twin = card.twin;
   let twinParsed: ParsedAbilities | undefined;
   if (twin) {
@@ -101,8 +111,12 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
       abilities: twinParsed.abilities.length ? twinParsed.abilities : undefined,
     };
   }
-  const manual = main.manualLines.length + (twinParsed?.manualLines.length ?? 0);
-  const auto = Object.keys(main.keywords).length + main.parsedLines.length + (twinParsed ? Object.keys(twinParsed.keywords).length + twinParsed.parsedLines.length : 0);
+  const manual = main.manualLines.length + (twinParsed?.manualLines.length ?? 0) + (hyperParsed?.manualLines.length ?? 0);
+  const auto =
+    Object.keys(main.keywords).length +
+    main.parsedLines.length +
+    (twinParsed ? Object.keys(twinParsed.keywords).length + twinParsed.parsedLines.length : 0) +
+    (hyperParsed ? Object.keys(hyperParsed.keywords).length + hyperParsed.parsedLines.length : 0);
   const support: SupportLevel = manual === 0 ? 'full' : auto > 0 ? 'partial' : 'manual';
   return {
     ...card,
@@ -113,6 +127,16 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     replacements: main.replacements.length ? main.replacements : undefined,
     attackSwap: main.attackSwap,
     neoEvolution: main.neoEvolution,
+    hyper: main.hyper,
+    selfCost: main.selfCost,
+    hyperForm: hyperParsed
+      ? {
+          keywords: Object.keys(hyperParsed.keywords).length ? hyperParsed.keywords : undefined,
+          abilities: hyperParsed.abilities.length ? hyperParsed.abilities : undefined,
+          statics: hyperParsed.statics.length ? hyperParsed.statics : undefined,
+          replacements: hyperParsed.replacements.length ? hyperParsed.replacements : undefined,
+        }
+      : undefined,
     twin,
     support,
   };

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactElement } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
-import { attackTargets, canAttackWith, canPlay, effectiveCost, evolutionBases, isIdle, power, untappedManaCount } from '../../core/engine/queries';
+import { attackTargets, canAttackWith, canPlay, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, power, untappedManaCount } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
@@ -515,6 +515,9 @@ function MenuItems({ g, iid, manual, act, play, showDetail, canControl }: {
     items.push({ label: 'マナチャージ', run: () => act({ type: 'CHARGE_MANA', player: owner, iid }), disabled: !chargeOk });
   }
   items.push({ label: '詳細を見る', run: showDetail });
+  if (inst.zone === 'battle' && d.hyper && !inst.hyper) {
+    items.push({ label: 'ハイパー化する', run: () => act({ type: 'HYPERIZE', player: owner, iid }), disabled: !canControl(owner) || !hyperizeCandidates(g, registry, owner, iid) });
+  }
   if (manual || inst.zone !== 'hand') {
     items.push({ label: inst.tapped ? 'アンタップ（手動）' : 'タップ（手動）', run: () => act({ type: 'MANUAL_TAP', player: actor, iid, tapped: !inst.tapped }) });
     if (inst.zone === 'battle') {

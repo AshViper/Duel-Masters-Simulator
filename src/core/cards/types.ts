@@ -85,7 +85,8 @@ export interface TargetSpec {
 
 /** 数を数える式（条件判定用） */
 export interface Quantity {
-  who: 'self' | 'opponent';
+  /** any: 両方のプレイヤー */
+  who: 'self' | 'opponent' | 'any';
   zone: 'battle' | 'mana' | 'shield' | 'graveyard' | 'hand' | 'deck';
   filter?: CardFilter;
 }
@@ -107,7 +108,8 @@ export type EffectDef =
   | { type: 'bounce'; target: TargetSpec }
   | { type: 'tap'; target: TargetSpec }
   | { type: 'untap'; target: TargetSpec }
-  | { type: 'toMana'; target: TargetSpec }
+  /** tapped: タップして置く */
+  | { type: 'toMana'; target: TargetSpec; tapped?: boolean }
   | { type: 'toHand'; target: TargetSpec }
   | { type: 'toGraveyard'; target: TargetSpec }
   | { type: 'toShield'; target: TargetSpec }
@@ -182,6 +184,14 @@ export const TRIGGER_EVENTS = [
   'onOtherSummon',
   'onLeave',
   'onShieldBroken',
+  /** カードを引いた時（who で誰が引いたか、minDrawCount でそのターン何枚目以降か） */
+  'onDraw',
+  /** 他のクリーチャーが攻撃する時・破壊された時・離れた時（who・filter で絞る） */
+  'onOtherAttack',
+  'onOtherDestroyed',
+  'onOtherLeave',
+  /** このクリーチャーの攻撃の終わりに */
+  'onAttackEnd',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
@@ -194,6 +204,10 @@ export interface TriggeredAbility {
   who?: 'self' | 'opponent' | 'any';
   /** onOtherSummon で出たクリーチャーの条件 */
   filter?: CardFilter;
+  /** 各ターンに1度だけ */
+  oncePerTurn?: boolean;
+  /** onDraw：そのターンに引いた枚数がこれ以上の時だけ（「2枚目以降のカードを引いた時」） */
+  minDrawCount?: number;
   /** 発動条件（「〜なら」） */
   condition?: Condition;
 }
@@ -202,20 +216,27 @@ export interface TriggeredAbility {
 export interface Applies {
   owner: 'self' | 'opponent' | 'any';
   excludeSelf?: boolean;
+  /** このクリーチャー自身だけ */
+  onlySelf?: boolean;
   filter?: CardFilter;
 }
 
 /** 常在効果（バトルゾーンにある間、または turnStatic でターン終了まで有効） */
 export type StaticAbility = (
-  | { type: 'powerMod'; amount: number; appliesTo: Applies; attackingOnly?: boolean }
+  /** perCount: amount を「〜1枚につき」の数だけ掛ける */
+  | { type: 'powerMod'; amount: number; appliesTo: Applies; attackingOnly?: boolean; perCount?: Quantity }
   | { type: 'grantKeyword'; keywords: Keywords; appliesTo: Applies }
   /** 手札のカードのコストを増減する。コストは minCost（既定1）未満にならない */
   | { type: 'costMod'; amount: number; appliesTo: Applies; minCost?: number }
   | { type: 'cannotSummon'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
   | { type: 'cannotCast'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
+  /** カードをマナゾーンにタップして置く（「相手はカードをマナゾーンに置く時、タップして置く」） */
+  | { type: 'manaEntersTapped'; who: 'self' | 'opponent' | 'both' }
 ) & {
   /** 有効なターン（「自分のターン中」= self）。省略時は常に有効 */
   duringTurn?: 'self' | 'opponent';
+  /** 有効になる条件（「〜があれば」） */
+  condition?: Condition;
 };
 
 /** 置換効果（「〜する時、かわりに…」） */
@@ -317,6 +338,14 @@ export interface CardDefinition {
   evolvesFrom?: { race?: string; civilization?: Civilization };
   /** 侵略（invasion）・革命チェンジ（revolution）：攻撃中の自分のクリーチャーが filter に合えば、手札から使える */
   attackSwap?: { kind: 'invasion' | 'revolution'; filter: CardFilter };
+  /** このカード自身の召喚コストを「〜1枚につきN」少なくする。コストは min 未満にならない */
+  selfCost?: { amount: number; per: Quantity; unit: number; min: number };
+  /** ハイパー化：自分のクリーチャーを count 体タップして、次の自分のターンのはじめまでハイパーモードになる */
+  hyper?: { count: number; excludeSelf: boolean; filter?: CardFilter };
+  /** ハイパーモードの面にだけある能力の文（公式の2面目から） */
+  hyperText?: string;
+  /** ハイパーモードで加わる能力（hyperText を読み取ったもの） */
+  hyperForm?: Pick<CardDefinition, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
   /** NEO進化：このクリーチャーを、条件に合う自分のクリーチャーの上に重ねて召喚してもよい */
   neoEvolution?: CardFilter;
   support: SupportLevel;

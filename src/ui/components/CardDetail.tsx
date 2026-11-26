@@ -53,7 +53,7 @@ export function CardDetail({ card, onClose, actions }: { card: CardDefinition; o
           {manual.length > 0 && (
             <div className="detail-manual">
               <h3>手動で処理する能力</h3>
-              <p className="muted">次の能力は自動では処理しません。対戦中は右クリックメニューで手動で処理してください（タイミングの分かる能力はその時にログでお知らせします）。</p>
+              <p className="muted">次の能力は自動では読み取れませんでした。対戦中にこの能力の場面になると判断パネルで止まるので、手動で処理してから「処理完了」を押してください（タイミングの分からない能力は、盤面の右クリックメニューで処理してください）。</p>
               <ul>{manual.map((l, i) => <li key={i}>{l}</li>)}</ul>
             </div>
           )}

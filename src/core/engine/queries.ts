@@ -22,7 +22,36 @@ export function def(state: GameState, reg: CardRegistry, iid: string): CardDefin
   const inst = state.cards[iid];
   const d = inst && reg[inst.cardId];
   if (!d) throw new Error(`unknown card ${iid}`);
-  return d;
+  return inst.hyper && d.hyperForm ? hyperDef(d) : d;
+}
+
+const hyperCache = new WeakMap<CardDefinition, CardDefinition>();
+/** ハイパーモードのカード定義（元の能力＋ハイパーモードで加わる能力） */
+function hyperDef(d: CardDefinition): CardDefinition {
+  let h = hyperCache.get(d);
+  if (!h) {
+    const f = d.hyperForm!;
+    h = {
+      ...d,
+      keywords: { ...(d.keywords ?? {}), ...(f.keywords ?? {}) },
+      abilities: [...(d.abilities ?? []), ...(f.abilities ?? [])],
+      statics: [...(d.statics ?? []), ...(f.statics ?? [])],
+      replacements: [...(d.replacements ?? []), ...(f.replacements ?? [])],
+    };
+    hyperCache.set(d, h);
+  }
+  return h;
+}
+
+/** ハイパー化のためにタップできるクリーチャー。ハイパー化できなければ null */
+export function hyperizeCandidates(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string[] | null {
+  const inst = state.cards[iid];
+  if (!inst || inst.owner !== player || inst.zone !== 'battle' || inst.hyper) return null;
+  if (state.activePlayer !== player || (state.phase !== 'main' && state.phase !== 'charge') || state.pending) return null;
+  const h = reg[inst.cardId]?.hyper;
+  if (!h) return null;
+  const cands = state.players[player].zones.battle.filter((b) => !state.cards[b].tapped && !(h.excludeSelf && b === iid) && matchFilter(state, reg, b, h.filter, iid));
+  return cands.length >= h.count ? cands : null;
 }
 
 // ───────────────────────── 絞り込み ─────────────────────────
@@ -84,6 +113,8 @@ export function activeStatics(state: GameState, reg: CardRegistry): ActiveStatic
     for (const iid of p.zones.battle) {
       for (const s of def(state, reg, iid).statics ?? []) {
         if (s.duringTurn && (s.duringTurn === 'self') !== (state.activePlayer === p.id)) continue;
+        // 条件つきの常在効果（循環を避けるため、条件はパワーを見ずに数える）
+        if (s.condition && !evalCondition(state, reg, p.id, s.condition, true, iid)) continue;
         out.push({ controller: p.id, source: iid, static: s });
       }
     }
@@ -100,6 +131,7 @@ function appliesToCreature(state: GameState, reg: CardRegistry, a: ActiveStatic,
   const inst = state.cards[iid];
   if (!ownerMatches(applies.owner, a.controller, inst.owner)) return false;
   if (applies.excludeSelf && iid === a.source) return false;
+  if (applies.onlySelf && iid !== a.source) return false;
   return matchFilter(state, reg, iid, applies.filter, a.source, true);
 }
 
@@ -133,7 +165,8 @@ export function power(state: GameState, reg: CardRegistry, iid: string): number 
   const attacking = state.combat?.attacker === iid;
   for (const a of activeStatics(state, reg)) {
     const s = a.static;
-    if (s.type === 'powerMod' && (!s.attackingOnly || attacking) && appliesToCreature(state, reg, a, s.appliesTo, iid)) p += s.amount;
+    if (s.type === 'powerMod' && (!s.attackingOnly || attacking) && appliesToCreature(state, reg, a, s.appliesTo, iid))
+      p += s.perCount ? s.amount * countQuantity(state, reg, a.controller, s.perCount, true, a.source) : s.amount;
   }
   if (attacking) p += keywords(state, reg, iid).powerAttacker ?? 0;
   return Math.max(0, p);
@@ -179,6 +212,12 @@ export function effectiveCost(state: GameState, reg: CardRegistry, player: Playe
     if (!matchFace(face, d, s.appliesTo.filter)) continue;
     cost += s.amount;
     if (s.minCost !== undefined) floor = Math.min(face.cost, Math.max(floor, s.minCost));
+  }
+  // このカード自身のコスト軽減（「〜1枚につき1少なくする」）
+  if (side === 'main' && d.selfCost) {
+    const sc = d.selfCost;
+    cost -= sc.amount * Math.floor(countQuantity(state, reg, player, sc.per, true, iid) / sc.unit);
+    floor = Math.min(face.cost, Math.max(floor, sc.min));
   }
   return Math.max(floor, cost);
 }
@@ -259,20 +298,21 @@ export function targetCandidates(state: GameState, reg: CardRegistry, controller
   return out;
 }
 
-function countQuantity(state: GameState, reg: CardRegistry, controller: PlayerId, q: Quantity): number {
-  const p = q.who === 'self' ? controller : other(controller);
-  return state.players[p].zones[q.zone].filter((iid) => matchFilter(state, reg, iid, q.filter)).length;
+/** 数を数える。noPower なら元のパワーで判定（常在効果の中から呼ぶ時の循環防止）。source は「他の」の判定用 */
+export function countQuantity(state: GameState, reg: CardRegistry, controller: PlayerId, q: Quantity, noPower = false, source?: string): number {
+  const players: PlayerId[] = q.who === 'self' ? [controller] : q.who === 'opponent' ? [other(controller)] : [controller, other(controller)];
+  return players.reduce<number>((sum, p) => sum + state.players[p].zones[q.zone].filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)).length, 0);
 }
 
-export function evalCondition(state: GameState, reg: CardRegistry, controller: PlayerId, c: Condition): boolean {
+export function evalCondition(state: GameState, reg: CardRegistry, controller: PlayerId, c: Condition, noPower = false, source?: string): boolean {
   switch (c.type) {
     case 'not':
-      return !evalCondition(state, reg, controller, c.condition);
+      return !evalCondition(state, reg, controller, c.condition, noPower, source);
     case 'and':
-      return c.conditions.every((x) => evalCondition(state, reg, controller, x));
+      return c.conditions.every((x) => evalCondition(state, reg, controller, x, noPower, source));
     case 'compare': {
-      const l = countQuantity(state, reg, controller, c.left);
-      const r = typeof c.right === 'number' ? c.right : countQuantity(state, reg, controller, c.right);
+      const l = countQuantity(state, reg, controller, c.left, noPower, source);
+      const r = typeof c.right === 'number' ? c.right : countQuantity(state, reg, controller, c.right, noPower, source);
       return c.op === '>' ? l > r : c.op === '>=' ? l >= r : c.op === '<' ? l < r : c.op === '<=' ? l <= r : l === r;
     }
   }

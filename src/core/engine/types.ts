@@ -22,6 +22,8 @@ export interface CardInstance {
   faceUp: boolean;
   /** EXライフで置いたシールド */
   exLifeShield?: string;
+  /** ハイパーモード中（次の持ち主のターンのはじめまで） */
+  hyper?: boolean;
   /** 次の player のターンのはじめまで有効なキーワード能力 */
   keywordsUntil?: { keywords: Keywords; player: PlayerId };
 }
@@ -34,6 +36,8 @@ export interface PlayerState {
   chargedThisTurn: boolean;
   /** 残りの追加ターン数 */
   extraTurns: number;
+  /** このターンに引いたカードの枚数 */
+  drawnThisTurn?: number;
 }
 
 export type Phase = 'start' | 'draw' | 'charge' | 'main' | 'attack' | 'end';
@@ -106,10 +110,13 @@ export type Task =
   | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean }
   /** 呪文を解決し終えたら墓地へ */
   | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin' }
+  | { kind: 'hyperize'; player: PlayerId; iid: string }
+  /** 攻撃の終わり */
+  | { kind: 'attackEnd'; attacker: string }
   /** 侵略・革命チェンジを使うか聞く */
   | { kind: 'attackSwap'; player: PlayerId }
   /** バトルゾーンから離れる（置換効果をここで適用） */
-  | { kind: 'leave'; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[] }
+  | { kind: 'leave'; tapped?: boolean; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[] }
   /** 自動フェイズを進める（開始時誘発などを解決してから次へ） */
   | { kind: 'phase'; phase: Phase }
   /** ターン終了時の後片付けと手番の交代（追加ターンを含む） */
@@ -173,6 +180,8 @@ export interface GameState {
   pending: Pending | null;
   combat: CombatState | null;
   turnStatics: TurnStatic[];
+  /** このターンに使った「各ターンに1度」の能力（カードID:能力の番号） */
+  usedThisTurn?: string[];
   log: LogEntry[];
   winner: PlayerId | null;
   gameOverReason: string | null;
@@ -194,4 +203,6 @@ export type Action =
   | { type: 'MANUAL_SHUFFLE'; player: PlayerId; target: PlayerId }
   | { type: 'MANUAL_POWER'; player: PlayerId; iid: string; amount: number }
   | { type: 'MANUAL_LOG'; player: PlayerId; text: string }
-  | { type: 'CONCEDE'; player: PlayerId };
+  | { type: 'CONCEDE'; player: PlayerId }
+  /** ハイパー化する（タップするクリーチャーは判断パネルで選ぶ） */
+  | { type: 'HYPERIZE'; player: PlayerId; iid: string };

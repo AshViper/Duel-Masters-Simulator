@@ -27,6 +27,8 @@ import {
   evolutionBases,
   isIdle,
   isUntargetable,
+  hyperizeCandidates,
+  activeStatics,
   attackSwapCandidates,
   keywords,
   matchFilter,
@@ -102,6 +104,15 @@ export class Ctx {
     switch (a.type) {
       case 'RESPOND':
         return this.respond(a.player, { selected: a.selected, accept: a.accept });
+      case 'HYPERIZE': {
+        if (!hyperizeCandidates(s, this.reg, a.player, a.iid)) throw new IllegalAction('ハイパー化できません');
+        if (s.phase === 'charge') {
+          s.phase = 'main';
+          this.emit({ type: 'PHASE_CHANGED', phase: 'main' });
+        }
+        s.queue.push({ kind: 'hyperize', player: a.player, iid: a.iid });
+        return this.run();
+      }
       case 'CONCEDE':
         this.log(`${s.players[a.player].name} が投了しました`, a.player);
         return this.gameOver(other(a.player), '投了');
@@ -187,7 +198,11 @@ export class Ctx {
         const P = s.players[pl];
         // 「次の自分のターンのはじめまで」の効果はここで終わる
         s.turnStatics = s.turnStatics.filter((t) => t.untilNextTurnOf !== pl);
-        for (const c of Object.values(s.cards)) if (c.keywordsUntil?.player === pl) delete c.keywordsUntil;
+        for (const c of Object.values(s.cards)) {
+          if (c.keywordsUntil?.player === pl) delete c.keywordsUntil;
+          // ハイパーモードは次の自分のターンのはじめまで
+          if (c.hyper && c.owner === pl) delete c.hyper;
+        }
         for (const iid of [...P.zones.battle, ...P.zones.mana]) s.cards[iid].tapped = false;
         P.chargedThisTurn = false;
         this.log(`── ターン${s.turn}：${P.name} ──`, pl);
@@ -215,6 +230,8 @@ export class Ctx {
       delete c.keywordsTurn;
     }
     s.turnStatics = s.turnStatics.filter((t) => t.untilNextTurnOf !== undefined);
+    s.usedThisTurn = [];
+    for (const p of s.players) p.drawnThisTurn = 0;
     const P = s.players[s.activePlayer];
     if (P.extraTurns > 0) {
       P.extraTurns -= 1;
@@ -290,7 +307,7 @@ export class Ctx {
     const tname = target.kind === 'player' ? s.players[other(player)].name : this.name(target.iid);
     this.log(`${this.name(attacker)} が ${tname} を攻撃`, player);
     this.emit({ type: 'ATTACK_DECLARED', player, attacker, target });
-    s.queue.push({ kind: 'attackSwap', player }, { kind: 'blockStep', attacker, defender: other(player) }, { kind: 'attackResolve', attacker });
+    s.queue.push({ kind: 'attackSwap', player }, { kind: 'blockStep', attacker, defender: other(player) }, { kind: 'attackResolve', attacker }, { kind: 'attackEnd', attacker });
     this.run();
   }
 
@@ -431,7 +448,7 @@ export class Ctx {
         // 侵略・革命チェンジで出たクリーチャーが攻撃を続ける
         if (task.replaceAttacker && s.combat) {
           s.combat.attacker = task.iid;
-          for (const t of s.queue) if (t.kind === 'blockStep' || t.kind === 'attackResolve') t.attacker = task.iid;
+          for (const t of s.queue) if (t.kind === 'blockStep' || t.kind === 'attackResolve' || t.kind === 'attackEnd') t.attacker = task.iid;
         }
         // EXライフ：山札の上から1枚をシールド化する
         const deck = s.players[inst.owner].zones.deck;
@@ -450,6 +467,35 @@ export class Ctx {
 
       case 'attackSwap':
         return this.execAttackSwap(task.player);
+
+      case 'attackEnd':
+        // 「このクリーチャーの攻撃の終わりに」
+        if (s.cards[task.attacker]?.zone === 'battle') {
+          this.triggerFrom(task.attacker, 'onAttackEnd');
+          this.flushTriggers();
+        }
+        return false;
+
+      case 'hyperize': {
+        const inst = s.cards[task.iid];
+        const h = this.reg[inst?.cardId]?.hyper;
+        if (!inst || inst.zone !== 'battle' || !h) return false;
+        const cands = s.players[task.player].zones.battle.filter((b) => !s.cards[b].tapped && !(h.excludeSelf && b === task.iid) && matchFilter(s, this.reg, b, h.filter, task.iid));
+        if (cands.length < h.count) return false;
+        let chosen = cands;
+        if (cands.length > h.count) {
+          const r = this.takeResponse();
+          if (!r) {
+            s.pending = { kind: 'selectCards', player: task.player, source: task.iid, prompt: `${this.name(task.iid)} をハイパー化：タップするクリーチャーを${h.count}体選んでください`, candidates: cands, min: h.count, max: h.count };
+            return true;
+          }
+          chosen = r.selected ?? [];
+        }
+        for (const b of chosen) s.cards[b].tapped = true;
+        inst.hyper = true;
+        this.log(`${this.name(task.iid)} がハイパーモードになった（${chosen.map((b) => this.name(b)).join('・')}をタップ）`, task.player);
+        return false;
+      }
 
       case 'blockStep': {
         const blockers = blockersFor(s, this.reg, task.defender, task.attacker);
@@ -702,6 +748,7 @@ export class Ctx {
     }
     if (task.cause === 'destroy') this.log(`${this.name(task.iid)} は破壊された`, inst.owner);
     this.moveCard(task.iid, task.to, { toTop: task.toTop ?? true });
+    if (task.tapped && task.to === 'mana') inst.tapped = true;
     if (task.cause === 'destroy') this.emit({ type: 'CREATURE_DESTROYED', player: inst.owner, iid: task.iid });
     this.emit({ type: 'CREATURE_LEFT', player: inst.owner, iid: task.iid, to: task.to });
     return false;
@@ -891,7 +938,12 @@ export class Ctx {
       case 'graveyardToHand':
         return this.withTargets(controller, source, e.target, '手札に戻す', e.target.zone === 'battle', (iid) => this.moveTo(iid, 'hand', controller));
       case 'toMana':
-        return this.withTargets(controller, source, e.target, 'マナゾーンに置く', e.target.zone !== 'deck', (iid) => this.moveTo(iid, 'mana', controller));
+        return this.withTargets(controller, source, e.target, 'マナゾーンに置く', e.target.zone !== 'deck', (iid) => {
+          const t = this.moveTo(iid, 'mana', controller);
+          if (t && t.kind === 'leave') return e.tapped ? { ...t, tapped: true } : t;
+          if (e.tapped) s.cards[iid].tapped = true;
+          return t;
+        });
       case 'toGraveyard':
         return this.withTargets(controller, source, e.target, '墓地に置く', true, (iid) => this.moveTo(iid, 'graveyard', controller));
       case 'toShield':
@@ -912,6 +964,7 @@ export class Ctx {
         return this.withTargets(controller, source, e.target, 'バトルゾーンに出す', false, (iid) => this.putIntoBattle(iid, controller));
       case 'toDeckTop':
         return this.withTargets(controller, source, e.target, '山札の上に置く', false, (iid) => {
+          if (s.cards[iid].zone === 'battle') return this.moveTo(iid, 'deck', controller);
           this.moveCard(iid, 'deck');
           this.log(`${e.target.zone === 'hand' ? 'カード1枚' : this.name(iid)} を山札の上に置いた`, controller);
         });
@@ -1145,13 +1198,30 @@ export class Ctx {
   }
 
   private triggerFrom(iid: string, when: TriggeredAbility['when'], extra?: (ab: TriggeredAbility) => boolean): void {
-    const inst = this.s.cards[iid];
+    const s = this.s;
+    const inst = s.cards[iid];
     if (!inst) return;
-    const d = def(this.s, this.reg, iid);
+    const d = def(s, this.reg, iid);
     if (!isCreatureType(d.type)) return;
-    for (const ab of d.abilities ?? []) {
-      if (ab.when !== when || (extra && !extra(ab))) continue;
+    (d.abilities ?? []).forEach((ab, i) => {
+      if (ab.when !== when || (extra && !extra(ab))) return;
+      // 「各ターンに1度」
+      if (ab.oncePerTurn) {
+        const key = `${iid}:${i}`;
+        s.usedThisTurn ??= [];
+        if (s.usedThisTurn.includes(key)) return;
+        s.usedThisTurn.push(key);
+      }
       this.triggered.push(...this.abilityTasks(ab, inst.owner, iid));
+    });
+  }
+
+  /** 他のクリーチャー（subject）に起きた出来事で、バトルゾーンの他のクリーチャーの能力を誘発させる */
+  private triggerOthers(subject: string, when: TriggeredAbility['when'], player: PlayerId): void {
+    const s = this.s;
+    for (const iid of [...s.players[0].zones.battle, ...s.players[1].zones.battle]) {
+      if (iid === subject) continue;
+      this.triggerFrom(iid, when, (ab) => this.whoMatches(ab.who, s.cards[iid].owner, player) && matchFilter(s, this.reg, subject, ab.filter, iid));
     }
   }
 
@@ -1165,6 +1235,11 @@ export class Ctx {
     const s = this.s;
     const battleAll = () => [...s.players[0].zones.battle, ...s.players[1].zones.battle];
     switch (e.type) {
+      case 'CARD_DRAWN': {
+        const drawn = s.players[e.player].drawnThisTurn ?? 1;
+        for (const iid of battleAll()) this.triggerFrom(iid, 'onDraw', (ab) => this.whoMatches(ab.who, s.cards[iid].owner, e.player) && drawn >= (ab.minDrawCount ?? 1));
+        break;
+      }
       case 'CREATURE_SUMMONED':
         this.triggerFrom(e.iid, 'onSummon');
         for (const other_ of battleAll()) {
@@ -1174,12 +1249,15 @@ export class Ctx {
         break;
       case 'CREATURE_DESTROYED':
         this.triggerFrom(e.iid, 'onDestroyed');
+        this.triggerOthers(e.iid, 'onOtherDestroyed', e.player);
         break;
       case 'CREATURE_LEFT':
         this.triggerFrom(e.iid, 'onLeave');
+        this.triggerOthers(e.iid, 'onOtherLeave', e.player);
         break;
       case 'ATTACK_DECLARED':
         this.triggerFrom(e.attacker, 'onAttack');
+        this.triggerOthers(e.attacker, 'onOtherAttack', e.player);
         break;
       case 'BLOCKED':
         this.triggerFrom(e.blocker, 'onBlock');
@@ -1226,6 +1304,7 @@ export class Ctx {
       const top = this.topOfDeck(player);
       if (!top) break;
       this.moveCard(top, 'hand');
+      this.s.players[player].drawnThisTurn = (this.s.players[player].drawnThisTurn ?? 0) + 1;
       this.emit({ type: 'CARD_DRAWN', player, iid: top });
       // 山札の最後の1枚を引く時、負けるかわりに勝つ（シャコガイルなど）
       if (this.s.players[player].zones.deck.length === 0 && this.s.gameOverReason === null) {
@@ -1253,6 +1332,7 @@ export class Ctx {
     inst.powerModTurn = 0;
     delete inst.keywordsTurn;
     delete inst.keywordsUntil;
+    delete inst.hyper;
     delete inst.exLifeShield;
     inst.faceUp = to !== 'shield' && to !== 'deck';
     if (to === 'battle') inst.enteredTurn = s.turn;
@@ -1261,6 +1341,12 @@ export class Ctx {
     // 「マナゾーンに置く時、このカードはタップして置く」
     const md = def(s, this.reg, iid);
     if (to === 'mana' && (md.keywords?.manaTapped || md.twin?.keywords?.manaTapped)) inst.tapped = true;
+    // 「相手はカードをマナゾーンに置く時、タップして置く」
+    if (to === 'mana' && !inst.tapped) {
+      for (const a of activeStatics(s, this.reg)) {
+        if (a.static.type === 'manaEntersTapped' && (a.static.who === 'both' || (a.static.who === 'self') === (a.controller === inst.owner))) inst.tapped = true;
+      }
+    }
     if (to === 'deck' && opts.toTop === false) owner.zones.deck.unshift(iid);
     else owner.zones[to].push(iid);
     this.emit({ type: 'CARD_MOVED', iid, from, to });
