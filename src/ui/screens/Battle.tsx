@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isNonCreaturePermanent, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
-import { altCost, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
+import { altCost, battleCards, canCross, isCrossGear, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canSummonFromZone, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
@@ -303,7 +303,7 @@ export function BattleScreen() {
           ) : inst.under.length > 0 ? (
             <span className="under-badge">進化 +{inst.under.length}</span>
           ) : inst.equippedTo && g.cards[inst.equippedTo] ? (
-            <span className="under-badge" title="このウエポンを装備しているクリーチャー">装備：{def(inst.equippedTo).name}</span>
+            <span className="under-badge" title="これを装備（クロス）しているクリーチャー">{isCrossGear(d) ? 'クロス' : '装備'}：{def(inst.equippedTo).name}</span>
           ) : undefined
         }
         dimmed={inst.zone === 'battle' && !!inst.seals?.length}
@@ -712,7 +712,7 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
     rule.push({ label: 'マナチャージ', run: () => act({ type: 'CHARGE_MANA', player: owner, iid }), disabled: !chargeOk });
   }
   // 墓地・マナゾーンから召喚できるクリーチャー（「このクリーチャーを自分の墓地から召喚してもよい」）
-  if (inst.zone !== 'hand' && d.summonFrom && (d.summonFrom.zones as string[]).includes(inst.zone) && canControl(owner)) {
+  if (inst.zone !== 'hand' && canSummonFromZone(g, registry, owner, iid) && canControl(owner)) {
     rule.push({ label: `${inst.zone === 'graveyard' ? '墓地' : 'マナゾーン'}から召喚する`, run: () => play(iid), disabled: !canPlay(g, registry, owner, iid), primary: true });
   }
   // 別のコストでの使い方（リサイクル・ギャラクシールド・フシギバース・B・A・D など）。キリフダッシュのように決まった時に聞かれるものは出さない
@@ -733,6 +733,14 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
       const label = alt.name.startsWith('コスト') ? alt.name : `${alt.name}で${alt.toShield ? 'シールドゾーンに置く' : '使う'}（コスト${altCost(g, registry, owner, iid, alt)}）`;
       rule.push({ label, run: () => act({ type: 'PLAY_CARD', player: owner, iid, alt: idx }), disabled: !canPlayAlt(g, registry, owner, iid, idx) });
     });
+  }
+  // クロスギア：コストを支払って、自分のクリーチャーにクロスする（付け替えもできる）
+  if (inst.zone === 'battle' && isCrossGear(d) && canControl(owner)) {
+    const targets = battleCards(g, registry, owner).filter((c) => c !== inst.equippedTo);
+    if (!targets.length) rule.push({ label: 'クロスする（クリーチャーがいません）', run: () => undefined, disabled: true });
+    for (const c of targets) {
+      rule.push({ label: `${cardDef(g, registry, c).name} にクロスする（コスト${effectiveCost(g, registry, owner, iid)}）`, run: () => act({ type: 'CROSS', player: owner, iid, target: c }), disabled: !canCross(g, registry, owner, iid, c) });
+    }
   }
   if (inst.zone === 'battle' && d.hyper && !inst.hyper) {
     rule.push({ label: 'ハイパー化する', run: () => act({ type: 'HYPERIZE', player: owner, iid }), disabled: !canControl(owner) || !hyperizeCandidates(g, registry, owner, iid) });

@@ -152,8 +152,21 @@ export function canSummonFromZone(state: GameState, reg: CardRegistry, player: P
   const inst = state.cards[iid];
   if (!inst || inst.owner !== player || inst.zone === 'hand') return false;
   const sf = def(state, reg, iid).summonFrom;
-  if (!sf || !(sf.zones as string[]).includes(inst.zone)) return false;
-  return !sf.condition || evalCondition(state, reg, player, sf.condition, true, iid);
+  if (sf && (sf.zones as string[]).includes(inst.zone) && (!sf.condition || evalCondition(state, reg, player, sf.condition, true, iid))) return true;
+  return zoneSummonSource(state, reg, player, iid) !== null;
+}
+
+/** 「自分のターンに一度、魔導具クリーチャーを1体、自分の墓地から召喚してもよい」：召喚を許している常在効果の発生源 */
+export function zoneSummonSource(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string | null {
+  const inst = state.cards[iid];
+  if (!inst || inst.owner !== player || !isCreatureType(def(state, reg, iid).type)) return null;
+  for (const a of activeStatics(state, reg)) {
+    const st = a.static;
+    if (st.type !== 'summonFromZone' || a.controller !== player || st.zone !== inst.zone) continue;
+    if (st.oncePerTurn && (state.activePlayer !== player || state.usedThisTurn?.includes(`sfz:${a.source}`))) continue;
+    if (matchFilter(state, reg, iid, st.filter)) return a.source;
+  }
+  return null;
 }
 
 const hyperCache = new WeakMap<CardDefinition, CardDefinition>();
@@ -502,6 +515,26 @@ export function playLimitReached(state: GameState, reg: CardRegistry, player: Pl
 }
 
 /** 召喚・呪文の禁止を受けているなら理由を返す */
+/** クロスギアか */
+export function isCrossGear(d: CardDefinition | undefined): boolean {
+  return !!d && /クロスギア/.test(d.typeLabel ?? '');
+}
+
+/** GRクリーチャーか（超GRゾーンで始まり、バトルゾーンを離れたら超GRゾーンの下に戻る） */
+export function isGrCard(d: CardDefinition | undefined): boolean {
+  return !!d && /GR/.test(d.typeLabel ?? '');
+}
+
+/** クロスギア gear を、自分のクリーチャー target にクロスできるか（コストを支払える・自分のメインステップ） */
+export function canCross(state: GameState, reg: CardRegistry, player: PlayerId, gear: string, target: string): boolean {
+  if (!isIdle(state) || state.activePlayer !== player) return false;
+  if (state.phase !== 'charge' && state.phase !== 'main') return false;
+  const g = state.cards[gear];
+  if (!g || g.owner !== player || g.zone !== 'battle' || !isCrossGear(reg[g.cardId])) return false;
+  if (g.equippedTo === target || !battleCards(state, reg, player).includes(target)) return false;
+  return choosePayment(state, reg, player, gear) !== null;
+}
+
 /** 「〜を出せない」：このクリーチャーをバトルゾーンに出せない理由（出せるなら null） */
 export function entryBlocked(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string | null {
   for (const a of activeStatics(state, reg)) {
@@ -672,6 +705,10 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       return (state.players[c.who === 'self' ? controller : other(controller)].freeEntriesThisTurn ?? 0) > 0;
     case 'firstAttackThisTurn':
       return (state.players[state.activePlayer].attacksThisTurn ?? 0) === 1;
+    case 'crossed': {
+      const gears = [...state.players[0].zones.battle, ...state.players[1].zones.battle].filter((b) => state.cards[b].equippedTo && isCrossGear(reg[state.cards[b].cardId]));
+      return c.any ? gears.some((b) => state.cards[state.cards[b].equippedTo!]?.owner === controller) : !!source && gears.some((b) => state.cards[b].equippedTo === source);
+    }
     case 'selfTapped':
       return !!source && state.cards[source]?.zone === 'battle' && state.cards[source].tapped;
     case 'wonBattleThisTurn':
@@ -684,6 +721,8 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       const ps: PlayerId[] = c.who === 'self' ? [controller] : c.who === 'opponent' ? [other(controller)] : [controller, other(controller)];
       return ps.reduce<number>((a, p) => a + (state.players[p].creaturesThisTurn ?? 0), 0) >= c.min;
     }
+    case 'underCount':
+      return !!source && (state.cards[source]?.under.length ?? 0) >= c.min;
     case 'opponentTurn':
       return state.activePlayer !== controller;
     case 'inExtraTurn':

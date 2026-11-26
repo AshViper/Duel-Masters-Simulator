@@ -28,6 +28,8 @@ export interface CardInstance {
   hyper?: boolean;
   /** 次の player のターンのはじめまで有効なキーワード能力 */
   keywordsUntil?: { keywords: Keywords; player: PlayerId };
+  /** 無月の門で選んでいる途中の素材（step: 何番目の選択か） */
+  gateProgress?: { step: number; picks: string[] };
   /** 次の player のターンのはじめまでのパワー修正 */
   powerModUntil?: { amount: number; player: PlayerId };
   /** このカードに付いている封印（seal ゾーンのカード。最後が一番上） */
@@ -115,7 +117,7 @@ export type GameEvent =
   | { type: 'MANA_CHARGED'; player: PlayerId; iid: string }
   | { type: 'CARD_PLAYED'; player: PlayerId; iid: string }
   /** バトルゾーンに出た（召喚・効果で出した両方） */
-  | { type: 'CREATURE_SUMMONED'; player: PlayerId; iid: string }
+  | { type: 'CREATURE_SUMMONED'; player: PlayerId; iid: string; summoned?: boolean }
   | { type: 'SPELL_CAST'; player: PlayerId; iid: string }
   | { type: 'CREATURE_DESTROYED'; player: PlayerId; iid: string }
   | { type: 'CREATURE_LEFT'; player: PlayerId; iid: string; to: ZoneName }
@@ -297,4 +299,6 @@ export type Action =
   | { type: 'MANUAL_LOG'; player: PlayerId; text: string }
   | { type: 'CONCEDE'; player: PlayerId }
   /** ハイパー化する（タップするクリーチャーは判断パネルで選ぶ） */
-  | { type: 'HYPERIZE'; player: PlayerId; iid: string };
+  | { type: 'HYPERIZE'; player: PlayerId; iid: string }
+  /** クロスギアを、コストを支払って自分のクリーチャーにクロスする（付け替える） */
+  | { type: 'CROSS'; player: PlayerId; iid: string; target: string; manaIids?: string[] };

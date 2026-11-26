@@ -68,6 +68,13 @@ export function createGame(opts: NewGameOptions, reg: CardRegistry): GameState {
   for (const p of [0, 1] as PlayerId[]) {
     // サイキック・クリーチャーは山札に入れず、超次元ゾーンに置く
     for (const iid of players[p].zones.deck.filter((x) => reg[state.cards[x].cardId].psychic)) ctx.moveCard(iid, 'hyperspatial');
+    // GRクリーチャーは山札に入れず、シャッフルして超GRゾーンに置く
+    const gr = players[p].zones.deck.filter((x) => /GR/.test(reg[state.cards[x].cardId].typeLabel ?? ''));
+    for (let k = gr.length - 1; k > 0; k--) {
+      const j = Math.floor(ctx.random() * (k + 1));
+      [gr[k], gr[j]] = [gr[j], gr[k]];
+    }
+    for (const iid of gr) ctx.moveCard(iid, 'grZone');
     // 禁断の鼓動：山札から出してバトルゾーンに置き、シャッフル後に山札の上から封印を付ける
     const forbidden = players[p].zones.deck.filter((iid) => reg[state.cards[iid].cardId].forbidden);
     for (const iid of forbidden) {

@@ -37,6 +37,8 @@ function mapType(label: string, hasPower: boolean): CardType {
   if (label.includes('フィールド') && !isForbiddenLabel(label)) return 'field';
   // ドラグハート（ウエポン・フォートレス）：クリーチャーではない置き物。裏面のクリーチャー側は龍解した後に使う
   if (label.includes('ドラグハート') && !label.includes('クリーチャー')) return 'field';
+  // クロスギア：バトルゾーンに置く、クリーチャーではない置き物（クリーチャーにクロスして使う）
+  if (label.includes('クロスギア')) return 'field';
   // タマシード（「タマシード/クリーチャー」はクリーチャーとして扱う）
   if (label.includes('タマシード') && !label.includes('クリーチャー') && !hasPower) return 'tamaseed';
   if (label.includes('進化')) return hasPower ? 'evolution' : 'spell';
@@ -271,6 +273,7 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     neoCostReduce: main.neoCostReduce,
     evolveSpec: main.evolveSpec,
     handTriggers: main.handTriggers?.length ? main.handTriggers : undefined,
+    zoneGates: main.zoneGates?.length ? main.zoneGates : undefined,
     support,
   };
 }

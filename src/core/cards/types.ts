@@ -172,6 +172,8 @@ export type Condition =
   | { type: 'enteredFreeThisTurn'; who: 'self' | 'opponent' }
   /** いまの攻撃が、このターン最初の攻撃（ターンプレイヤーのクリーチャーによる攻撃の1回目） */
   | { type: 'firstAttackThisTurn' }
+  /** このクリーチャーにクロスギアがクロスされている（any: 自分のクリーチャーのどれかにクロスされている） */
+  | { type: 'crossed'; any?: boolean }
   /** このクリーチャーがタップしている */
   | { type: 'selfTapped' }
   /** このターンに、そのプレイヤーのクリーチャーがバトルに勝っていた */
@@ -179,7 +181,9 @@ export type Condition =
   /** いまが相手のターン（S・トリガーで使った時の追加能力の判定用） */
   | { type: 'opponentTurn' }
   /** いまが追加ターン（「追加ターン中でなければ」） */
-  | { type: 'inExtraTurn' };
+  | { type: 'inExtraTurn' }
+  /** このクリーチャーの下に min 枚以上カードがある */
+  | { type: 'underCount'; min: number };
 
 /** 効果でカードを動かす先（deckTop / deckBottom は山札の上 / 下） */
 /** under: 効果の発生源（このクリーチャー）の下に置く */
@@ -271,6 +275,8 @@ export type EffectDef =
   | { type: 'winGame' }
   /** Dスイッチ：このD2フィールドを上下逆さまにする（ゲーム中に一度） */
   | { type: 'dSwitchFlip' }
+  /** 手札・墓地にあるこのカードの「ゾーンからの誘発」（zoneGates の gate 番目）を処理する */
+  | { type: 'zoneGate'; gate: number }
   /**
    * 効果の発生源（このクリーチャー）自身に対する処理。移動先（MoveDest）なら move と同じ移動をする。
    * 'toHand' / 'toMana' は旧形式（'hand' / 'mana' と同じ）。tapped: タップして置く
@@ -316,6 +322,8 @@ export type EffectDef =
   | { type: 'shieldPlus'; count: number; upTo?: boolean; each?: boolean }
   /** エンジン内部用：手札（墓地）にあるカードを、コストを支払わずに使うか聞く（手札にある間の誘発） */
   | { type: 'handPlay'; iid: string; endOfTurn?: 'deckBottom'; ninja?: boolean; spellAfter?: 'deckBottom' }
+  /** GR召喚：自分の超GRゾーンの上から count 枚を、1枚ずつ召喚する */
+  | { type: 'grSummon'; count: number }
   /** 「その攻撃の後、〜」：いまの攻撃が終わった後に行う */
   | { type: 'afterAttack'; effects: EffectDef[] }
   /** 数字を1つ選ぶ（後の文の「その数字と同じコストの」で使う） */
@@ -477,6 +485,10 @@ export type StaticAbility = (
   | { type: 'ignoreAttackLocks'; appliesTo: Applies }
   /** このクリーチャーは、数えた数 unit ごとに amount だけ多くシールドをブレイクする（クルー・ブレイカー） */
   | { type: 'breakerBonus'; amount: number; perCount: Quantity; unit: number }
+  /** 条件に合うクリーチャーを、そのゾーンから召喚してもよい（「自分のターンに一度、魔導具クリーチャーを1体、自分の墓地から召喚してもよい」） */
+  | { type: 'summonFromZone'; zone: 'graveyard' | 'mana'; filter?: CardFilter; oncePerTurn?: boolean }
+  /** 条件に合う相手のクリーチャーはタップしてバトルゾーンに出る */
+  | { type: 'opponentEntersTapped'; filter?: CardFilter }
 ) & {
   /** 有効なターン（「自分のターン中」= self）。省略時は常に有効 */
   duringTurn?: 'self' | 'opponent';
@@ -670,6 +682,24 @@ export interface AltPlay {
  * when: opponentTurnEnd 相手のターンの終わり／ownTurnEnd 自分のターンの終わり／anyTurnEnd 各ターンの終わり／
  *       ownDestroyed 自分のクリーチャー（filter に合うもの）が破壊された時
  */
+/**
+ * 手札・墓地にある間の誘発で、このカードをバトルゾーンに出す（無月の門・ドゥベルなど）。
+ * on: enter=自分の（subject に合う）クリーチャーが出た時 / summon=召喚した時 / spell=呪文を唱えた時 /
+ *     turnEnd=各ターンの終わりに / ownTurnEnd=自分のターンの終わりに / gateUsed=自分の「無月の門」能力を使った時
+ * materials があれば、そのカードを選んで、その上に重ねて召喚する（無月の門）。なければそのまま出す
+ */
+export interface ZoneGate {
+  label: string;
+  on: ('enter' | 'summon' | 'spell' | 'turnEnd' | 'ownTurnEnd' | 'gateUsed')[];
+  subject?: CardFilter;
+  zones: ('hand' | 'graveyard')[];
+  /** battle と graveyard は各ゾーンから選ぶ数（「2つずつ」）、total は2つのゾーンから合計で選ぶ数 */
+  materials?: { filter: CardFilter; battle?: number; graveyard?: number; total?: number };
+  tapped?: boolean;
+  /** 無月の門の能力（使った時に gateUsed を誘発する） */
+  mugetsu?: boolean;
+}
+
 export interface HandTrigger {
   /**
    * opponentAttackOrBlock: 相手のクリーチャーが攻撃またはブロックした時（ニンジャ・ストライク）
@@ -767,6 +797,8 @@ export interface CardDefinition {
   altPlays?: AltPlay[];
   /** 手札にある間の誘発：相手のターンの終わりに、条件を満たしていれば、コストを支払わずに使ってもよい */
   handTriggers?: HandTrigger[];
+  /** 手札・墓地にある間の誘発でバトルゾーンに出る（無月の門など） */
+  zoneGates?: ZoneGate[];
   /** 自分のターンのはじめに、表向きで自分のシールドゾーンにあれば、コストを支払ったものとして召喚する（ギャラクシールド） */
   galaxyReturn?: boolean;
   /** サバイバー：自分の他のサバイバーすべてにも与える能力（{S} の付いた能力） */

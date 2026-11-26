@@ -424,3 +424,66 @@ describe('相手のターン中に手札から使う能力', () => {
     expect(s.players[0].zones.deck[0]).toBe(sp);
   });
 });
+
+describe('GR召喚・クロスギア', () => {
+  const grA = mk('h-50', [], { type: 'GRクリーチャー', power: '2000' });
+  const caller = mk('h-51', ['このクリーチャーが出た時、GR召喚を２回する。']);
+  const gear = mk('h-52', ['クロスギア：このカードをバトルゾーンに置く。クリーチャーにクロスするには、このカードのコストをもう一度支払う。そのクリーチャーがバトルゾーンを離れても、このカードはバトルゾーンに残る。', 'これをクロスしたクリーチャーのパワーを+3000する。', 'これをクロスしたクリーチャーに「スピードアタッカー」を与える。'], { type: 'クロスギア', power: '', cost: '1' });
+  const accel = mk('h-53', ['アクセル（このクリーチャーにクロスギアがクロスされている時、このクリーチャーは次の a 能力を得る）\n\na このクリーチャーのパワーは、+500される。'], { power: '1000' });
+  const r5 = buildRegistry([...SAMPLE_CARDS, ...Object.values(C), grA, caller, gear, accel]);
+  const add = (s: GameState, p: PlayerId, cardId: string, zone: ZoneName) => {
+    const iid = `t${s.nextIid++}`;
+    s.cards[iid] = { iid, cardId, owner: p, zone: 'deck', tapped: false, enteredTurn: 0, powerModTurn: 0, under: [], faceUp: false };
+    s.players[p].zones.deck.unshift(iid);
+    new Ctx(s, r5).moveCard(iid, zone);
+    s.cards[iid].enteredTurn = 0;
+    return iid;
+  };
+  const step = (s: GameState, a: Action) => {
+    const r = applyAction(s, a, r5);
+    if (r.error) throw new Error(r.error);
+    return r.state;
+  };
+
+  it('読み取り', () => {
+    expect([caller.support, gear.support, accel.support]).toEqual(['full', 'full', 'full']);
+    expect(gear.type).toBe('field');
+  });
+
+  it('GRクリーチャーは超GRゾーンで始まり、GR召喚で上から出る。離れたら超GRゾーンの下に戻る', () => {
+    let s = createGame({ players: [{ name: 'A', deck: [...filler.slice(0, 37), grA.id, grA.id, grA.id] }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, r5);
+    expect(s.players[0].zones.grZone).toHaveLength(3);
+    expect(s.players[0].zones.deck.every((x) => s.cards[x].cardId !== grA.id)).toBe(true);
+    const c = add(s, 0, caller.id, 'hand');
+    add(s, 0, C.vanilla.id, 'mana');
+    s = step(s, { type: 'PLAY_CARD', player: 0, iid: c });
+    const out = s.players[0].zones.battle.filter((x) => s.cards[x].cardId === grA.id);
+    expect(out).toHaveLength(2);
+    expect(s.players[0].zones.grZone).toHaveLength(1);
+    s.queue.push({ kind: 'leave', iid: out[0], to: 'graveyard', cause: 'destroy' });
+    new Ctx(s, r5).run();
+    expect(s.cards[out[0]].zone).toBe('grZone');
+    expect(s.players[0].zones.grZone[0]).toBe(out[0]);
+  });
+
+  it('クロスギア：バトルゾーンに置き、コストを支払ってクロスする。クロスしたクリーチャーに能力を与え、離れても残る', () => {
+    let s = createGame({ players: [{ name: 'A', deck: filler }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, r5);
+    const g = add(s, 0, gear.id, 'hand');
+    const host = add(s, 0, accel.id, 'battle');
+    add(s, 0, C.vanilla.id, 'mana');
+    add(s, 0, C.vanilla.id, 'mana');
+    s = step(s, { type: 'PLAY_CARD', player: 0, iid: g });
+    expect(s.cards[g].zone).toBe('battle');
+    expect(power(s, r5, host)).toBe(1000);
+    s = step(s, { type: 'CROSS', player: 0, iid: g, target: host });
+    expect(s.cards[g].equippedTo).toBe(host);
+    // クロスギアの +3000 と、アクセルの +500
+    expect(power(s, r5, host)).toBe(1000 + 3000 + 500);
+    expect(keywords(s, r5, host).speedAttacker).toBe(true);
+    expect(s.players[0].zones.mana.filter((m) => s.cards[m].tapped)).toHaveLength(2);
+    s.queue.push({ kind: 'leave', iid: host, to: 'graveyard', cause: 'destroy' });
+    new Ctx(s, r5).run();
+    expect(s.cards[g].zone).toBe('battle');
+    expect(s.cards[g].equippedTo).toBeUndefined();
+  });
+});

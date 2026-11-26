@@ -8,6 +8,8 @@ import { asMove, MOVE_DEST, type MoveEffect } from '../cards/effects';
 import {
   type AltPlay,
   type HandTrigger,
+  type CardFilter,
+  type ZoneGate,
   type CardDefinition,
   CIV_LABEL,
   isCreatureType,
@@ -32,6 +34,9 @@ import {
   evalCondition,
   countQuantity,
   entryBlocked,
+  canCross,
+  isCrossGear,
+  isGrCard,
   multiEvolveSpec,
   validEvolveSources,
   defaultEvolveSources,
@@ -51,6 +56,7 @@ import {
   canBeEvolutionSource,
   battleAndFields,
   canSummonFromZone,
+  zoneSummonSource,
   sasageruCandidates,
   usesHyperEnergy,
   sClassCards,
@@ -190,6 +196,19 @@ export class Ctx {
     switch (a.type) {
       case 'RESPOND':
         return this.respond(a.player, { selected: a.selected, accept: a.accept });
+      case 'CROSS': {
+        if (!canCross(s, this.reg, a.player, a.iid, a.target)) throw new IllegalAction('クロスできません');
+        const pay = choosePayment(s, this.reg, a.player, a.iid, a.manaIids);
+        if (!pay) throw new IllegalAction('マナが足りません');
+        if (s.phase === 'charge') {
+          s.phase = 'main';
+          this.emit({ type: 'PHASE_CHANGED', phase: 'main' });
+        }
+        for (const m of pay) s.cards[m].tapped = true;
+        s.cards[a.iid].equippedTo = a.target;
+        this.log(`${this.name(a.iid)} を ${this.name(a.target)} にクロスした（${pay.length}マナ）`, a.player);
+        return this.run();
+      }
       case 'HYPERIZE': {
         if (!hyperizeCandidates(s, this.reg, a.player, a.iid)) throw new IllegalAction('ハイパー化できません');
         if (s.phase === 'charge') {
@@ -316,6 +335,10 @@ export class Ctx {
       }
       case 'end':
         this.emit({ type: 'TURN_ENDED', player: pl, turn: s.turn });
+        // 無月の門・絶など：「各ターンの終わりに」「自分のターンの終わりに」（ターンプレイヤーから）
+        this.fireZoneGates(pl, 'turnEnd');
+        this.fireZoneGates(pl, 'ownTurnEnd');
+        this.fireZoneGates(other(pl), 'turnEnd');
         // 手札にある間の誘発：「相手のターンの終わりに、〜していれば、この呪文をコストを支払わずに唱えてもよい」
         for (const hp of [pl, other(pl)]) {
           for (const h of [...s.players[hp].zones.hand]) {
@@ -390,12 +413,16 @@ export class Ctx {
     const s = this.s;
     const inst = s.cards[iid];
     if (!inst || inst.owner !== player || (inst.zone !== 'hand' && !(side === 'main' && canSummonFromZone(s, this.reg, player, iid)))) throw new IllegalAction('手札のカードを選んでください');
+    // 「自分のターンに一度、〜を自分の墓地から召喚してもよい」：使ったことを記録する（カード自身の能力で召喚できる時は使わない）
+    const ownSf = def(s, this.reg, iid).summonFrom;
+    const zoneSrc = inst.zone !== 'hand' && !(ownSf && (ownSf.zones as string[]).includes(inst.zone)) ? zoneSummonSource(s, this.reg, player, iid) : null;
     if (s.phase !== 'charge' && s.phase !== 'main') throw new IllegalAction('カードはメインステップで使います');
     const d = def(s, this.reg, iid);
     if (side === 'twin' && !d.twin) throw new IllegalAction('ツインパクトではありません');
     const face = playFace(d, side);
     const restricted = playRestriction(s, this.reg, player, iid, side);
     if (restricted) throw new IllegalAction(restricted);
+    if (zoneSrc) (s.usedThisTurn ??= []).push(`sfz:${zoneSrc}`);
     // マナ進化・墓地進化・進化V/GV・デッキ進化など：進化元を何枚も、バトルゾーン以外からも選ぶ
     const mspec = side === 'main' ? multiEvolveSpec(d) : undefined;
     if (mspec) {
@@ -624,6 +651,80 @@ export class Ctx {
         }
       }
     }
+  }
+
+  /** 無月の門などの素材の候補：自分のバトルゾーン（フィールドを含む）・墓地の、条件に合うカード */
+  private gateCandidates(player: PlayerId, self: string, filter: CardFilter, zone: 'battle' | 'graveyard'): string[] {
+    const s = this.s;
+    const list = zone === 'battle' ? battleAndFields(s, this.reg, player) : s.players[player].zones.graveyard;
+    return list.filter((x) => x !== self && matchFilter(s, this.reg, x, filter));
+  }
+
+  private gateReady(player: PlayerId, iid: string, g: ZoneGate): boolean {
+    const m = g.materials;
+    if (!m) return true;
+    const b = this.gateCandidates(player, iid, m.filter, 'battle').length;
+    const gr = this.gateCandidates(player, iid, m.filter, 'graveyard').length;
+    return m.total !== undefined ? b + gr >= m.total : b >= (m.battle ?? 0) && gr >= (m.graveyard ?? 0);
+  }
+
+  /** 手札・墓地にあるカードの「ゾーンからの誘発」（無月の門・ドゥベルなど）を、出来事に合わせて解決待ちに加える */
+  private fireZoneGates(player: PlayerId, on: ZoneGate['on'][number], subject?: string): void {
+    const s = this.s;
+    for (const z of ['hand', 'graveyard'] as const) {
+      for (const h of [...s.players[player].zones[z]]) {
+        if (h === subject) continue;
+        (def(s, this.reg, h).zoneGates ?? []).forEach((g, gate) => {
+          if (!g.on.includes(on) || !g.zones.includes(z)) return;
+          if (subject && g.subject && !matchFilter(s, this.reg, subject, g.subject)) return;
+          if (!this.gateReady(player, h, g)) return;
+          this.addTrigger(player, h, this.effectTasks(player, h, [{ type: 'optional', effects: [{ type: 'zoneGate', gate }] }]));
+        });
+      }
+    }
+  }
+
+  /** 無月の門：素材を選び、その上にこのクリーチャーを重ねて召喚する。素材がなければそのまま出す */
+  private execZoneGate(controller: PlayerId, source: string, gate: number): boolean {
+    const s = this.s;
+    const inst = s.cards[source];
+    const g = def(s, this.reg, source).zoneGates?.[gate];
+    if (!inst || !g || !(g.zones as string[]).includes(inst.zone)) return false;
+    const m = g.materials;
+    if (!m) {
+      this.insertFront({ kind: 'enterBattle', player: controller, iid: source, ...(g.tapped ? { tapped: true } : {}) });
+      this.log(`${this.name(source)} の能力：${inst.zone === 'graveyard' ? '墓地' : '手札'}からバトルゾーンに出す`, controller);
+      return false;
+    }
+    const steps: { zones: ('battle' | 'graveyard')[]; n: number }[] =
+      m.total !== undefined ? [{ zones: ['battle', 'graveyard'], n: m.total }] : [{ zones: ['battle'], n: m.battle ?? 0 }, { zones: ['graveyard'], n: m.graveyard ?? 0 }];
+    const prog = (inst.gateProgress ??= { step: 0, picks: [] });
+    while (prog.step < steps.length) {
+      const st = steps[prog.step];
+      const cands = st.zones.flatMap((z) => this.gateCandidates(controller, source, m.filter, z)).filter((x) => !prog.picks.includes(x));
+      if (cands.length < st.n) {
+        delete inst.gateProgress;
+        this.log(`${this.name(source)}：重ねるカードが足りない`, controller);
+        return false;
+      }
+      if (cands.length > st.n) {
+        const r = this.takeResponse();
+        const sel = r?.selected?.filter((x) => cands.includes(x)) ?? [];
+        if (!r || sel.length !== st.n) {
+          const where = st.zones.length > 1 ? 'バトルゾーンと墓地' : st.zones[0] === 'battle' ? 'バトルゾーン' : '墓地';
+          s.pending = { kind: 'selectCards', player: controller, source, prompt: `${g.label}：${this.name(source)} の下に重ねるカードを${where}から${st.n}枚選んでください`, candidates: cands, min: st.n, max: st.n };
+          return true;
+        }
+        prog.picks.push(...sel);
+      } else prog.picks.push(...cands);
+      prog.step++;
+    }
+    const picks = prog.picks;
+    delete inst.gateProgress;
+    this.log(`${this.name(source)} の${g.label}：${picks.length}枚の上に重ねて召喚`, controller);
+    this.insertFront({ kind: 'enterBattle', player: controller, iid: source, evolveFrom: picks, summoned: true, paid: true });
+    if (g.mugetsu) this.fireZoneGates(controller, 'gateUsed', source);
+    return false;
   }
 
   /** 誘発した能力を、解決待ちに加える */
@@ -889,7 +990,7 @@ export class Ctx {
           this.triggerFrom(task.iid, 'onSummon');
           return false;
         }
-        this.emit({ type: 'CREATURE_SUMMONED', player: task.player, iid: task.iid });
+        this.emit({ type: 'CREATURE_SUMMONED', player: task.player, iid: task.iid, ...(task.summoned ? { summoned: true } : {}) });
         return false;
       }
 
@@ -1788,6 +1889,8 @@ export class Ctx {
         s.players[controller].extraTurns += 1;
         this.log('このターンの後、もう一度自分のターンを行う', controller);
         return false;
+      case 'zoneGate':
+        return this.execZoneGate(controller, source, e.gate);
       case 'dSwitchFlip': {
         const inst = s.cards[source];
         if (inst) inst.dSwitched = true;
@@ -1988,6 +2091,17 @@ export class Ctx {
           this.emit({ type: 'CARD_PLAYED', player: controller, iid: e.iid });
           this.insertFront({ kind: 'enterBattle', player: controller, iid: e.iid, summoned: true, ...(e.endOfTurn ? { endOfTurn: e.endOfTurn } : {}) });
         } else this.useFree(controller, e.iid, e.spellAfter);
+        return false;
+      }
+      case 'grSummon': {
+        // 超GRゾーンの上から1枚ずつ召喚する（GRクリーチャーがなければ何もしない）
+        const gz = s.players[controller].zones.grZone;
+        const tasks: Task[] = [];
+        for (const iid of gz.slice(-e.count).reverse()) tasks.push({ kind: 'enterBattle', player: controller, iid, summoned: true });
+        if (!tasks.length) this.log(`${this.name(source)}：超GRゾーンにカードがありません`, controller);
+        else this.log(`GR召喚を${tasks.length}回する`, controller);
+        s.lastChosen = tasks.map((t) => (t.kind === 'enterBattle' ? t.iid : ''));
+        this.insertFront(...tasks);
         return false;
       }
       case 'afterAttack': {
@@ -2770,6 +2884,11 @@ export class Ctx {
         break;
       }
       case 'CREATURE_SUMMONED':
+        // 無月の門など：「自分の魔導具をバトルゾーンに出した時」「自分の魔導具クリーチャーを召喚した時」
+        if (s.cards[e.iid]?.owner === e.player) {
+          this.fireZoneGates(e.player, 'enter', e.iid);
+          if (e.summoned) this.fireZoneGates(e.player, 'summon', e.iid);
+        }
         // コマンドが出たら、その持ち主は同じ文明の自身のカードから封印を1つ外す
         if (s.cards[e.iid] && def(s, this.reg, e.iid).races.some((r) => r.includes('コマンド'))) {
           const owner = s.cards[e.iid].owner;
@@ -2909,6 +3028,8 @@ export class Ctx {
         const P = s.players[e.player];
         P.spellsThisTurn = (P.spellsThisTurn ?? 0) + 1;
         for (const iid of battleAll()) this.triggerFrom(iid, 'onSpellCast', (ab) => this.whoMatches(ab.who, s.cards[iid].owner, e.player), e.iid);
+        // 虚無月の門など：「自分の魔導具呪文を唱えた時」
+        this.fireZoneGates(e.player, 'spell', e.iid);
         break;
       }
     }
@@ -2963,6 +3084,8 @@ export class Ctx {
       if (inst.links?.length) this.unlink(iid);
       to = 'hyperspatial';
     }
+    // GRクリーチャーはバトルゾーン以外に行く時、超GRゾーンの下に戻る
+    if (from === 'battle' && to !== 'battle' && isGrCard(this.reg[inst.cardId])) to = 'grZone';
     const owner = s.players[inst.owner];
     const fromList = owner.zones[from];
     const idx = fromList.indexOf(iid);
@@ -3003,6 +3126,12 @@ export class Ctx {
     if (to === 'battle') inst.enteredTurn = s.turn;
     // 「バトルゾーンに置く時、このカードはタップして置く」
     if (to === 'battle' && def(s, this.reg, iid).keywords?.entersTapped) inst.tapped = true;
+    // 「相手のクリーチャーはタップしてバトルゾーンに出る」
+    if (to === 'battle' && isCreatureType(def(s, this.reg, iid).type)) {
+      for (const a of activeStatics(s, this.reg)) {
+        if (a.static.type === 'opponentEntersTapped' && a.controller !== inst.owner && matchFilter(s, this.reg, iid, a.static.filter)) inst.tapped = true;
+      }
+    }
     // 多色カードはタップしてマナゾーンに置かれる
     if (to === 'mana' && manaCivilizations(def(s, this.reg, iid)).length > 1) inst.tapped = true;
     // 「マナゾーンに置く時、このカードはタップして置く」
@@ -3015,6 +3144,7 @@ export class Ctx {
       }
     }
     if (to === 'deck' && opts.toTop === false) owner.zones.deck.unshift(iid);
+    else if (to === 'grZone' && from === 'battle') owner.zones.grZone.unshift(iid);
     else owner.zones[to].push(iid);
     this.emit({ type: 'CARD_MOVED', iid, from, to });
     if (to === 'shield' && from !== 'shield') this.emit({ type: 'SHIELD_ADDED', player: inst.owner, iid });
@@ -3024,6 +3154,8 @@ export class Ctx {
       for (const w of [...s.players[0].zones.battle, ...s.players[1].zones.battle]) {
         if (s.cards[w].equippedTo !== iid) continue;
         delete s.cards[w].equippedTo;
+        // クロスギアは、クロスしていたクリーチャーが離れてもバトルゾーンに残る
+        if (isCrossGear(this.reg[s.cards[w].cardId])) continue;
         this.log(`${this.name(w)} は装備先が離れたので超次元ゾーンに戻った`, s.cards[w].owner);
         this.moveCard(w, 'hyperspatial');
       }

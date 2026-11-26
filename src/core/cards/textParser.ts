@@ -5,6 +5,7 @@
 import type {
   AltPlay,
   HandTrigger,
+  ZoneGate,
   EvolveSpec,
   Applies,
   AttackSwap,
@@ -62,6 +63,8 @@ export interface ParsedAbilities {
   neoCostReduce?: number;
   /** 手札にある間の誘発 */
   handTriggers?: HandTrigger[];
+  /** 手札・墓地にある間の誘発でバトルゾーンに出る（無月の門など） */
+  zoneGates?: ZoneGate[];
   /** 覚醒リンクの条件 */
   awakenLink?: { names: string[]; timing: 'turnStart' | 'always' };
   /** 自動処理できなかった能力の行 */
@@ -90,7 +93,7 @@ export function normalizeText(s: string): string {
     .replace(/バトルゾーンにある(?=自分の|相手の)/g, '')
     .replace(/バトルで勝った時/g, 'バトルに勝った時')
     .replace(/相手がこのクリーチャーを選んだ時/g, 'このクリーチャーが相手に選ばれた時')
-    .replace(/パワーは([+-]\d+)される/g, 'パワーを$1する')
+    .replace(/パワーは、?([+-]\d+)される/g, 'パワーを$1する')
     .replace(/(\d+)(体|枚|つ)でもあれば/g, '$1$2以上あれば')
     .replace(/クリーチャー(\d+)体選び/g, 'クリーチャーを$1体選び')
     .replace(/墓地のかわりに/g, '墓地に置くかわりに')
@@ -106,6 +109,12 @@ export function normalizeText(s: string): string {
     // 「山札の上から3枚を、すべてのプレイヤーに見せる」＝表向きにする。「その中から光と闇のカード」＝光または闇のカード
     .replace(/を、?(?:すべてのプレイヤー|相手)に見せる/g, 'を表向きにする')
     .replace(/その中から((?:光|水|闇|火|自然)(?:と(?:光|水|闇|火|自然))+)のカード/g, (_, c: string) => `その中から${c.replace(/と/g, 'または')}のカード`)
+    // 公式のテキストで「−」が「?」になっていることがある：「パワーを?2000する」
+    .replace(/パワーを\?(\d+)/g, 'パワーを-$1')
+    // 「このクリーチャーが攻撃する時、攻撃の後、このクリーチャーを破壊する」＝攻撃の終わりに
+    .replace(/^このクリーチャーが攻撃する時、攻撃の後、/, 'このクリーチャーの攻撃の終わりに、')
+    .replace(/を(\d+)枚選んで捨てる/g, 'を$1枚選び、捨てる')
+    .replace(/各プレイヤーは、?それぞれ(\d+)枚ずつ自身の手札を選び/g, '各プレイヤーは自身の手札を$1枚ずつ選び')
     .replace(/カードをさらに(\d+)枚引/g, 'カードを$1枚引')
     // 「相手のシールドが2枚以下ならば」＝「相手のシールドが2つ以下なら」
     .replace(/シールドが(\d+)枚(以下|以上)/g, 'シールドが$1つ$2')
@@ -762,6 +771,8 @@ function parseSentence(s: string): EffectDef[] | null {
   const ref = parseRefSentence(s);
   if (ref) return ref;
   if (s === '数字を1つ選ぶ') return [{ type: 'chooseNumber' }];
+  // GR召喚：「GR召喚する」「GR召喚を3回する」
+  if ((m = s.match(/^GR召喚(?:を(\d+)回)?する$/))) return [{ type: 'grSummon', count: m[1] ? n(m[1]) : 1 }];
   // シールド・プラス：「自分の山札の上から1枚を裏向きで自分のシールド1つの下に置く」「5枚まで、裏向きのまま、自分のシールドいずれか1枚の下に置く」「自分の各シールドの下に置く」
   if ((m = s.match(/^自分の山札の上から(\d+)枚(?:目)?(まで)?を?、?(?:裏向きで|裏向きのまま)?、?自分の(各シールド|シールド(?:いずれか)?1(?:つ|枚))の下に置く$/)))
     return [{ type: 'shieldPlus', count: n(m[1]), ...(m[2] ? { upTo: true } : {}), ...(m[3] === '各シールド' ? { each: true } : {}) }];
@@ -1067,8 +1078,8 @@ function parseBody(body: string, options: string[]): Group[] | null {
     // 「〜が3体出るまで表向きにする。その3体を出す。（その後、山札をシャッフルする）」
     const untilS = stripOptional(s);
     const until =
-      untilS.text.match(/^自分の山札の上から、?(.+?)が(?:(\d+)体)?出るまで、?(?:表向きにする|カードをすべてのプレイヤーに見せる)$/) ??
-      untilS.text.match(/^(.+?)が()出るまで、自分の山札の上からカードをすべてのプレイヤーに見せる$/);
+      untilS.text.match(/^自分の山札の上から、?(.+?)が(?:(\d+)体)?出るまで、?(?:カードを)?(?:表向きにする|すべてのプレイヤーに見せる)$/) ??
+      untilS.text.match(/^(.+?)が()出るまで、自分の山札の上からカードを(?:表向きにする|すべてのプレイヤーに見せる)$/);
     if (until) {
       const filter: CardFilter = {};
       if (!parsePickWhat(until[1], filter)) return null;
@@ -1640,6 +1651,20 @@ function parseStatic(t: string): StaticAbility[] | null {
     if (!parseMods(both[2], filter)) return null;
     return [{ type: 'costMod', amount: both[4] === '多く' ? n(both[3]) : -n(both[3]), appliesTo: { owner: both[1] === '自分' ? 'self' : 'opponent', filter } }];
   }
+  // 「自分のターンに一度、魔導具クリーチャーを1体、自分の墓地から召喚してもよい」
+  const sfz = t.match(/^自分のターンに(?:1|一)度、(.+?)を1体、自分の(墓地|マナゾーン)から召喚してもよい$/);
+  if (sfz) {
+    const filter: CardFilter = { cardType: 'creature' };
+    if (!parseSubject(sfz[1], filter)) return null;
+    return [{ type: 'summonFromZone', zone: sfz[2] === '墓地' ? 'graveyard' : 'mana', filter, oncePerTurn: true }];
+  }
+  // 「相手のクリーチャーはタップしてバトルゾーンに出る」
+  const oet = t.match(/^相手の(.*?)クリーチャーは(?:すべて)?、?タップして(?:バトルゾーンに)?出る$/);
+  if (oet) {
+    const filter: CardFilter = {};
+    if (!parseMods(oet[1], filter)) return null;
+    return [{ type: 'opponentEntersTapped', ...(Object.keys(filter).length ? { filter } : {}) }];
+  }
   // 「誰もゼニスを召喚できない」「相手は光のクリーチャーを召喚できない」
   const noSummon = t.match(/^(誰も|相手は|自分は)、?(.+?)を召喚できない$/);
   if (noSummon) {
@@ -1837,6 +1862,50 @@ function mergeParsed(out: ParsedAbilities, tmp: ParsedAbilities): void {
   for (const k of ['selfCost', 'condCost', 'gZero', 'attackSwap', 'neoEvolution', 'evolvesFrom', 'summonFrom', 'neoCostReduce', 'evolveSpec'] as const) if (tmp[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = tmp[k];
   if (tmp.altPlays) (out.altPlays ??= []).push(...tmp.altPlays);
   if (tmp.handTriggers) (out.handTriggers ??= []).push(...tmp.handTriggers);
+  if (tmp.zoneGates) (out.zoneGates ??= []).push(...tmp.zoneGates);
+}
+
+/** 無月の門などの誘発：「自分の魔導具をバトルゾーンに出した時」「自分の魔導具呪文を唱えた時」「各ターンの終わりに」 */
+function parseGateTrigger(s: string): Pick<ZoneGate, 'on' | 'subject'> | null {
+  const on: ZoneGate['on'] = [];
+  let subject: CardFilter | undefined;
+  for (const part of s.split(/、?または、?/)) {
+    let m: RegExpMatchArray | null;
+    if ((m = part.match(/^(各|自分の)ターンの終わりに$/))) on.push(m[1] === '各' ? 'turnEnd' : 'ownTurnEnd');
+    else if (/^自分の「無月の門」能力を使った時$/.test(part)) on.push('gateUsed');
+    else if ((m = part.match(/^自分の(.+?)(?:・?クリーチャー)?を(?:バトルゾーンに)?(出した|召喚した)時(?:とき)?$/))) {
+      on.push(m[2] === '召喚した' ? 'summon' : 'enter');
+      setRaces((subject = {}), m[1]);
+    } else if ((m = part.match(/^(?:自分の)?(.+?)(?:を持つ)?呪文を唱えた時$/))) {
+      on.push('spell');
+      setRaces((subject = {}), m[1]);
+    } else return null;
+  }
+  return on.length ? { on, ...(subject ? { subject } : {}) } : null;
+}
+
+/**
+ * 手札・墓地からバトルゾーンに出る誘発：
+ * 「無月の門：自分の魔導具をバトルゾーンに出した時、自分の魔導具をバトルゾーンと墓地から2つずつ選び、このクリーチャーを自分の手札または墓地からそれら4枚の上にコストを支払わずに召喚してもよい」
+ * 「自分の魔導具クリーチャーを召喚した時または魔導具を持つ呪文を唱えた時、このクリーチャーを自分の墓地からバトルゾーンに出してもよい」
+ */
+function parseZoneGate(t: string): ZoneGate | null {
+  const gate = t.match(/^([^:：、。]{0,6}無月の門(?:・[^:：]{1,3})?)[:：](.+?)、自分の([^、。]+?)をバトルゾーン(と|または)墓地から(?:(\d+)つずつ|合計(\d+)(?:つ|枚))選び、このクリーチャーを自分の手札または墓地からそれら\d+枚の上にコストを支払わずに召喚してもよい。?$/);
+  if (gate) {
+    const trig = parseGateTrigger(gate[2]);
+    if (!trig) return null;
+    const filter: CardFilter = {};
+    setRaces(filter, gate[3]);
+    const materials = gate[5] ? { filter, battle: n(gate[5]), graveyard: n(gate[5]) } : { filter, total: n(gate[6]) };
+    return { label: gate[1], ...trig, zones: ['hand', 'graveyard'], materials, mugetsu: true };
+  }
+  const back = t.match(/^(.+?時(?:とき)?)、このクリーチャーを自分の(墓地|手札)から(?:バトルゾーンに)?(タップして)?(?:バトルゾーンに)?出してもよい。?$/);
+  if (back) {
+    const trig = parseGateTrigger(back[1]);
+    if (!trig) return null;
+    return { label: '能力', ...trig, zones: [back[2] === '墓地' ? 'graveyard' : 'hand'], ...(back[3] ? { tapped: true } : {}) };
+  }
+  return null;
 }
 
 /**
@@ -2063,6 +2132,9 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
   // 「それがこのターン最初の攻撃なら、」「それがそのターン最初のクリーチャーによる攻撃でなければ、」
   const firstAtk = body.match(/^それが(?:この|その)ターン最初の(?:クリーチャーによる)?攻撃(なら|であれば|でなければ)、(.+)$/);
   if (firstAtk) return { body: firstAtk[2], condition: firstAtk[1] === 'でなければ' ? { type: 'not', condition: { type: 'firstAttackThisTurn' } } : { type: 'firstAttackThisTurn' } };
+  // アクセル：「このクリーチャーにクロスギアがクロスされている時、」／スーパー・アクセル：「自分のクリーチャーにクロスギアがクロスされている時、」
+  const crossed = body.match(/^(この|自分の)クリーチャーにクロスギアがクロスされている時、(.+)$/);
+  if (crossed) return { body: crossed[2], condition: { type: 'crossed', ...(crossed[1] === '自分の' ? { any: true } : {}) } };
   // 「このクリーチャーがタップしていれば、」
   const tappedC = body.match(/^このクリーチャーがタップ(?:して|されて)い(れば|なければ)、(.+)$/);
   if (tappedC) return { body: tappedC[2], condition: tappedC[1] === 'なければ' ? { type: 'not', condition: { type: 'selfTapped' } } : { type: 'selfTapped' } };
@@ -2104,6 +2176,9 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
   // 鬼タイム：「自分と相手のシールドの数が合計6つ以下なら、」
   const oni = body.match(/^自分と相手のシールドの数が合計(\d+)(?:つ|枚)以下なら、(.+)$/);
   if (oni) return { body: oni[2], condition: { type: 'compare', left: { who: 'any', zone: 'shield' }, op: '<=', right: n(oni[1]) } };
+  // 「このクリーチャーの下に4枚以上カードがあれば、」「このクリーチャーの下にあるカードが4枚以上なら、」
+  const under = body.match(/^このクリーチャーの下に(?:(\d+)枚以上カードがあれば|あるカードが(\d+)枚以上(?:あれば|なら))、(.+)$/);
+  if (under) return { body: under[3], condition: { type: 'underCount', min: n(under[1] ?? under[2]) } };
   // 「追加ターン中でなければ、」
   const extra = body.match(/^追加ターン中で(なければ|あれば)、(.+)$/);
   if (extra) return { body: extra[2], condition: extra[1] === 'なければ' ? { type: 'not', condition: { type: 'inExtraTurn' } } : { type: 'inExtraTurn' } };
@@ -2219,7 +2294,7 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     return true;
   }
   // 「これを装備したクリーチャーに〜／が〜時、〜」（ドラグハート・ウエポン）：「このクリーチャー」の文として読み、装備先にかかる形にする
-  const eq = t.match(/^これを装備したクリーチャー(.+)$/);
+  const eq = t.match(/^これを(?:装備|クロス)したクリーチャー(.+)$/);
   if (eq && kind === 'creature') {
     const tmp: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
     const asSelf = `このクリーチャー${eq[1]}`;
@@ -2233,6 +2308,8 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     for (const ab of tmp.abilities) out.abilities.push({ ...ab, viaEquip: true });
     return true;
   }
+  // クロスギアのルールの文（エンジンが処理する）
+  if (/^クロスギア[:：]このカードをバトルゾーンに置く。クリーチャーにクロスするには、このカードのコストをもう一度支払う。/.test(t)) return true;
   // シンカライズ：このタマシードがクリーチャーであるかのように、この上に進化クリーチャーを置いてもよい
   if (/^シンカライズ(?:[:：].*)?$/.test(t)) {
     out.keywords.shinkarize = true;
@@ -2322,6 +2399,12 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   // ギャラクシールドで置いたカード：「自分のターンのはじめに、このクリーチャーが表向きで自分のシールドゾーンにあれば、コストを支払ったものとして召喚する」
   if (/^自分のターンのはじめに、この(?:クリーチャー|カード)が表向きで自分のシールドゾーンにあれば、コストを支払ったものとして(?:召喚|実行)する。?$/.test(t) && kind === 'creature') {
     out.galaxyReturn = true;
+    return true;
+  }
+  // 無月の門・手札や墓地からバトルゾーンに出る誘発
+  const zg = kind === 'creature' ? parseZoneGate(t) : null;
+  if (zg) {
+    (out.zoneGates ??= []).push(zg);
     return true;
   }
   // 「バトルゾーンに自分のフィールドがあれば、このクリーチャーを自分の墓地から召喚してもよい」
