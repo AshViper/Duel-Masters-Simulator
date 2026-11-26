@@ -12,6 +12,13 @@ npm run build      # 型チェック + ビルド
 npm run test:e2e   # UIテスト（Playwright。初回は npx playwright install chromium）
 ```
 
+### GitHub Pages で公開する
+
+`main` に push すると `.github/workflows/pages.yml` がテスト・ビルドして GitHub Pages に公開します（公開先: https://ashviper.github.io/Duel-Masters-Simulator/ ）。
+初回だけ、リポジトリの Settings → Pages → Build and deployment の Source を「GitHub Actions」にしてください。
+
+Pages 版は静的ファイルだけで動くため、**公式カード検索（中継サーバーが必要）は使えません**。それ以外（カード・デッキの管理、ソロ対戦、オンライン対戦など）は使えます。公式カードを保存したいときはローカル版（`npm run dev`）を使ってください。データはブラウザごと・サイトごとに保存されるので、ローカル版で保存したカードは Pages 版には出てきません。
+
 ## 構成
 
 | ディレクトリ | 役割 |

@@ -3,6 +3,7 @@ import type { OfficialCardDetail } from '../server/dmOfficial';
 import { db } from '../db/db';
 import { deleteImages, hasImage, saveImage } from '../db/imageCache';
 import { useApp } from './appStore';
+import { isProxyMissing, NO_PROXY_MESSAGE } from '../ui/officialApi';
 
 // 公式カードを「デッキ構築・対戦で使えるように」ブラウザへ保存する。
 // 公式サーバーへのアクセスは保存する時だけ。保存済みのカードは再取得しない。
@@ -17,6 +18,7 @@ export async function saveOfficialCard(id: string): Promise<'saved' | 'skipped'>
   if (existing?.imageRef && (await hasImage(existing.imageRef))) return 'skipped';
 
   const res = await fetch(`/dm-api/detail?id=${encodeURIComponent(id)}`);
+  if (isProxyMissing(res)) throw new Error(NO_PROXY_MESSAGE);
   const detail = (await res.json()) as OfficialCardDetail & { error?: string };
   if (!res.ok) throw new Error(detail.error ?? `取得に失敗しました（${res.status}）`);
   const card = convertOfficialCard(detail);
