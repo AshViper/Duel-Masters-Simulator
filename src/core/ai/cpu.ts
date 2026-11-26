@@ -2,7 +2,7 @@
 import type { CardRegistry } from '../cards/registry';
 import { playFace } from '../cards/types';
 import { getLegalActions } from '../engine/legal';
-import { blockersFor, breakerCount, def, power } from '../engine/queries';
+import { battleCards, blockersFor, breakerCount, def, power } from '../engine/queries';
 import { other, type Action, type GameState, type PlayerId } from '../engine/types';
 
 export type Difficulty = 'easy' | 'normal' | 'hard';
@@ -148,7 +148,7 @@ function smartTurn(state: GameState, reg: CardRegistry, me: PlayerId, legal: Act
     const safe = blockers.every((b) => power(state, reg, b) < myPower);
     if (level === 'hard') {
       // 相手の反撃が怖い時はブロッカー持ちを残す
-      const oppAttackers = state.players[opp].zones.battle.length;
+      const oppAttackers = battleCards(state, reg, opp).length;
       if (def(state, reg, a.attacker).keywords?.blocker && oppAttackers >= 2 && P.zones.shield.length <= 2) continue;
     }
     if (safe || blockers.length === 0) return a;
@@ -160,7 +160,7 @@ function smartTurn(state: GameState, reg: CardRegistry, me: PlayerId, legal: Act
 function isUsefulPlay(state: GameState, reg: CardRegistry, me: PlayerId, iid: string, side: 'main' | 'twin'): boolean {
   const face = playFace(def(state, reg, iid), side);
   if (face.type !== 'spell') return true;
-  const oppBattle = state.players[other(me)].zones.battle.length;
+  const oppBattle = battleCards(state, reg, other(me)).length;
   const needsOppCreature = face.abilities.some((ab) =>
     ab.effects.some((e) => 'target' in e && typeof e.target === 'object' && e.target.zone === 'battle' && e.target.owner !== 'self'),
   );

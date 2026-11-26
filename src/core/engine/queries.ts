@@ -22,7 +22,46 @@ export function def(state: GameState, reg: CardRegistry, iid: string): CardDefin
   const inst = state.cards[iid];
   const d = inst && reg[inst.cardId];
   if (!d) throw new Error(`unknown card ${iid}`);
+  if (inst.flipped && d.forbidden) return forbiddenDef(d);
   return inst.hyper && d.hyperForm ? hyperDef(d) : d;
+}
+
+const forbiddenCache = new WeakMap<CardDefinition, CardDefinition>();
+/** 禁断解放した後のカード定義（禁断クリーチャー側） */
+export function forbiddenDef(d: CardDefinition): CardDefinition {
+  let f = forbiddenCache.get(d);
+  if (!f) {
+    const c = d.forbidden!.creature;
+    f = {
+      id: d.id,
+      imageUrl: d.imageUrl,
+      // 裏側の画像（公式から保存したものは「…:b」に入っている。なければ文字で表示する）
+      imageRef: d.imageRef ? `${d.imageRef}:b` : undefined,
+      set: d.set,
+      rarity: d.rarity,
+      ...c,
+      type: 'creature',
+      support: d.support,
+    };
+    forbiddenCache.set(d, f);
+  }
+  return f;
+}
+
+/**
+ * 両プレイヤーが無視するバトルゾーンのカード：封印されているクリーチャーと、裏返る前の禁断の鼓動。
+ * クリーチャーとして数えず、攻撃・ブロック・選択・能力の対象にならない。
+ */
+export function isIgnored(state: GameState, reg: CardRegistry, iid: string): boolean {
+  const inst = state.cards[iid];
+  if (!inst || inst.zone !== 'battle') return false;
+  if (inst.seals?.length) return true;
+  return !!reg[inst.cardId]?.forbidden && !inst.flipped;
+}
+
+/** バトルゾーンのカードのうち、無視されないもの（ふつうのクリーチャー） */
+export function battleCards(state: GameState, reg: CardRegistry, player: PlayerId): string[] {
+  return state.players[player].zones.battle.filter((iid) => !isIgnored(state, reg, iid));
 }
 
 const hyperCache = new WeakMap<CardDefinition, CardDefinition>();
@@ -50,7 +89,7 @@ export function hyperizeCandidates(state: GameState, reg: CardRegistry, player: 
   if (state.activePlayer !== player || (state.phase !== 'main' && state.phase !== 'charge') || state.pending) return null;
   const h = reg[inst.cardId]?.hyper;
   if (!h) return null;
-  const cands = state.players[player].zones.battle.filter((b) => !state.cards[b].tapped && !(h.excludeSelf && b === iid) && matchFilter(state, reg, b, h.filter, iid));
+  const cands = battleCards(state, reg, player).filter((b) => !state.cards[b].tapped && !(h.excludeSelf && b === iid) && matchFilter(state, reg, b, h.filter, iid));
   return cands.length >= h.count ? cands : null;
 }
 
@@ -110,7 +149,7 @@ export interface ActiveStatic {
 export function activeStatics(state: GameState, reg: CardRegistry): ActiveStatic[] {
   const out: ActiveStatic[] = [];
   for (const p of state.players) {
-    for (const iid of p.zones.battle) {
+    for (const iid of battleCards(state, reg, p.id)) {
       for (const s of def(state, reg, iid).statics ?? []) {
         if (s.duringTurn && (s.duringTurn === 'self') !== (state.activePlayer === p.id)) continue;
         // 条件つきの常在効果（循環を避けるため、条件はパワーを見ずに数える）
@@ -187,10 +226,11 @@ function justDiving(state: GameState, inst: CardInstance): boolean {
 }
 
 /** 相手に選ばれないか */
-export function isUntargetable(state: GameState, reg: CardRegistry, iid: string): boolean {
+export function isUntargetable(state: GameState, reg: CardRegistry, iid: string, spellCost?: number): boolean {
   const inst = state.cards[iid];
   if (!inst || inst.zone !== 'battle') return false;
   const kw = keywords(state, reg, iid);
+  if (spellCost !== undefined && kw.untargetableBySpellCost !== undefined && spellCost <= kw.untargetableBySpellCost) return true;
   return !!kw.untargetable || (!!kw.justDiver && justDiving(state, inst));
 }
 
@@ -250,7 +290,7 @@ export function isSummoningSick(state: GameState, reg: CardRegistry, iid: string
 export function canAttackWith(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): boolean {
   const inst = state.cards[iid];
   if (!inst || inst.owner !== player || inst.zone !== 'battle' || inst.tapped) return false;
-  if (!state.players[player].zones.battle.includes(iid)) return false;
+  if (!battleCards(state, reg, player).includes(iid)) return false;
   const kw = keywords(state, reg, iid);
   if (kw.cannotAttack) return false;
   // マッハファイターは出たターンでもクリーチャーを攻撃できる
@@ -263,7 +303,7 @@ export function attackTargets(state: GameState, reg: CardRegistry, player: Playe
   const machOnly = isSummoningSick(state, reg, iid);
   const out: AttackTarget[] = [];
   if (!kw.cannotAttackPlayers && !machOnly) out.push({ kind: 'player' });
-  for (const t of state.players[other(player)].zones.battle) {
+  for (const t of battleCards(state, reg, other(player))) {
     if (cannotBeAttacked(state, reg, t)) continue;
     if (state.cards[t].tapped || kw.attackUntapped || machOnly) out.push({ kind: 'creature', iid: t });
   }
@@ -273,7 +313,7 @@ export function attackTargets(state: GameState, reg: CardRegistry, player: Playe
 export function blockersFor(state: GameState, reg: CardRegistry, defender: PlayerId, attacker: string): string[] {
   const unblockable = !!keywords(state, reg, attacker).unblockable;
   const target = state.combat?.target;
-  return state.players[defender].zones.battle.filter((b) => {
+  return battleCards(state, reg, defender).filter((b) => {
     if (state.cards[b].tapped) return false;
     const kw = keywords(state, reg, b);
     if (kw.cannotBlock) return false;
@@ -291,7 +331,7 @@ export function targetCandidates(state: GameState, reg: CardRegistry, controller
   const owners: PlayerId[] = spec.owner === 'self' ? [controller] : spec.owner === 'opponent' ? [other(controller)] : [controller, other(controller)];
   const out: string[] = [];
   for (const o of owners) {
-    for (const iid of state.players[o].zones[spec.zone]) {
+    for (const iid of spec.zone === 'battle' ? battleCards(state, reg, o) : state.players[o].zones[spec.zone]) {
       if (matchFilter(state, reg, iid, spec.filter, source)) out.push(iid);
     }
   }
@@ -301,7 +341,7 @@ export function targetCandidates(state: GameState, reg: CardRegistry, controller
 /** 数を数える。noPower なら元のパワーで判定（常在効果の中から呼ぶ時の循環防止）。source は「他の」の判定用 */
 export function countQuantity(state: GameState, reg: CardRegistry, controller: PlayerId, q: Quantity, noPower = false, source?: string): number {
   const players: PlayerId[] = q.who === 'self' ? [controller] : q.who === 'opponent' ? [other(controller)] : [controller, other(controller)];
-  return players.reduce<number>((sum, p) => sum + state.players[p].zones[q.zone].filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)).length, 0);
+  return players.reduce<number>((sum, p) => sum + (q.zone === 'battle' ? battleCards(state, reg, p) : state.players[p].zones[q.zone]).filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)).length, 0);
 }
 
 export function evalCondition(state: GameState, reg: CardRegistry, controller: PlayerId, c: Condition, noPower = false, source?: string): boolean {
@@ -324,10 +364,10 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
 export function evolutionBases(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string[] {
   const d = def(state, reg, iid);
   // NEO進化：条件に合うクリーチャーの上に重ねてもよい
-  if (d.neoEvolution) return state.players[player].zones.battle.filter((b) => matchFilter(state, reg, b, d.neoEvolution, undefined, true));
+  if (d.neoEvolution) return battleCards(state, reg, player).filter((b) => matchFilter(state, reg, b, d.neoEvolution, undefined, true));
   if (d.type !== 'evolution') return [];
   const cond = d.evolvesFrom ?? {};
-  return state.players[player].zones.battle.filter((b) => {
+  return battleCards(state, reg, player).filter((b) => {
     const bd = def(state, reg, b);
     if (cond.race && !bd.races.includes(cond.race)) return false;
     if (cond.civilization && !bd.civilizations.includes(cond.civilization)) return false;

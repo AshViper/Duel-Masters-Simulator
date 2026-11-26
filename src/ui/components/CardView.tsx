@@ -39,11 +39,13 @@ interface Props {
   onDragStart?: (e: DragEvent) => void;
   title?: string;
   testId?: string;
+  /** 封印などで無視されているカードを薄く表示する */
+  dimmed?: boolean;
 }
 
 /** 画像がなくても読めるカード表示。文明ごとのアクセントカラー付き */
-export function CardView({ card, faceDown, tapped, size = 'md', power, cost, selected, highlight, badge, onClick, onContextMenu, onHover, draggable, onDragStart, title, testId }: Props) {
-  const cls = ['card', `card-${size}`, tapped && 'tapped', selected && 'selected', highlight && `hl-${highlight}`, onClick && 'clickable'].filter(Boolean).join(' ');
+export function CardView({ card, faceDown, tapped, size = 'md', power, cost, selected, highlight, badge, onClick, onContextMenu, onHover, draggable, onDragStart, title, testId, dimmed }: Props) {
+  const cls = ['card', `card-${size}`, tapped && 'tapped', dimmed && 'dimmed', selected && 'selected', highlight && `hl-${highlight}`, onClick && 'clickable'].filter(Boolean).join(' ');
   // 保存済みの画像（公式カードなど）。ブラウザ内の IndexedDB から読むので通信しない
   const cachedImg = useCachedImage(faceDown ? undefined : card?.imageRef);
   if (faceDown || !card) {

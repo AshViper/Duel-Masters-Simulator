@@ -30,6 +30,8 @@ import {
   hyperizeCandidates,
   activeStatics,
   attackSwapCandidates,
+  battleCards,
+  isIgnored,
   keywords,
   matchFilter,
   playRestriction,
@@ -465,6 +467,9 @@ export class Ctx {
       case 'leave':
         return this.execLeave(task);
 
+      case 'commandUnseal':
+        return this.execCommandUnseal(task.player, task.command);
+
       case 'attackSwap':
         return this.execAttackSwap(task.player);
 
@@ -688,6 +693,69 @@ export class Ctx {
   }
 
   /** バトルゾーンを離れる処理。置換効果があればここで適用する */
+  // ───────────────────────── 封印・禁断解放 ─────────────────────────
+
+  /** コマンドが出た時：その持ち主は、コマンドと同じ文明を持つ自身のカードから封印を1つ墓地に置く */
+  private execCommandUnseal(player: PlayerId, command: string): boolean {
+    const s = this.s;
+    const civs = s.cards[command] ? def(s, this.reg, command).civilizations : [];
+    const candidates = s.players[player].zones.battle.filter((iid) => s.cards[iid].seals?.length && def(s, this.reg, iid).civilizations.some((c) => civs.includes(c)));
+    if (candidates.length === 0) return false;
+    let pick = candidates[0];
+    if (candidates.length > 1) {
+      const r = this.takeResponse();
+      if (!r) {
+        s.pending = {
+          kind: 'selectCards',
+          player,
+          source: command,
+          prompt: `${this.name(command)}（コマンド）：封印を1つ外すカードを選んでください`,
+          candidates,
+          min: 1,
+          max: 1,
+        };
+        return true;
+      }
+      pick = r.selected?.[0] ?? pick;
+    }
+    const seals = s.cards[pick].seals!;
+    const seal = seals[seals.length - 1];
+    this.log(`${this.name(command)}（コマンド）が出たので、${this.name(pick)} の封印を1つ墓地に置く（残り${seals.length - 1}）`, player);
+    this.moveCard(seal, 'graveyard');
+    return false;
+  }
+
+  /** カードに封印を1つ付ける（持ち主の山札の上から1枚目を裏向きで重ねる） */
+  sealCard(iid: string, silent = false): boolean {
+    const s = this.s;
+    const inst = s.cards[iid];
+    const top = this.topOfDeck(inst.owner);
+    if (!top) {
+      if (!silent) this.log(`山札がないため ${this.name(iid)} に封印を付けられない`, inst.owner);
+      return false;
+    }
+    this.moveCard(top, 'seal');
+    (inst.seals ??= []).push(top);
+    if (!silent) this.log(`${this.name(iid)} に封印を1つ付けた`, inst.owner);
+    return true;
+  }
+
+  /** 封印が外れた後の処理：禁断の鼓動なら禁断解放、封印されていたクリーチャーなら元に戻る */
+  private afterSealRemoved(holder: string): void {
+    const s = this.s;
+    const inst = s.cards[holder];
+    if (!inst || inst.zone !== 'battle' || inst.seals?.length) return;
+    delete inst.seals;
+    const d = this.reg[inst.cardId];
+    if (d?.forbidden && !inst.flipped) {
+      inst.flipped = true;
+      this.log(`${d.name} の封印がすべてなくなった。禁断解放！ ${d.forbidden.creature.name} に裏返る`, inst.owner);
+      this.triggerFrom(holder, 'onUnleash');
+    } else {
+      this.log(`${this.name(holder)} の封印がすべてなくなった`, inst.owner);
+    }
+  }
+
   private execLeave(task: Extract<Task, { kind: 'leave' }>): boolean {
     const s = this.s;
     const inst = s.cards[task.iid];
@@ -758,7 +826,7 @@ export class Ctx {
     const s = this.s;
     const owner = s.cards[iid].owner;
     // 自分自身の置換効果を優先し、次に自分の他のクリーチャーのもの
-    const sources = [iid, ...s.players[owner].zones.battle.filter((x) => x !== iid)];
+    const sources = [iid, ...battleCards(s, this.reg, owner).filter((x) => x !== iid)];
     for (const src of sources) {
       const reps = def(s, this.reg, src).replacements ?? [];
       for (let i = 0; i < reps.length; i++) {
@@ -819,6 +887,10 @@ export class Ctx {
           this.log(`${s.players[opp].name} の手札から ${this.name(pick)} を捨てさせた`, controller);
         }
         return false;
+      case 'seal':
+        return this.withTargets(controller, source, e.target, '封印を付ける', true, (iid) => {
+          this.sealCard(iid);
+        });
       case 'manual': {
         // 自動処理できない能力：判断パネルで手動処理してもらい、「処理完了」まで止める
         const r = this.takeResponse();
@@ -1147,11 +1219,15 @@ export class Ctx {
   /** 対象を選んで fn を適用する。選択が必要なら pending を立てて true を返す */
   private withTargets(controller: PlayerId, source: string, spec: TargetSpec, verb: string, harmful: boolean, fn: (iid: string) => Task | void): boolean {
     const s = this.s;
+    // 唱えている呪文のコスト（「コスト4以下の呪文によって選べない」の判定用）
+    const src = s.cards[source];
+    const srcDef = src && src.zone === 'hand' ? def(s, this.reg, source) : undefined;
+    const spellCost = srcDef ? (srcDef.type === 'spell' ? srcDef.cost : srcDef.twin?.cost) : undefined;
     const candidates = targetCandidates(s, this.reg, controller, spec, source).filter(
       (c) =>
         (c !== source || spec.zone !== 'hand') &&
         // 「相手に選ばれない」クリーチャーは、相手が選ぶ効果の候補にしない（「すべて」は選ばないので対象になる）
-        !(spec.count !== 'all' && spec.chooser !== 'owner' && s.cards[c].owner !== controller && isUntargetable(s, this.reg, c)),
+        !(spec.count !== 'all' && spec.chooser !== 'owner' && s.cards[c].owner !== controller && isUntargetable(s, this.reg, c, spellCost)),
     );
     if (candidates.length === 0) {
       this.log(`${this.name(source)}：対象がいません`, controller);
@@ -1200,7 +1276,7 @@ export class Ctx {
   private triggerFrom(iid: string, when: TriggeredAbility['when'], extra?: (ab: TriggeredAbility) => boolean): void {
     const s = this.s;
     const inst = s.cards[iid];
-    if (!inst) return;
+    if (!inst || isIgnored(s, this.reg, iid)) return;
     const d = def(s, this.reg, iid);
     if (!isCreatureType(d.type)) return;
     (d.abilities ?? []).forEach((ab, i) => {
@@ -1241,6 +1317,11 @@ export class Ctx {
         break;
       }
       case 'CREATURE_SUMMONED':
+        // コマンドが出たら、その持ち主は同じ文明の自身のカードから封印を1つ外す
+        if (s.cards[e.iid] && def(s, this.reg, e.iid).races.some((r) => r.includes('コマンド'))) {
+          const owner = s.cards[e.iid].owner;
+          if (s.players[owner].zones.battle.some((b) => s.cards[b].seals?.length)) this.triggered.push({ kind: 'commandUnseal', player: owner, command: e.iid });
+        }
         this.triggerFrom(e.iid, 'onSummon');
         for (const other_ of battleAll()) {
           if (other_ === e.iid) continue;
@@ -1327,6 +1408,25 @@ export class Ctx {
     if (idx >= 0) fromList.splice(idx, 1);
     const under = from === 'battle' && to !== 'battle' ? inst.under : [];
     if (from === 'battle' && to !== 'battle') inst.under = [];
+    // バトルゾーンを離れたカードの封印は墓地へ
+    const seals = from === 'battle' && to !== 'battle' ? (inst.seals ?? []) : [];
+    if (from === 'battle' && to !== 'battle') {
+      delete inst.seals;
+      delete inst.flipped;
+    }
+    // 封印が外れたら、付いていたカードから取り除く
+    let sealHolder: string | undefined;
+    if (from === 'seal' && to !== 'seal') {
+      for (const b of [...s.players[0].zones.battle, ...s.players[1].zones.battle]) {
+        const list = s.cards[b].seals;
+        const k = list?.indexOf(iid) ?? -1;
+        if (k >= 0) {
+          list!.splice(k, 1);
+          sealHolder = b;
+          break;
+        }
+      }
+    }
     inst.zone = to;
     inst.tapped = false;
     inst.powerModTurn = 0;
@@ -1334,7 +1434,7 @@ export class Ctx {
     delete inst.keywordsUntil;
     delete inst.hyper;
     delete inst.exLifeShield;
-    inst.faceUp = to !== 'shield' && to !== 'deck';
+    inst.faceUp = to !== 'shield' && to !== 'deck' && to !== 'seal';
     if (to === 'battle') inst.enteredTurn = s.turn;
     // 多色カードはタップしてマナゾーンに置かれる
     if (to === 'mana' && manaCivilizations(def(s, this.reg, iid)).length > 1) inst.tapped = true;
@@ -1355,6 +1455,10 @@ export class Ctx {
       s.cards[u].zone = 'battle';
       this.moveCard(u, to, opts);
     }
+    for (const x of seals) {
+      if (s.cards[x].zone === 'seal') this.moveCard(x, 'graveyard');
+    }
+    if (sealHolder) this.afterSealRemoved(sealHolder);
   }
 
   checkStateBased(): void {
@@ -1367,10 +1471,24 @@ export class Ctx {
     } else if (out.length === 2) {
       this.gameOver(null, '両者山札切れ（引き分け）');
     }
-    if (s.gameOverReason !== null || s.pending) return;
+    if (s.gameOverReason !== null) return;
+    // 「このカードがバトルゾーン以外のゾーンにあれば、自分はゲームに負ける」（ドキンダムXなど）
+    const losers = new Set<PlayerId>();
+    for (const inst of Object.values(s.cards)) {
+      if (inst.zone === 'battle') continue;
+      const d = this.reg[inst.cardId];
+      const kw = d?.forbidden?.creature.keywords ?? d?.keywords;
+      if (kw?.loseIfNotInBattle) {
+        if (!losers.has(inst.owner)) this.log(`${d.forbidden?.creature.name ?? d.name} がバトルゾーン以外のゾーンにある`, inst.owner);
+        losers.add(inst.owner);
+      }
+    }
+    if (losers.size === 1) return this.gameOver(other([...losers][0]), `${s.players[[...losers][0]].name} の敗北条件`);
+    if (losers.size === 2) return this.gameOver(null, '両者の敗北条件（引き分け）');
+    if (s.pending) return;
     // パワー0以下のクリーチャーは破壊される（入力待ちの間は、中断中のタスクより前に割り込ませない）
     const queued = new Set(s.queue.flatMap((t) => (t.kind === 'leave' ? [t.iid] : [])));
-    const dead = [...s.players[0].zones.battle, ...s.players[1].zones.battle].filter((iid) => !queued.has(iid) && power(s, this.reg, iid) <= 0);
+    const dead = [...battleCards(s, this.reg, 0), ...battleCards(s, this.reg, 1)].filter((iid) => !queued.has(iid) && power(s, this.reg, iid) <= 0);
     if (dead.length) this.insertFront(...dead.map((iid): Task => ({ kind: 'leave', iid, to: 'graveyard', cause: 'destroy' })));
   }
 
@@ -1388,7 +1506,10 @@ export class Ctx {
 
   name(iid: string): string {
     const inst = this.s.cards[iid];
-    return inst ? (this.reg[inst.cardId]?.name ?? inst.cardId) : iid;
+    if (!inst) return iid;
+    const d = this.reg[inst.cardId];
+    if (inst.flipped && d?.forbidden) return d.forbidden.creature.name;
+    return d?.name ?? inst.cardId;
   }
 
   log(text: string, player: PlayerId | null): void {

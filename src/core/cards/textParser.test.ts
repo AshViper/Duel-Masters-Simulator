@@ -83,10 +83,16 @@ describe('能力テキストの読み取り', () => {
     expect(creature('進化：火のクリーチャー１体の上に置く。').evolvesFrom).toEqual({ civilization: 'fire' });
   });
 
+  it('封印を付ける文を読む', () => {
+    expect(creature('このクリーチャーがバトルゾーンに出た時、相手のクリーチャーを1体選ぶ。相手はそれに封印を1つ付ける。').abilities).toEqual([
+      { when: 'onSummon', effects: [{ type: 'seal', target: { owner: 'opponent', zone: 'battle', count: 1 } }] },
+    ]);
+  });
+
   it('読めない文は手動。誘発のタイミングが分かればその時にログで知らせる', () => {
-    const p = creature('このクリーチャーがバトルゾーンに出た時、相手のクリーチャーを1体選ぶ。相手はそれに封印を1つ付ける。');
+    const p = creature('このクリーチャーがバトルゾーンに出た時、相手のクリーチャーを1体選ぶ。相手はそれを超次元ゾーンに置く。');
     expect(p.manualLines).toHaveLength(1);
-    expect(p.abilities).toEqual([{ when: 'onSummon', effects: [{ type: 'manual', text: expect.stringContaining('封印') }] }]);
+    expect(p.abilities).toEqual([{ when: 'onSummon', effects: [{ type: 'manual', text: expect.stringContaining('超次元') }] }]);
     // 能力語つきの文は読まない
     expect(creature('鬼タイム：自分と相手のシールドの数が合計６つ以下で、自分のターンなら、このクリーチャーは破壊されない。').manualLines).toHaveLength(1);
     // 一部だけ読める文も丸ごと手動にする
