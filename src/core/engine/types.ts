@@ -70,6 +70,8 @@ export interface PlayerState {
   spellsThisTurn?: number;
   /** このターンに出したクリーチャーの数 */
   creaturesThisTurn?: number;
+  /** 次の自分のターンのはじめに支払うマナ（逆転撃。支払えなければ負ける） */
+  debts?: { amount: number; source: string }[];
   /** このターンに召喚したクリーチャーの数 */
   summonsThisTurn?: number;
   /** このターンに使ったカード（「各ターン、1体目の」の判定用） */
@@ -237,6 +239,8 @@ export interface LogEntry {
 export interface CombatState {
   /** この攻撃中に「ニンジャ・ストライク」の仲間を使ったプレイヤー */
   ninjaUsed?: PlayerId[];
+  /** この攻撃中に使った「〜を使っていなければ」の能力（「プレイヤー:能力名」） */
+  usedKeys?: string[];
   attacker: string;
   attackingPlayer: PlayerId;
   target: AttackTarget;
@@ -253,6 +257,8 @@ export interface TurnStatic {
   static: StaticAbility;
   /** 次のこのプレイヤーのターンのはじめまで有効（省略時はターン終了まで） */
   untilNextTurnOf?: PlayerId;
+  /** このプレイヤーのターンの間だけ有効（「次の相手のターン中」） */
+  onlyDuringTurnOf?: PlayerId;
 }
 
 export interface GameState {

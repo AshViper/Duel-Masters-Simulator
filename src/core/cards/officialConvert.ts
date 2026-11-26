@@ -300,5 +300,7 @@ function twinKeywords(kw: ParsedAbilities['keywords']): TwinSide['keywords'] {
   if (kw.charger) out.charger = true;
   if (kw.crystalCharger) out.crystalCharger = true;
   if (kw.manaTapped) out.manaTapped = true;
+  if (kw.spellToHand) out.spellToHand = kw.spellToHand;
+  if (kw.spellToHyperspatial) out.spellToHyperspatial = true;
   return Object.keys(out).length ? out : undefined;
 }

@@ -304,7 +304,7 @@ function activeStaticsImpl(state: GameState, reg: CardRegistry): ActiveStatic[] 
       }
     }
   }
-  for (const t of state.turnStatics ?? []) out.push(t);
+  for (const t of state.turnStatics ?? []) if (t.onlyDuringTurnOf === undefined || t.onlyDuringTurnOf === state.activePlayer) out.push(t);
   return out;
 }
 

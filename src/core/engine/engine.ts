@@ -317,6 +317,18 @@ export class Ctx {
         // 「自分のターンのはじめにアンタップしない」クリーチャーはタップしたまま
         for (const iid of P.zones.battle) if (!keywords(s, this.reg, iid).noUntap) s.cards[iid].tapped = false;
         P.chargedThisTurn = false;
+        // 逆転撃など：「次の自分のターンのはじめに{N}を支払う。支払えなければ、自分はゲームに負ける」
+        for (const debt of P.debts ?? []) {
+          const free = P.zones.mana.filter((m) => !s.cards[m].tapped);
+          if (free.length < debt.amount) {
+            this.log(`${debt.source}：${debt.amount}マナを支払えなかった`, pl);
+            delete P.debts;
+            return this.gameOver(other(pl), `${debt.source} の支払いができなかった`);
+          }
+          for (const m of free.slice(0, debt.amount)) s.cards[m].tapped = true;
+          this.log(`${debt.source}：マナを${debt.amount}枚タップして支払った`, pl);
+        }
+        delete P.debts;
         this.log(`── ターン${s.turn}：${P.name} ──`, pl);
         this.emit({ type: 'TURN_STARTED', player: pl, turn: s.turn });
         // ギャラクシールド：表向きで自分のシールドゾーンにあれば、コストを支払ったものとして召喚する
@@ -648,7 +660,22 @@ export class Ctx {
           if (!(ht.zones ?? ['hand']).includes(z) || !match(ht, h)) continue;
           if (ht.condition && !evalCondition(s, this.reg, player, ht.condition, false, h)) continue;
           if (ht.oncePerAttack && s.combat?.ninjaUsed?.includes(player)) continue;
-          this.addTrigger(player, h, this.effectTasks(player, h, [{ type: 'handPlay', iid: h, ...(ht.endOfTurn ? { endOfTurn: ht.endOfTurn } : {}), ...(ht.oncePerAttack ? { ninja: true } : {}), ...(ht.spellAfter ? { spellAfter: ht.spellAfter } : {}) }]));
+          if (ht.onceKey && s.combat?.usedKeys?.includes(`${player}:${ht.onceKey}`)) continue;
+          this.addTrigger(
+            player,
+            h,
+            this.effectTasks(player, h, [
+              {
+                type: 'handPlay',
+                iid: h,
+                ...(ht.endOfTurn ? { endOfTurn: ht.endOfTurn } : {}),
+                ...(ht.oncePerAttack ? { ninja: true } : {}),
+                ...(ht.spellAfter ? { spellAfter: ht.spellAfter } : {}),
+                ...(ht.onceKey ? { onceKey: ht.onceKey } : {}),
+                ...(ht.debt ? { debt: ht.debt } : {}),
+              },
+            ]),
+          );
         }
       }
     }
@@ -866,6 +893,11 @@ export class Ctx {
             return false;
           }
         }
+        if (kw?.spellToHyperspatial) {
+          this.moveCard(task.iid, 'hyperspatial');
+          this.log(`${this.name(task.iid)} を、唱えた後に超次元ゾーンに置いた`, s.cards[task.iid].owner);
+          return false;
+        }
         this.moveCard(task.iid, charger ? 'mana' : 'graveyard');
         // 水晶チャージャー：裏向きでマナゾーンに置く（文明を持たないマナになる）
         if (kw?.crystalCharger) s.cards[task.iid].faceUp = false;
@@ -877,6 +909,12 @@ export class Ctx {
         const inst = s.cards[task.iid];
         if (!inst || inst.zone === 'battle') return false;
         const entering = def(s, this.reg, task.iid);
+        // 「山札から手札以外のゾーンに置かれる時、かわりに墓地に置く」
+        if (inst.zone === 'deck' && this.deckToGrave(inst.owner)) {
+          this.moveCard(task.iid, 'graveyard');
+          this.log(`${entering.name} はバトルゾーンに出るかわりに墓地に置かれた`, inst.owner);
+          return false;
+        }
         if (isCreatureType(entering.type) && !task.summoned) {
           // 「各ターン1体までしかクリーチャーを出せない」（召喚は使う前に確かめている）
           const limit = playLimitReached(s, this.reg, task.player, 'creature');
@@ -1253,8 +1291,17 @@ export class Ctx {
         if (chosen.length && s.cards[task.source]?.zone === 'battle') this.emit({ type: 'BROKE_SHIELDS', player: s.cards[task.source].owner, iid: task.source });
         const triggers: Task[] = [];
         // ブレイクしたシールドを手札に加えるかわりに墓地に置く
-        const burn = s.cards[task.source]?.zone === 'battle' && !!keywords(s, this.reg, task.source).shieldBurn;
+        const srcKw = s.cards[task.source]?.zone === 'battle' ? keywords(s, this.reg, task.source) : undefined;
+        const burn = !!srcKw?.shieldBurn;
+        // 「そのシールドを手札に加えるかわりに持ち主の山札の下に置く」
+        const toBottom = srcKw?.shieldBreakTo === 'deckBottom';
+        let bottomed = 0;
         for (const sh of chosen) {
+          if (toBottom) {
+            this.moveCard(sh, 'deck', { toTop: false });
+            bottomed++;
+            continue;
+          }
           // シールド・ゴーで表向きのシールドは、手札に加えるかわりに墓地へ
           const goDown = s.cards[sh].faceUp && !!def(s, this.reg, sh).keywords?.shieldGo;
           this.moveCard(sh, burn || goDown ? 'graveyard' : 'hand');
@@ -1275,7 +1322,12 @@ export class Ctx {
             });
           }
         }
-        this.log(`シールドを${chosen.length}枚ブレイク（残り${shields.length}枚）${burn ? '：墓地に置いた' : ''}`, task.breaker);
+        this.log(`シールドを${chosen.length}枚ブレイク（残り${shields.length}枚）${burn ? '：墓地に置いた' : toBottom ? '：山札の下に置いた' : ''}`, task.breaker);
+        // 「その後、各プレイヤーはこうして置かれたシールドの数、カードを引く」
+        if (bottomed && srcKw?.shieldBreakEachDraws) {
+          for (const p of [task.breaker, task.defender]) this.draw(p, bottomed);
+          this.log(`各プレイヤーはカードを${bottomed}枚引く`, task.breaker);
+        }
         // キリフダッシュ：この攻撃でシールドをブレイクしたことを、攻撃の終わりの処理に伝える
         if (task.byAttack && chosen.length) for (const t of s.queue) if (t.kind === 'attackEnd') t.broke = true;
         this.insertFront(...triggers);
@@ -1607,24 +1659,26 @@ export class Ctx {
           this.insertFront({ kind: 'leave', iid: source, to: 'graveyard', cause: 'destroy', replaced: [...replaced, key] });
           return false;
         case 'destroyOther': {
-          // かわりに自分の他のクリーチャーを1体破壊する（いなければ置換しない）
-          const cands = battleCards(s, this.reg, owner).filter((x) => x !== task.iid);
-          if (!cands.length) {
+          // かわりに自分の他のクリーチャーを1体（N枚）破壊する（足りなければ置換しない）
+          const need = ability.count ?? 1;
+          const cands = (ability.anyCard ? battleAndFields(s, this.reg, owner) : battleCards(s, this.reg, owner)).filter((x) => x !== task.iid);
+          if (cands.length < need) {
             this.insertFront({ ...task, replaced: [...replaced, key] });
             return false;
           }
-          let pick = cands[0];
-          if (cands.length > 1) {
+          let picks = cands.slice(0, need);
+          if (cands.length > need) {
             const r = this.takeResponse();
             if (!r) {
               // 使うと答えた後に選ぶ：このタスクをもう一度処理する時は確認を飛ばす
               task.confirmed = key;
-              s.pending = { kind: 'selectCards', player: owner, source, prompt: `${this.name(task.iid)} のかわりに破壊する自分のクリーチャーを1体選んでください`, candidates: cands, min: 1, max: 1, harmful: true };
+              const what = ability.anyCard ? `カードを${need}枚` : `クリーチャーを${need}体`;
+              s.pending = { kind: 'selectCards', player: owner, source, prompt: `${this.name(task.iid)} のかわりに破壊する自分の${what}選んでください`, candidates: cands, min: need, max: need, harmful: true };
               return true;
             }
-            pick = r.selected?.[0] ?? pick;
+            picks = r.selected?.length ? r.selected : picks;
           }
-          this.insertFront({ kind: 'leave', iid: pick, to: 'graveyard', cause: 'destroy', replaced: [...replaced, key] });
+          this.insertFront(...picks.map((pick): Task => ({ kind: 'leave', iid: pick, to: 'graveyard', cause: 'destroy', replaced: [...replaced, key] })));
           return false;
         }
         default: {
@@ -1712,14 +1766,15 @@ export class Ctx {
           const top = this.topOfDeck(who);
           if (!top) break;
           s.lastChosen.push(top);
-          if (e.to === 'under') {
+          if (e.to === 'under' && !this.deckToGrave(who)) {
             this.putUnder(top, source, controller);
             continue;
           }
-          this.moveCard(top, e.to);
-          if (e.tapped && e.to === 'mana') s.cards[top].tapped = true;
-          const shown = e.to === 'shield' || e.to === 'hand' ? '1枚' : this.name(top);
-          this.log(`${s.players[who].name} の山札の上から${shown}を${ZONE_LABEL[e.to]}へ`, controller);
+          this.moveCard(top, e.to === 'under' ? 'graveyard' : e.to);
+          const to = s.cards[top].zone as keyof typeof ZONE_LABEL;
+          if (e.tapped && to === 'mana') s.cards[top].tapped = true;
+          const shown = to === 'shield' || to === 'hand' ? '1枚' : this.name(top);
+          this.log(`${s.players[who].name} の山札の上から${shown}を${ZONE_LABEL[to] ?? '墓地'}へ`, controller);
         }
         return false;
       }
@@ -1985,7 +2040,7 @@ export class Ctx {
         // 「その数字と同じコストの」：選んだ数字をこの時点で決める（後で別の数字を選んでも変わらないように）
         const num = s.chosenNumber ?? -1;
         const bound = JSON.parse(JSON.stringify(e.static).split('"costIsChosenNumber":true').join(`"minCost":${num},"maxCost":${num}`)) as StaticAbility;
-        s.turnStatics.push({ controller, source, static: bound, ...(e.untilNextTurn ? { untilNextTurnOf: controller } : {}) });
+        s.turnStatics.push({ controller, source, static: bound, ...(e.untilNextTurn ? { untilNextTurnOf: controller } : {}), ...(e.onlyOpponentTurn ? { onlyDuringTurnOf: other(controller) } : {}) });
         this.log(`${this.name(source)} の効果が${e.untilNextTurn ? '次の自分のターンのはじめまで' : 'このターンの間'}有効`, controller);
         return false;
       }
@@ -2123,6 +2178,8 @@ export class Ctx {
         const inst = s.cards[e.iid];
         if (!inst || (inst.zone !== 'hand' && inst.zone !== 'graveyard')) return false;
         if (e.ninja && s.combat?.ninjaUsed?.includes(controller)) return false;
+        const key = e.onceKey ? `${controller}:${e.onceKey}` : undefined;
+        if (key && s.combat?.usedKeys?.includes(key)) return false;
         const r = this.takeResponse();
         if (!r) {
           s.pending = { kind: 'confirm', player: controller, source: e.iid, prompt: `${this.name(e.iid)} を、コストを支払わずに使いますか？` };
@@ -2130,6 +2187,13 @@ export class Ctx {
         }
         if (!r.accept) return false;
         if (e.ninja && s.combat) s.combat.ninjaUsed = [...(s.combat.ninjaUsed ?? []), controller];
+        if (key && s.combat) s.combat.usedKeys = [...(s.combat.usedKeys ?? []), key];
+        // 逆転撃：次の自分のターンのはじめにマナを支払う
+        if (e.debt) {
+          const P = s.players[controller];
+          P.debts = [...(P.debts ?? []), { amount: e.debt, source: this.name(e.iid) }];
+          this.log(`次の自分のターンのはじめに${e.debt}マナを支払う（支払えなければ負ける）`, controller);
+        }
         const d = def(s, this.reg, e.iid);
         if (isCreatureType(d.type) && d.type !== 'evolution') {
           this.log(`${d.name} をコストを支払わずに召喚する`, controller);
@@ -2781,6 +2845,29 @@ export class Ctx {
       return false;
     }
     let chosen: string[];
+    // 「3枚ずつ選び、残りを〜」：残すカードを選び、それ以外に行う
+    if (spec.keep !== undefined) {
+      if (candidates.length <= spec.keep) {
+        s.lastChosen = [];
+        return false;
+      }
+      const r = this.takeResponse();
+      if (!r) {
+        const chooser = spec.chooser === 'owner' ? s.cards[candidates[0]].owner : controller;
+        s.pending = { kind: 'selectCards', player: chooser, source, prompt: `${this.name(source)}：残すカードを${spec.keep}枚選んでください（残りを${verb}）`, candidates, min: spec.keep, max: spec.keep, harmful: false };
+        return true;
+      }
+      const kept = r.selected ?? [];
+      const tasks: Task[] = [];
+      chosen = candidates.filter((c) => !kept.includes(c));
+      s.lastChosen = [...chosen];
+      for (const iid of chosen) {
+        const t = fn(iid);
+        if (t) tasks.push(t);
+      }
+      this.insertFront(...tasks);
+      return false;
+    }
     // 「可能ならこのクリーチャーを選ぶ」：相手が選ぶ時、そのクリーチャーを先に選ぶ
     const lures =
       spec.count === 'all' || spec.ref || spec.iids || spec.zone !== 'battle'
@@ -3002,7 +3089,7 @@ export class Ctx {
         if (e.target.kind === 'player') this.triggerOthers(e.attacker, 'onOtherAttackPlayer', e.player);
         if (e.target.kind === 'creature') this.triggerFrom(e.target.iid, 'onAttacked');
         // 手札にある間の誘発：ニンジャ・ストライク（相手の攻撃）、鬼エンド（クリーチャーの攻撃）、アタック・チャンスR（自分の攻撃）
-        this.offerHandTriggers(other(e.player), (ht) => ht.when === 'opponentAttackOrBlock' || ht.when === 'anyAttack');
+        this.offerHandTriggers(other(e.player), (ht) => ht.when === 'opponentAttackOrBlock' || ht.when === 'anyAttack' || (ht.when === 'attackedPlayer' && e.target.kind === 'player'));
         this.offerHandTriggers(e.player, (ht) => ht.when === 'anyAttack' || (ht.when === 'ownAttack' && matchFilter(s, this.reg, e.attacker, ht.filter)));
         break;
       case 'CREATURE_TAPPED':
@@ -3129,10 +3216,19 @@ export class Ctx {
     }
   }
 
+  /** 「山札から手札以外のゾーンにカードが置かれる時、かわりに墓地に置く」が、このプレイヤーの山札に効いているか */
+  private deckToGrave(player: PlayerId): boolean {
+    return activeStatics(this.s, this.reg).some(
+      (a) => a.static.type === 'deckToGraveInstead' && (a.static.who === 'both' || (a.static.who === 'self') === (a.controller === player)),
+    );
+  }
+
   moveCard(iid: string, to: ZoneName, opts: { toTop?: boolean } = {}): void {
     const s = this.s;
     const inst = s.cards[iid];
     const from = inst.zone;
+    // 山札からマナ・シールド・バトルゾーン・超次元ゾーンへ：「かわりに墓地に置く」
+    if (from === 'deck' && (to === 'mana' || to === 'shield' || to === 'battle' || to === 'hyperspatial') && this.deckToGrave(inst.owner)) to = 'graveyard';
     // サイキック・クリーチャーはバトルゾーン以外に行く時、超次元ゾーンに戻る
     if (from === 'battle' && to !== 'battle' && this.reg[inst.cardId]?.psychic) {
       // 選ばずに離れた時のリンク解除：このカードだけが戻り、残りのセルはバトルゾーンに残る
@@ -3270,11 +3366,20 @@ export class Ctx {
       (iid) => !queued.has(iid) && def(s, this.reg, iid).power !== undefined && power(s, this.reg, iid) <= 0,
     );
     if (dead.length) this.insertFront(...dead.map((iid): Task => ({ kind: 'leave', iid, to: 'graveyard', cause: 'destroy' })));
+    // S-MAX進化：自分のS-MAX進化クリーチャーが2体以上あれば、最後に出た1体を残し、残りを手札に戻す
+    for (const p of [0, 1] as PlayerId[]) {
+      const smax = battleCards(s, this.reg, p).filter((iid) => !queued.has(iid) && !dead.includes(iid) && keywords(s, this.reg, iid).sMax);
+      if (smax.length < 2) continue;
+      this.log('S-MAX進化クリーチャーが2体以上あるので、1体を残して手札に戻す', p);
+      this.insertFront(...smax.slice(0, -1).map((iid): Task => ({ kind: 'leave', iid, to: 'hand', cause: 'effect' })));
+    }
   }
 
   gameOver(winner: PlayerId | null, reason: string): void {
     const s = this.s;
     if (s.gameOverReason !== null) return;
+    // 鬼S-MAX進化：「自分がゲームに負ける時、かわりに自分の表向きのカードを3枚破壊してもよい」（投了は除く）
+    if (winner !== null && reason !== '投了' && this.avertLoss(other(winner))) return;
     s.winner = winner;
     s.gameOverReason = reason;
     s.pending = null;
@@ -3283,6 +3388,27 @@ export class Ctx {
     s.combat = null;
     this.log(winner === null ? `引き分け（${reason}）` : `${s.players[winner].name} の勝利！（${reason}）`, winner);
     this.emit({ type: 'GAME_OVER', winner, reason });
+  }
+
+  /**
+   * 負ける時の置換：バトルゾーンにある「自分がゲームに負ける時、かわりに〜を破壊してもよい」を持つクリーチャーで、表向きのカードを破壊する。
+   * 破壊するカードは、そのクリーチャー以外のコストの小さいものから自動で選ぶ（負けないほうが必ず得なので確認しない）
+   */
+  private avertLoss(loser: PlayerId): boolean {
+    const s = this.s;
+    const queued = new Set(s.queue.flatMap((t) => (t.kind === 'leave' ? [t.iid] : [])));
+    const own = battleAndFields(s, this.reg, loser).filter((x) => !queued.has(x));
+    for (const iid of battleCards(s, this.reg, loser)) {
+      const need = keywords(s, this.reg, iid).avertLoss;
+      if (!need || queued.has(iid)) continue;
+      const others = own.filter((x) => x !== iid).sort((a, b) => def(s, this.reg, a).cost - def(s, this.reg, b).cost);
+      const picks = [...others, iid].slice(0, need);
+      if (picks.length < need) continue;
+      this.log(`${this.name(iid)} の能力：ゲームに負けるかわりに、表向きのカードを${need}枚破壊する`, loser);
+      this.insertFront(...picks.map((x): Task => ({ kind: 'leave', iid: x, to: 'graveyard', cause: 'destroy' })));
+      return true;
+    }
+    return false;
   }
 
   name(iid: string): string {

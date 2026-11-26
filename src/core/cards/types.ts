@@ -130,6 +130,8 @@ export interface TargetSpec {
   anyZone?: boolean;
   /** zone のほかに選べるゾーン（「自分の手札または墓地から」） */
   extraZones?: TargetSpec['zone'][];
+  /** 候補からこの数だけ選んで残し、残りすべてに行う（「3枚ずつ選び、残りを墓地に置く」）。count は 'all' にする */
+  keep?: number;
 }
 
 /** 数を数える式（条件判定用） */
@@ -293,7 +295,8 @@ export type EffectDef =
   /** untilNextTurn: 次の自分のターンのはじめまで（省略時はこのターン） */
   | { type: 'grantKeyword'; target: TargetSpec | 'self'; keywords: Keywords; untilNextTurn?: boolean }
   /** ターン終了時まで有効な常在効果（例：このターン、相手のクリーチャーは攻撃できない） */
-  | { type: 'turnStatic'; static: StaticAbility; untilNextTurn?: boolean }
+  /** onlyOpponentTurn: 相手のターンの間だけ有効（「次の相手のターン中、」） */
+  | { type: 'turnStatic'; static: StaticAbility; untilNextTurn?: boolean; onlyOpponentTurn?: boolean }
   | { type: 'conditional'; condition: Condition; then: EffectDef[]; else?: EffectDef[] }
   /** モード選択（「次の中から1つ選ぶ」） */
   /** times: 選ぶ回数（「次の中から2回選ぶ」）。distinct: 同じものは選べない */
@@ -326,7 +329,7 @@ export type EffectDef =
    */
   | { type: 'shieldPlus'; count: number; upTo?: boolean; each?: boolean }
   /** エンジン内部用：手札（墓地）にあるカードを、コストを支払わずに使うか聞く（手札にある間の誘発） */
-  | { type: 'handPlay'; iid: string; endOfTurn?: 'deckBottom'; ninja?: boolean; spellAfter?: 'deckBottom' }
+  | { type: 'handPlay'; iid: string; endOfTurn?: 'deckBottom'; ninja?: boolean; spellAfter?: 'deckBottom'; onceKey?: string; debt?: number }
   /** GR召喚：自分の超GRゾーンの上から count 枚を、1枚ずつ召喚する */
   | { type: 'grSummon'; count: number }
   /** 「その攻撃の後、〜」：いまの攻撃が終わった後に行う */
@@ -492,6 +495,8 @@ export type StaticAbility = (
   | { type: 'playLimit'; who: 'self' | 'opponent' | 'both'; what: 'spell' | 'creature'; max: number }
   /** 召喚以外の方法でクリーチャーが出る時、かわりに墓地に置く（who: そのクリーチャーを出すプレイヤー） */
   | { type: 'nonSummonEntryToGrave'; who: 'self' | 'opponent' | 'both' }
+  /** 山札から手札以外のゾーンに置かれる時、かわりに墓地に置く（カレイコの黒像） */
+  | { type: 'deckToGraveInstead'; who: 'self' | 'opponent' | 'both' }
   /** 条件に合うクリーチャーを出せない（召喚も、効果で出すこともできない。「相手は多色ではないクリーチャーを出せない」） */
   | { type: 'cannotEnter'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
   /** 相手のカードによる「攻撃できない」効果を無視して攻撃できる */
@@ -530,6 +535,8 @@ export interface ReplacementAbility {
   optional?: boolean;
   /** escape：手札に加えるシールドの数（既定1。足りなければ置換しない） */
   count?: number;
+  /** destroyOther：クリーチャー以外の自分のカード（タマシード・フィールドなど）も選べる（「自分の表向きのカード」） */
+  anyCard?: boolean;
   /** この条件を満たす時だけ置換する（マナ武装：「自分のマナゾーンに光のカードが5枚以上あれば」） */
   condition?: Condition;
 }
@@ -576,6 +583,16 @@ export interface Keywords {
   charger?: boolean;
   /** 唱えた後、墓地のかわりに手札に戻す（afterSummon：サイクロン。この呪文の直前にクリーチャーを召喚していれば） */
   spellToHand?: 'always' | 'afterSummon';
+  /** S-MAX進化クリーチャー（2体以上あれば1体を残して手札に戻す） */
+  sMax?: boolean;
+  /** 自分がゲームに負ける時、かわりに自分の表向きのカードをこの数だけ破壊してもよい（鬼S-MAX進化） */
+  avertLoss?: number;
+  /** ブレイクしたシールドを手札に加えるかわりに置く場所（墓地は shieldBurn） */
+  shieldBreakTo?: 'deckBottom';
+  /** shieldBreakTo の後、各プレイヤーはその数だけカードを引く */
+  shieldBreakEachDraws?: boolean;
+  /** 唱えた後、墓地のかわりに自分の超次元ゾーンに置く */
+  spellToHyperspatial?: boolean;
   /** 水晶チャージャー：唱えた後、墓地のかわりに裏向きでマナゾーンに置く */
   crystalCharger?: boolean;
   /** 相手に選ばれない */
@@ -652,7 +669,7 @@ export interface TwinSide {
   cost: number;
   civilizations: Civilization[];
   text: string;
-  keywords?: Pick<Keywords, 'shieldTrigger' | 'charger' | 'crystalCharger' | 'manaTapped' | 'spellToHand'>;
+  keywords?: Pick<Keywords, 'shieldTrigger' | 'charger' | 'crystalCharger' | 'manaTapped' | 'spellToHand' | 'spellToHyperspatial'>;
   abilities?: TriggeredAbility[];
 }
 
@@ -728,7 +745,7 @@ export interface HandTrigger {
    * opponentAttackOrBlock: 相手のクリーチャーが攻撃またはブロックした時（ニンジャ・ストライク）
    * anyAttack: クリーチャーが攻撃する時（鬼エンド）／ownAttack: 自分のクリーチャー（filter に合うもの）が攻撃する時（アタック・チャンスR）
    */
-  when: 'opponentTurnEnd' | 'ownTurnEnd' | 'anyTurnEnd' | 'ownDestroyed' | 'opponentAttackOrBlock' | 'anyAttack' | 'ownAttack';
+  when: 'opponentTurnEnd' | 'ownTurnEnd' | 'anyTurnEnd' | 'ownDestroyed' | 'opponentAttackOrBlock' | 'anyAttack' | 'ownAttack' | 'attackedPlayer';
   condition?: Condition;
   filter?: CardFilter;
   /** 手札のほかに使えるゾーン（アタック・チャンスR は墓地からも） */
@@ -739,6 +756,10 @@ export interface HandTrigger {
   oncePerAttack?: boolean;
   /** 唱えた呪文を墓地のかわりに置く場所 */
   spellAfter?: 'deckBottom';
+  /** 1回の攻撃につき、この名前の能力は1人1回だけ（「その攻撃中にまだ「逆転撃」を使っていなければ」） */
+  onceKey?: string;
+  /** 使ったら、次の自分のターンのはじめにこの数のマナを支払う。支払えなければ負ける（逆転撃） */
+  debt?: number;
 }
 
 /**
