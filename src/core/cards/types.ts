@@ -151,7 +151,9 @@ export type EffectDef =
   | { type: 'addManaFromDeck'; count: number }
   | { type: 'addShieldFromDeck'; count: number }
   /** 山札の上から N 枚を指定ゾーンへ（墓地肥やし・マナ加速など） */
-  | { type: 'deckTopTo'; count: number; to: 'graveyard' | 'mana' | 'shield' | 'hand'; who?: 'self' | 'opponent' }
+  | { type: 'deckTopTo'; count: number; to: 'graveyard' | 'mana' | 'shield' | 'hand'; who?: 'self' | 'opponent'; tapped?: boolean }
+  /** 「相手は〜してもよい」：相手が選んで、相手が行う（effects は相手から見た効果） */
+  | { type: 'opponentMay'; effects: EffectDef[] }
   | { type: 'destroy'; target: TargetSpec }
   /**
    * カードを動かす共通の効果：対象（どこの・どのカードを・何枚）を移動先へ。
@@ -485,6 +487,39 @@ export interface AttackSwap {
   battleCardOnly?: boolean;
 }
 
+/**
+ * 別のコストでの使い方（リサイクル・キリフダッシュ・ギャラクシールド・フシギバース・B・A・D・J・O・E など）。
+ * 新しい能力語は、この形に読み替える1行を読み取り側（ALT_PLAYS）に足す。エンジンは項目を見て処理する
+ */
+export interface AltPlay {
+  /** 画面に出す名前（「リサイクル」など） */
+  name: string;
+  /** 決まったコスト（マナの記号 [ww04] の数字）。なければ元のコストから reduce を引く */
+  cost?: number;
+  /** 支払いに必要な文明（マナの記号の文字）。なければカードの文明 */
+  civilizations?: Civilization[];
+  /** 元のコストから少なくする数（B・A・D、J・O・E） */
+  reduce?: number;
+  /** 使う時にカードがあるゾーン（省略時は手札） */
+  from?: 'graveyard';
+  /** 使える条件（「自分の墓地にカードが6枚以上あれば」） */
+  condition?: Condition;
+  /** 呪文：唱えた後、墓地のかわりに置く場所 */
+  spellAfter?: 'deckBottom';
+  /** ギャラクシールド：出す（唱える）かわりに、表向きでシールドゾーンに置く */
+  toShield?: boolean;
+  /** このターンの終わりに：破壊する／山札の下に置く／山札の下に置いてカードを1枚引く */
+  endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw';
+  /** 出したターンにも攻撃できる（アビスラッシュ） */
+  speed?: boolean;
+  /** 使った後に行う効果（「そうしたら、〜」） */
+  then?: EffectDef[];
+  /** フシギバース：自分のクリーチャーを1体タップしてマナゾーンに置き、そのコストだけ少なくする（min より少なくならない） */
+  fushigi?: { min: number };
+  /** 使えるタイミング（省略時は自分のメインステップ）。attackEndBreak: 自分のクリーチャーの攻撃の終わりに、その攻撃でシールドをブレイクしていれば（キリフダッシュ） */
+  timing?: 'attackEndBreak';
+}
+
 export interface CardDefinition {
   id: string;
   name: string;
@@ -535,6 +570,10 @@ export interface CardDefinition {
   summonFrom?: { zones: Array<'graveyard' | 'mana'>; condition?: Condition };
   /** 超魂X：これがクリーチャーの下にあれば、そのクリーチャーにも与える能力 */
   soul?: Pick<CardDefinition, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
+  /** 別のコストでの使い方 */
+  altPlays?: AltPlay[];
+  /** 自分のターンのはじめに、表向きで自分のシールドゾーンにあれば、コストを支払ったものとして召喚する（ギャラクシールド） */
+  galaxyReturn?: boolean;
   /** サバイバー：自分の他のサバイバーすべてにも与える能力（{S} の付いた能力） */
   survivor?: Pick<CardDefinition, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
   /** サイキック・クリーチャー：裏面（覚醒・覚醒リンクした後のクリーチャー）と覚醒リンクの条件 */

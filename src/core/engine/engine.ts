@@ -6,6 +6,7 @@
 import type { CardRegistry } from '../cards/registry';
 import { asMove, MOVE_DEST, type MoveEffect } from '../cards/effects';
 import {
+  type AltPlay,
   CIV_LABEL,
   isCreatureType,
   isNonCreaturePermanent,
@@ -28,6 +29,10 @@ import {
   evalCondition,
   countQuantity,
   entryBlocked,
+  altCost,
+  altPayment,
+  altUsable,
+  canPlayAlt,
   evolutionBases,
   isIdle,
   isUntargetable,
@@ -194,6 +199,7 @@ export class Ctx {
       case 'CHARGE_MANA':
         return this.chargeMana(a.player, a.iid);
       case 'PLAY_CARD':
+        if (a.alt !== undefined) return this.playAlt(a.player, a.iid, a.alt, a.manaIids, a.sacrifice ?? []);
         return this.playCard(a.player, a.iid, a.evolveOn, a.manaIids, a.side ?? 'main', a.sacrifice ?? []);
       case 'ATTACK':
         return this.attack(a.player, a.attacker, a.target);
@@ -243,6 +249,13 @@ export class Ctx {
         P.chargedThisTurn = false;
         this.log(`── ターン${s.turn}：${P.name} ──`, pl);
         this.emit({ type: 'TURN_STARTED', player: pl, turn: s.turn });
+        // ギャラクシールド：表向きで自分のシールドゾーンにあれば、コストを支払ったものとして召喚する
+        for (const sh of [...P.zones.shield]) {
+          const sd = def(s, this.reg, sh);
+          if (!s.cards[sh].faceUp || !sd.galaxyReturn || sd.type === 'spell' || sd.type === 'evolution') continue;
+          this.log(`${sd.name} をシールドゾーンから召喚する（コストを支払ったものとして）`, pl);
+          s.queue.push({ kind: 'enterBattle', player: pl, iid: sh, ...(isCreatureType(sd.type) ? { summoned: true } : {}) });
+        }
         break;
       }
       case 'draw': {
@@ -252,6 +265,14 @@ export class Ctx {
       }
       case 'end':
         this.emit({ type: 'TURN_ENDED', player: pl, turn: s.turn });
+        // 「このターンの終わりに破壊する／山札の下に置く」（B・A・D・J・O・E・アビスラッシュ）
+        for (const b of [...s.players[0].zones.battle, ...s.players[1].zones.battle]) {
+          const l = s.cards[b].leaveAtTurnEnd;
+          if (!l || l.turn !== s.turn) continue;
+          if (l.how === 'destroy') s.queue.push({ kind: 'leave', iid: b, to: 'graveyard', cause: 'destroy' });
+          else s.queue.push({ kind: 'leave', iid: b, to: 'deck', cause: 'effect', toTop: false });
+          if (l.how === 'deckBottomDraw') s.queue.push(...this.effectTasks(s.cards[b].owner, b, [{ type: 'draw', count: 1 }]));
+        }
         // 終了時の誘発を解決してからターンを渡す
         s.queue.push({ kind: 'turnSwitch' });
         return;
@@ -355,6 +376,59 @@ export class Ctx {
   }
 
   /** バトル中だけ加わるパワー（「バトル中、パワーを+N」・ハンティング） */
+  /** 別のコストでカードを使う（リサイクル・ギャラクシールド・フシギバース・B・A・D など） */
+  private playAlt(player: PlayerId, iid: string, idx: number, manaIids: string[] | undefined, sacrifice: string[]): void {
+    const s = this.s;
+    const inst = s.cards[iid];
+    const alt = inst && inst.owner === player ? def(s, this.reg, iid).altPlays?.[idx] : undefined;
+    if (!alt) throw new IllegalAction('その使い方はできません');
+    if (!canPlayAlt(s, this.reg, player, iid, idx, sacrifice)) throw new IllegalAction(`${alt.name}は今は使えません`);
+    if (s.phase === 'charge') {
+      s.phase = 'main';
+      this.emit({ type: 'PHASE_CHANGED', phase: 'main' });
+    }
+    this.payAlt(player, iid, alt, manaIids, sacrifice);
+    this.run();
+  }
+
+  /** 別のコストを支払い、カードを使う処理をキューに積む */
+  private payAlt(player: PlayerId, iid: string, alt: AltPlay, manaIids: string[] | undefined, sacrifice: string[], front = false): void {
+    const s = this.s;
+    const inst = s.cards[iid];
+    const d = def(s, this.reg, iid);
+    const pay = altPayment(s, this.reg, player, iid, alt, manaIids, sacrifice);
+    if (!pay) throw new IllegalAction(`マナが足りません（${alt.name}）`);
+    const cost = altCost(s, this.reg, player, iid, alt, sacrifice);
+    for (const m of pay) s.cards[m].tapped = true;
+    this.log(`${d.name} を${alt.name}で使う（${cost}マナ）`, player);
+    const tasks: Task[] = [];
+    // フシギバース：自分のクリーチャーを1体タップしてマナゾーンに置く
+    if (alt.fushigi && sacrifice[0]) tasks.push({ kind: 'leave', iid: sacrifice[0], to: 'mana', cause: 'effect', tapped: true });
+    this.emit({ type: 'CARD_PLAYED', player, iid });
+    if (alt.toShield) {
+      // ギャラクシールド：表向きでシールドゾーンに置く
+      this.moveCard(iid, 'shield');
+      inst.faceUp = true;
+      this.log(`${d.name} を表向きでシールドゾーンに置いた`, player);
+    } else if (d.type === 'spell') {
+      // 唱え終わったら墓地（または山札の下）へ置くため、いったん手札を経由する
+      if (inst.zone !== 'hand') this.moveCard(iid, 'hand');
+      tasks.push({ kind: 'castSpell', player, iid, side: 'main', ...(alt.spellAfter ? { after: alt.spellAfter } : {}) });
+    } else {
+      tasks.push({
+        kind: 'enterBattle',
+        player,
+        iid,
+        ...(isCreatureType(d.type) ? { summoned: true } : {}),
+        ...(alt.endOfTurn ? { endOfTurn: alt.endOfTurn } : {}),
+        ...(alt.speed ? { grant: { keywords: { speedAttacker: true }, by: player } } : {}),
+      });
+    }
+    if (alt.then) tasks.push(...this.effectTasks(player, iid, alt.then));
+    if (front) this.insertFront(...tasks);
+    else s.queue.push(...tasks);
+  }
+
   private battleBonus(iid: string): number {
     const kw = keywords(this.s, this.reg, iid);
     let bonus = kw.battlePower ?? 0;
@@ -568,6 +642,7 @@ export class Ctx {
           this.moveCard(task.iid, 'battle');
         }
         if (task.tapped) inst.tapped = true;
+        if (task.endOfTurn) inst.leaveAtTurnEnd = { turn: s.turn, how: task.endOfTurn };
         // 出したクリーチャーに能力を与える
         if (task.grant) {
           if (task.grant.untilNextTurn) inst.keywordsUntil = { keywords: { ...(inst.keywordsUntil?.keywords ?? {}), ...task.grant.keywords }, player: task.grant.by };
@@ -624,7 +699,23 @@ export class Ctx {
       case 'attackSwap':
         return this.execAttackSwap(task.player);
 
+      case 'kirifudash': {
+        const usable = (iid: string) => (def(s, this.reg, iid).altPlays ?? []).findIndex((a, i) => a.timing === 'attackEndBreak' && altUsable(s, this.reg, task.player, iid, i));
+        const cands = s.players[task.player].zones.hand.filter((iid) => usable(iid) >= 0);
+        if (!cands.length) return false;
+        const r = this.takeResponse();
+        if (!r) {
+          s.pending = { kind: 'selectCards', player: task.player, prompt: 'キリフダッシュ：コストを支払って召喚するクリーチャーを1体選べます', candidates: cands, min: 0, max: 1, reveal: true };
+          return true;
+        }
+        const pick = r.selected?.[0];
+        if (!pick || !cands.includes(pick)) return false;
+        this.payAlt(task.player, pick, def(s, this.reg, pick).altPlays![usable(pick)], undefined, [], true);
+        return false;
+      }
+
       case 'attackEnd':
+        if (task.broke) this.insertFront({ kind: 'kirifudash', player: s.cards[task.attacker]?.owner ?? s.activePlayer });
         // 「このクリーチャーの攻撃の終わりに」
         if (s.cards[task.attacker]?.zone === 'battle') {
           this.triggerFrom(task.attacker, 'onAttackEnd');
@@ -790,6 +881,8 @@ export class Ctx {
           }
         }
         this.log(`シールドを${chosen.length}枚ブレイク（残り${shields.length}枚）${burn ? '：墓地に置いた' : ''}`, task.breaker);
+        // キリフダッシュ：この攻撃でシールドをブレイクしたことを、攻撃の終わりの処理に伝える
+        if (task.byAttack && chosen.length) for (const t of s.queue) if (t.kind === 'attackEnd') t.broke = true;
         this.insertFront(...triggers);
         return false;
       }
@@ -1162,6 +1255,7 @@ export class Ctx {
           const top = this.topOfDeck(who);
           if (!top) break;
           this.moveCard(top, e.to);
+          if (e.tapped && e.to === 'mana') s.cards[top].tapped = true;
           const shown = e.to === 'shield' || e.to === 'hand' ? '1枚' : this.name(top);
           this.log(`${s.players[who].name} の山札の上から${shown}を${ZONE_LABEL[e.to]}へ`, controller);
         }
@@ -1234,6 +1328,10 @@ export class Ctx {
         s.lastChosen = picked;
         return false;
       }
+      case 'opponentMay':
+        // 「相手は〜してもよい」：相手に聞いて、相手が行う
+        this.insertFront({ kind: 'confirmOptional', controller: opp, source, effects: e.effects });
+        return false;
       case 'ifChosen': {
         const count = e.n ?? (s.lastChosen ?? []).length;
         if (count > 0) this.insertFront(...this.effectTasks(controller, source, e.then));
@@ -2134,6 +2232,7 @@ export class Ctx {
     delete inst.hyper;
     delete inst.exLifeShield;
     delete inst.exLifeShields;
+    delete inst.leaveAtTurnEnd;
     inst.faceUp = to !== 'shield' && to !== 'deck' && to !== 'seal';
     if (to === 'battle') inst.enteredTurn = s.turn;
     // 多色カードはタップしてマナゾーンに置かれる

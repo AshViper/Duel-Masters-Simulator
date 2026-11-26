@@ -38,6 +38,8 @@ export interface CardInstance {
   evolvedOnNonEvolution?: boolean;
   /** Dスイッチを使った（D2フィールドを上下逆さまにした） */
   dSwitched?: boolean;
+  /** このターン（turn）の終わりにバトルゾーンを離れる（B・A・D・J・O・E・アビスラッシュ） */
+  leaveAtTurnEnd?: { turn: number; how: 'destroy' | 'deckBottom' | 'deckBottomDraw' };
   /** 覚醒リンクでこのクリーチャーとリンクしているサイキック・セル（バトルゾーンの一覧には入らない） */
   links?: string[];
 }
@@ -140,7 +142,7 @@ export type Task =
   /** after: 唱えた後、墓地のかわりに置く場所 */
   | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin'; after?: 'deckBottom' }
   /** summoned: 召喚で出る（効果で「出す」のではない） */
-  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
+  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
   /** 呪文を解決し終えたら墓地へ */
   | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin'; after?: 'deckBottom' }
   | { kind: 'hyperize'; player: PlayerId; iid: string }
@@ -149,9 +151,11 @@ export type Task =
   /** コマンドが出た時、その持ち主は同じ文明を持つ自身のカードから封印を1つ墓地に置く */
   | { kind: 'commandUnseal'; player: PlayerId; command: string }
   /** 攻撃の終わり */
-  | { kind: 'attackEnd'; attacker: string }
+  | { kind: 'attackEnd'; attacker: string; broke?: boolean }
   /** 侵略・革命チェンジを使うか聞く */
   | { kind: 'attackSwap'; player: PlayerId }
+  /** キリフダッシュを使うか聞く（攻撃の終わり、その攻撃でシールドをブレイクしていた時） */
+  | { kind: 'kirifudash'; player: PlayerId }
   /** バトルゾーンから離れる（置換効果をここで適用） */
   /** confirmed: 使うと答えた任意の置換効果（続けて対象を選ぶ時に、もう一度聞かない） */
   | { kind: 'leave'; tapped?: boolean; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[]; confirmed?: string }
@@ -236,7 +240,8 @@ export type Action =
   | { type: 'END_TURN'; player: PlayerId }
   | { type: 'CHARGE_MANA'; player: PlayerId; iid: string }
   /** sacrifice：ササゲールで破壊する／ハイパーエナジーでタップする自分のクリーチャー（コストを少なくする） */
-  | { type: 'PLAY_CARD'; player: PlayerId; iid: string; evolveOn?: string; manaIids?: string[]; side?: 'main' | 'twin'; sacrifice?: string[] }
+  /** alt: 別のコストでの使い方（カード定義の altPlays の番号）。フシギバースは sacrifice[0] がマナゾーンに置くクリーチャー */
+  | { type: 'PLAY_CARD'; player: PlayerId; iid: string; evolveOn?: string; manaIids?: string[]; side?: 'main' | 'twin'; sacrifice?: string[]; alt?: number }
   | { type: 'ATTACK'; player: PlayerId; attacker: string; target: AttackTarget }
   | { type: 'RESPOND'; player: PlayerId; selected?: string[]; accept?: boolean }
   /** 手動処理：任意のカードを任意のゾーンへ移動 */

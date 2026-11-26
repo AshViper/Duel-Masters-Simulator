@@ -1,5 +1,5 @@
 import type { CardRegistry } from '../cards/registry';
-import { attackTargets, canPlay, def, evolutionBases, isIdle, minimalSacrifice } from './queries';
+import { attackTargets, canPlay, canPlayAlt, def, evolutionBases, fushigiCandidates, isIdle, minimalSacrifice } from './queries';
 import type { Action, GameState, PlayerId } from './types';
 
 /**
@@ -23,6 +23,15 @@ export function getLegalActions(state: GameState, reg: CardRegistry, player: Pla
       if (def(state, reg, iid).type === 'evolution') {
         for (const b of evolutionBases(state, reg, player, iid)) if (!sac.includes(b)) out.push({ type: 'PLAY_CARD', player, iid, evolveOn: b, ...extra });
       } else out.push({ type: 'PLAY_CARD', player, iid, ...extra });
+    }
+    // 別のコストでの使い方（リサイクル・ギャラクシールド・フシギバースなど）
+    for (const iid of [...P.zones.hand, ...P.zones.graveyard]) {
+      (def(state, reg, iid).altPlays ?? []).forEach((alt, idx) => {
+        if (alt.fushigi) {
+          const c = fushigiCandidates(state, reg, player, iid, idx);
+          if (c.length) out.push({ type: 'PLAY_CARD', player, iid, alt: idx, sacrifice: [c[0]] });
+        } else if (canPlayAlt(state, reg, player, iid, idx)) out.push({ type: 'PLAY_CARD', player, iid, alt: idx });
+      });
     }
     // ツインパクトの呪文側
     for (const iid of P.zones.hand) {

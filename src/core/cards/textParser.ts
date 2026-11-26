@@ -3,6 +3,7 @@
 // （一部だけ自動処理すると、カードの処理が間違ったまま進んでしまうため）。
 // 誘発のタイミングだけ分かる能力は、その時にログで手動処理を促す（manual 効果）。
 import type {
+  AltPlay,
   Applies,
   AttackSwap,
   CardFilter,
@@ -48,6 +49,10 @@ export interface ParsedAbilities {
   soul?: Pick<ParsedAbilities, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
   /** サバイバー：自分の他のサバイバーにも与える能力（{S} の付いた能力） */
   survivor?: Pick<ParsedAbilities, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
+  /** 別のコストでの使い方（リサイクル・キリフダッシュ・ギャラクシールドなど） */
+  altPlays?: AltPlay[];
+  /** 自分のターンのはじめに、表向きで自分のシールドゾーンにあれば召喚する */
+  galaxyReturn?: boolean;
   /** 覚醒リンクの条件 */
   awakenLink?: { names: string[]; timing: 'turnStart' | 'always' };
   /** 自動処理できなかった能力の行 */
@@ -674,7 +679,14 @@ function parseSentence(s: string): EffectDef[] | null {
     const rest = parseSentence(m[2]);
     return rest && [move({ owner: 'self', zone: 'hand', count: n(m[1]) }, 'graveyard'), ...rest];
   }
-  if ((m = s.match(/^自分の山札の上から(\d+)枚(?:目)?(?:まで)?を?、?(?:タップして)?(?:自分の)?マナゾーンに置く$/))) return [{ type: 'deckTopTo', count: n(m[1]), to: 'mana' }];
+  if ((m = s.match(/^自分の山札の上から(\d+)枚(?:目)?(?:まで)?を?、?(タップして)?(?:自分の)?マナゾーンに(タップして)?置く$/)))
+    return [{ type: 'deckTopTo', count: n(m[1]), to: 'mana', ...(m[2] || m[3] ? { tapped: true } : {}) }];
+  // 「相手は自身の山札の上から1枚をシールド化してもよい」「相手はカードを1枚引いてもよい」：相手が選んで行う
+  if ((m = s.match(/^相手は、?(.+(?:て|で)もよい)$/))) {
+    const so = stripOptional(m[1].replace(/自身の/g, '自分の'));
+    const inner = so.optional ? parseSentence(so.text) : null;
+    return inner && [{ type: 'opponentMay', effects: inner }];
+  }
   if ((m = s.match(/^(相手は自身|自分)の手札をすべて捨てる$/)))
     return [move({ owner: m[1] === '自分' ? 'self' : 'opponent', zone: 'hand', count: 'all' }, 'graveyard')];
   if ((m = s.match(/^(?:このターン、)?このクリーチャーに(「.+」を与える)$/))) {
@@ -951,6 +963,12 @@ function parseBody(body: string, options: string[]): Group[] | null {
       const kw = parseGrant(give[2]);
       if (!kw) return null;
       lastE.grant = { keywords: kw, ...(give[1] !== 'このターン' ? { untilNextTurn: true } : {}) };
+      continue;
+    }
+    // 「相手は〜してもよい」：選ぶのは相手（自分の任意効果ではない）
+    const oppMay = /^相手は、?.+(?:て|で)もよい$/.test(s) ? parseSentence(s) : null;
+    if (oppMay) {
+      pushGroup(groups, false, oppMay, chain);
       continue;
     }
     const { text, optional } = stripOptional(s);
@@ -1536,6 +1554,17 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   const t = normalizeText(line);
   const opts = options.map(normalizeText);
   if (kind === 'other') return false;
+  // 別のコストでの使い方（リサイクル・キリフダッシュ・ギャラクシールド・フシギバース・B・A・D など）
+  const alt = parseAltPlay(t, line, kind);
+  if (alt) {
+    (out.altPlays ??= []).push(alt);
+    return true;
+  }
+  // ギャラクシールドで置いたカード：「自分のターンのはじめに、このクリーチャーが表向きで自分のシールドゾーンにあれば、コストを支払ったものとして召喚する」
+  if (/^自分のターンのはじめに、この(?:クリーチャー|カード)が表向きで自分のシールドゾーンにあれば、コストを支払ったものとして(?:召喚|実行)する。?$/.test(t) && kind === 'creature') {
+    out.galaxyReturn = true;
+    return true;
+  }
   // 「バトルゾーンに自分のフィールドがあれば、このクリーチャーを自分の墓地から召喚してもよい」
   const from = t.match(/^(?:(.+)、)?このクリーチャーを(?:自分の)?(墓地|マナゾーン)から召喚してもよい。?$/);
   if (from && kind === 'creature') {
@@ -1742,6 +1771,64 @@ function selfKeywordStatic(t: string): StaticAbility[] | null {
   const kw: Keywords = {};
   if (!applyKeywordLine(t, kw)) return null;
   return [{ type: 'grantKeyword', keywords: kw, appliesTo: { owner: 'self', onlySelf: true } }];
+}
+
+const MARK_CIV: Record<string, Civilization> = { l: 'light', w: 'water', d: 'darkness', f: 'fire', n: 'nature' };
+/** マナの記号 [ww04]：文字が必要な文明、数字がコスト（c は文明を問わない） */
+function parseMark(letters: string, digits: string): { cost: number; civilizations: Civilization[] } {
+  return { cost: n(digits), civilizations: [...new Set([...letters].map((c) => MARK_CIV[c]).filter(Boolean))] };
+}
+
+/**
+ * 別のコストで使う能力語の表：言い方 → 使い方（AltPlay）。
+ * 新しい能力語はここに1行足す（エンジンは AltPlay の項目を見て処理する）。m[1]・m[2] はマナの記号、または数字
+ */
+const ALT_PLAYS: { re: RegExp; kinds: ('creature' | 'spell')[]; build: (m: RegExpMatchArray, raw: string) => AltPlay }[] = [
+  { re: /^リサイクル\[([a-z]+)(\d+)\]$/, kinds: ['spell'], build: (m) => ({ name: 'リサイクル', ...parseMark(m[1], m[2]), from: 'graveyard', spellAfter: 'deckBottom' }) },
+  { re: /^ギャラクシールド\[([a-z]+)(\d+)\]$/, kinds: ['creature', 'spell'], build: (m) => ({ name: 'ギャラクシールド', ...parseMark(m[1], m[2]), toShield: true }) },
+  { re: /^キリフダッシュ\[([a-z]+)(\d+)\]$/, kinds: ['creature'], build: (m) => ({ name: 'キリフダッシュ', ...parseMark(m[1], m[2]), timing: 'attackEndBreak' }) },
+  {
+    re: /^フシギバース\[([a-z]+)(\d+)\]$/,
+    kinds: ['creature'],
+    build: (m, raw) => {
+      // 「ただし、コストは[dn02]より少なくならない」
+      const min = raw.match(/コストは\[[a-z]+(\d+)\]より少なくならない/);
+      return { name: 'フシギバース', ...parseMark(m[1], m[2]), from: 'graveyard', fushigi: { min: min ? n(min[1]) : 1 } };
+    },
+  },
+  { re: /^B・A・D(\d+)$/, kinds: ['creature'], build: (m) => ({ name: 'B・A・D', reduce: n(m[1]), endOfTurn: 'destroy' }) },
+  { re: /^J・O・E(\d+)$/, kinds: ['creature'], build: (m) => ({ name: 'J・O・E', reduce: n(m[1]), endOfTurn: 'deckBottomDraw' }) },
+  {
+    re: /^アビスラッシュ[:：]このクリーチャーを自分の墓地から召喚してもよい。そうしたら、このターン、このクリーチャーはプレイヤーを攻撃でき、ターンの終わりに山札の下に置かれる$/,
+    kinds: ['creature'],
+    build: () => ({ name: 'アビスラッシュ', from: 'graveyard', speed: true, endOfTurn: 'deckBottom' }),
+  },
+];
+
+/** 別のコストで使う能力の行を読む。読めなければ null */
+function parseAltPlay(t: string, rawLine: string, kind: 'creature' | 'spell'): AltPlay | null {
+  const body = t.replace(/。$/, '');
+  const raw = rawLine.normalize('NFKC').replace(/\s+/g, '');
+  for (const r of ALT_PLAYS) {
+    const m = body.match(r.re);
+    if (m && r.kinds.includes(kind)) return r.build(m, raw);
+  }
+  // 「自分の墓地にカードが6枚以上あれば、この呪文を[wdf04]支払って唱えてもよい」「この呪文を[ll04]支払って唱えてもよい。そうしたら、〜」
+  const m = body.match(/^(?:(.+)、)?この呪文を\[([a-z]+)(\d+)\]支払って唱えてもよい(?:。そうしたら、(.+))?$/);
+  if (!m || kind !== 'spell') return null;
+  const alt: AltPlay = { name: `コスト${n(m[3])}で唱える`, ...parseMark(m[2], m[3]) };
+  if (m[1]) {
+    const c = splitCondition(`${m[1]}、x`);
+    if (!c.condition || c.body !== 'x') return null;
+    alt.condition = c.condition;
+  }
+  if (m[4]) {
+    refCtx.event = refCtx.chosen = false;
+    const groups = parseBody(m[4], []);
+    if (!groups || groups.some((g) => g.optional)) return null;
+    alt.then = groups.flatMap((g) => g.effects);
+  }
+  return alt;
 }
 
 /** 補足説明がない時に使う、S級侵略の種類ごとの使えるゾーン */

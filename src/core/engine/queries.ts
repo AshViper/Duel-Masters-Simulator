@@ -6,6 +6,7 @@ import {
   isNonCreaturePermanent,
   manaCivilizations,
   playFace,
+  type AltPlay,
   type Applies,
   type CardDefinition,
   type CardFilter,
@@ -658,9 +659,14 @@ export function canBeEvolutionSource(state: GameState, reg: CardRegistry, iid: s
 export function choosePayment(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, preferred?: string[], side: 'main' | 'twin' = 'main', sacrifice: string[] = []): string[] | null {
   const face = playFace(def(state, reg, iid), side);
   const cost = effectiveCost(state, reg, player, iid, side, sacrifice);
+  return payMana(state, reg, player, cost, face.civilizations, preferred);
+}
+
+/** コストと必要な文明から、支払うマナを決める（払えなければ null） */
+export function payMana(state: GameState, reg: CardRegistry, player: PlayerId, cost: number, needCivs: Civilization[], preferred?: string[]): string[] | null {
   // コスト0（G・ゼロなど）はマナを支払わない
   if (cost === 0) return preferred && preferred.length ? null : [];
-  const civs: Civilization[] = face.civilizations.filter((cv) => cv !== 'zero');
+  const civs: Civilization[] = needCivs.filter((cv) => cv !== 'zero');
   const untapped = state.players[player].zones.mana.filter((m) => !state.cards[m].tapped);
   // 裏向きのマナ（水晶チャージャー）は文明を持たない
   const mciv = (m: string) => (state.cards[m].faceUp === false ? [] : manaCivilizations(def(state, reg, m)));
@@ -693,6 +699,49 @@ function assignCivs(civs: Civilization[], mana: string[], mciv: (m: string) => C
     return false;
   };
   return dfs(0) ? used : null;
+}
+
+// ───────────────────────── 別のコストでの使い方 ─────────────────────────
+
+/** 別のコストで使う時に支払うコスト。sacrifice[0] はフシギバースでマナゾーンに置くクリーチャー */
+export function altCost(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, alt: AltPlay, sacrifice: string[] = []): number {
+  if (alt.cost === undefined) return Math.max(1, effectiveCost(state, reg, player, iid, 'main') - (alt.reduce ?? 0));
+  if (alt.fushigi) {
+    const sac = sacrifice[0];
+    return Math.max(alt.fushigi.min, alt.cost - (sac && state.cards[sac] ? def(state, reg, sac).cost : 0));
+  }
+  return alt.cost;
+}
+
+export function altPayment(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, alt: AltPlay, preferred?: string[], sacrifice: string[] = []): string[] | null {
+  return payMana(state, reg, player, altCost(state, reg, player, iid, alt, sacrifice), alt.civilizations ?? def(state, reg, iid).civilizations, preferred);
+}
+
+/** その使い方の条件（ゾーン・条件・使用制限・支払い）を満たしているか。タイミングは見ない */
+export function altUsable(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, idx: number, sacrifice: string[] = []): boolean {
+  const inst = state.cards[iid];
+  if (!inst || inst.owner !== player) return false;
+  const d = def(state, reg, iid);
+  const alt = d.altPlays?.[idx];
+  if (!alt || inst.zone !== (alt.from ?? 'hand') || d.type === 'evolution') return false;
+  if (alt.condition && !evalCondition(state, reg, player, alt.condition, true, iid)) return false;
+  // ギャラクシールドは出す（唱える）わけではないので、召喚・呪文の制限を受けない
+  if (!alt.toShield && playRestriction(state, reg, player, iid, 'main')) return false;
+  if (alt.fushigi && !(sacrifice[0] && battleCards(state, reg, player).includes(sacrifice[0]))) return false;
+  return altPayment(state, reg, player, iid, alt, undefined, sacrifice) !== null;
+}
+
+/** 自分のメインステップに、その使い方でカードを使えるか */
+export function canPlayAlt(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, idx: number, sacrifice: string[] = []): boolean {
+  if (!isIdle(state) || state.activePlayer !== player) return false;
+  if (state.phase !== 'charge' && state.phase !== 'main') return false;
+  const alt = state.cards[iid] && def(state, reg, iid).altPlays?.[idx];
+  return !!alt && !alt.timing && altUsable(state, reg, player, iid, idx, sacrifice);
+}
+
+/** フシギバースでマナゾーンに置けるクリーチャー（そのクリーチャーを選べば支払えるもの） */
+export function fushigiCandidates(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, idx: number): string[] {
+  return battleCards(state, reg, player).filter((b) => canPlayAlt(state, reg, player, iid, idx, [b]));
 }
 
 export function canPlay(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): boolean {

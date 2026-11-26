@@ -2,7 +2,8 @@
 // 「〜1体につき」、行き先がいくつもある山札めくり、鬼タイム、「そうしたら」の続き
 import { describe, expect, it } from 'vitest';
 import { Ctx, applyAction } from '../engine/engine';
-import { keywords, power } from '../engine/queries';
+import { altCost, canPlayAlt, fushigiCandidates, keywords, power } from '../engine/queries';
+import { getLegalActions } from '../engine/legal';
 import { createGame } from '../engine/setup';
 import type { Action, GameState, PlayerId } from '../engine/types';
 import { SAMPLE_CARDS } from '../testing/fixtureCards';
@@ -47,6 +48,14 @@ const C = {
   exile: mk('m-16', ['自分の他の、名前に《拳銃》とあるエグザイル・クリーチャーをバトルゾーンに出すことはできない。'], { race: 'エグザイル・クリーチャー' }),
   noMulti: mk('m-17', ['このクリーチャーが出た時、このターン、相手はコスト７以下のクリーチャーを出せない。']),
   powerGj: mk('m-18', ['このクリーチャーが出た時、相手とパワー・ガチンコ・ジャッジする。自分が負けたら、このクリーチャーを破壊する。']),
+  recycle: spell('m-20', ['カードを２枚引く。', 'リサイクル [ff04]（この呪文を自分の墓地から「リサイクル」コストを支払って唱えてもよい。こうして唱えた後、墓地のかわりに山札の下に置く）']),
+  galaxy: mk('m-21', ['ギャラクシールド [ff02]（このカードを使うコストの代わりに、[ff02]を支払ってもよい。そうしたら、このカードを表向きにし、新しいシールドとしてシールドゾーンに置く）', '自分のターンのはじめに、このクリーチャーが表向きで自分のシールドゾーンにあれば、コストを支払ったものとして召喚する。'], { cost: '6' }),
+  kirifu: mk('m-22', ['キリフダッシュ [ff02]（自分のクリーチャーの攻撃の終わりに、そのクリーチャーがその攻撃中にシールドをブレイクしていれば、このクリーチャーを[ff02]支払って召喚してもよい）'], { cost: '5' }),
+  fushigi: mk('m-23', ['フシギバース [ff08]（自分のクリーチャーを１体タップしてマナゾーンに置き、[ff08]からそのクリーチャーのコストを引いた数のコストを支払って、このクリーチャーを自分の墓地から召喚してもよい。ただし、コストは[ff02]より少なくならない）'], { cost: '8' }),
+  bad: mk('m-24', ['B・A・D ２（このクリーチャーの召喚コストを２少なくしてもよい。そうしたら、このターンの終わりにこのクリーチャーを破壊する）'], { cost: '4' }),
+  joe: mk('m-25', ['Ｊ・Ｏ・Ｅ ２ (このクリーチャーを、コストを２少なくして召喚してもよい。こうして出したら、このターンの終わりに、それを自分の山札の下に置く。そうしたら、カードを１枚引く)'], { cost: '4' }),
+  cheap: spell('m-26', ['この呪文を[ff01]支払って唱えてもよい。そうしたら、相手はカードを１枚引いてもよい。', 'カードを２枚引く。']),
+  cost5: mk('m-27', [], { cost: '5' }),
   plus: mk('m-15', ['{STP} S・トリガー・プラス（このクリーチャーを自分のシールドゾーンから手札に加える時、コストを支払わずにすぐ召喚してもよい）', '{x+}このクリーチャーが出た時、相手のクリーチャーをすべてタップする。']),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
@@ -259,5 +268,113 @@ describe('エンジンで動く', () => {
     const hand2 = zone(s, 0, 'hand');
     s = act(s, { type: 'PLAY_CARD', player: 0, iid: small });
     expect(zone(s, 0, 'hand')).toBe(hand2 - 1);
+  });
+});
+
+describe('別のコストでの使い方', () => {
+  const alt = { type: 'PLAY_CARD' as const, player: 0 as PlayerId, alt: 0 };
+  const endTurn = (s: GameState) => act(s, { type: 'END_TURN', player: s.activePlayer });
+
+  it('読み取り：マナの記号からコストと文明を読む', () => {
+    expect(C.recycle.altPlays).toEqual([{ name: 'リサイクル', cost: 4, civilizations: ['fire'], from: 'graveyard', spellAfter: 'deckBottom' }]);
+    expect(C.fushigi.altPlays?.[0]).toMatchObject({ name: 'フシギバース', cost: 8, from: 'graveyard', fushigi: { min: 2 } });
+    expect(C.bad.altPlays).toEqual([{ name: 'B・A・D', reduce: 2, endOfTurn: 'destroy' }]);
+    expect(C.galaxy.galaxyReturn).toBe(true);
+  });
+
+  it('リサイクル：墓地からリサイクルのコストで唱え、唱えた後は山札の下に置く', () => {
+    let s = newGame();
+    const sp = put(s, 0, C.recycle.id, 'graveyard');
+    mana(s, 3);
+    expect(canPlayAlt(s, reg, 0, sp, 0)).toBe(false);
+    mana(s, 1);
+    expect(getLegalActions(s, reg, 0)).toContainEqual({ ...alt, iid: sp });
+    const hand = zone(s, 0, 'hand');
+    s = act(s, { ...alt, iid: sp });
+    expect(zone(s, 0, 'hand')).toBe(hand + 2);
+    expect(s.players[0].zones.deck[0]).toBe(sp);
+    expect(s.players[0].zones.mana.filter((m) => s.cards[m].tapped)).toHaveLength(4);
+  });
+
+  it('ギャラクシールド：表向きでシールドゾーンに置き、次の自分のターンのはじめに召喚する', () => {
+    let s = newGame();
+    const c = put(s, 0, C.galaxy.id, 'hand');
+    mana(s, 2);
+    s = act(s, { ...alt, iid: c });
+    expect(s.cards[c].zone).toBe('shield');
+    expect(s.cards[c].faceUp).toBe(true);
+    s = endTurn(s);
+    expect(s.cards[c].zone).toBe('shield');
+    s = endTurn(s);
+    expect(s.cards[c].zone).toBe('battle');
+  });
+
+  it('キリフダッシュ：攻撃でシールドをブレイクしたら、攻撃の終わりにコストを支払って召喚できる', () => {
+    let s = newGame();
+    const a = put(s, 0, C.vanilla.id, 'battle', true);
+    const k = put(s, 0, C.kirifu.id, 'hand');
+    mana(s, 2);
+    s = act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'player' } });
+    for (let i = 0; i < 6 && s.pending && !(s.pending.kind === 'selectCards' && s.pending.candidates.includes(k)); i++) {
+      s = act(s, s.pending.kind === 'selectCards' ? { type: 'RESPOND', player: s.pending.player, selected: s.pending.candidates.slice(0, s.pending.min) } : { type: 'RESPOND', player: s.pending.player, selected: [], accept: false });
+    }
+    expect(s.pending?.kind === 'selectCards' && s.pending.candidates).toEqual([k]);
+    s = act(s, { type: 'RESPOND', player: 0, selected: [k] });
+    expect(s.cards[k].zone).toBe('battle');
+    expect(s.players[0].zones.mana.filter((m) => s.cards[m].tapped)).toHaveLength(2);
+  });
+
+  it('フシギバース：自分のクリーチャーをマナゾーンに置き、そのコストだけ少なく支払って墓地から召喚する', () => {
+    let s = newGame();
+    const f = put(s, 0, C.fushigi.id, 'graveyard');
+    const five = put(s, 0, C.cost5.id, 'battle');
+    mana(s, 3);
+    expect(altCost(s, reg, 0, f, C.fushigi.altPlays![0], [five])).toBe(3);
+    expect(fushigiCandidates(s, reg, 0, f, 0)).toEqual([five]);
+    s = act(s, { ...alt, iid: f, sacrifice: [five] });
+    expect(s.cards[f].zone).toBe('battle');
+    expect(s.cards[five].zone).toBe('mana');
+    expect(s.cards[five].tapped).toBe(true);
+  });
+
+  it('B・A・D：コストを少なくして召喚し、ターンの終わりに破壊する（ふつうに召喚すれば残る）', () => {
+    let s = newGame();
+    const b = put(s, 0, C.bad.id, 'hand');
+    mana(s, 2);
+    expect(canPlayAlt(s, reg, 0, b, 0)).toBe(true);
+    s = act(s, { ...alt, iid: b });
+    expect(s.cards[b].zone).toBe('battle');
+    s = endTurn(s);
+    expect(s.cards[b].zone).toBe('graveyard');
+    let s2 = newGame();
+    const b2 = put(s2, 0, C.bad.id, 'hand');
+    mana(s2, 4);
+    s2 = act(s2, { type: 'PLAY_CARD', player: 0, iid: b2 });
+    s2 = endTurn(s2);
+    expect(s2.cards[b2].zone).toBe('battle');
+  });
+
+  it('J・O・E：ターンの終わりに山札の下に置いて、カードを1枚引く', () => {
+    let s = newGame();
+    const j = put(s, 0, C.joe.id, 'hand');
+    mana(s, 2);
+    s = act(s, { ...alt, iid: j });
+    const hand = zone(s, 0, 'hand');
+    s = endTurn(s);
+    expect(s.players[0].zones.deck[0]).toBe(j);
+    expect(zone(s, 0, 'hand')).toBe(hand + 1);
+  });
+
+  it('「この呪文を[ff01]支払って唱えてもよい。そうしたら、相手はカードを1枚引いてもよい」', () => {
+    let s = newGame();
+    const sp = put(s, 0, C.cheap.id, 'hand');
+    mana(s, 1);
+    const mine = zone(s, 0, 'hand');
+    const theirs = zone(s, 1, 'hand');
+    s = act(s, { ...alt, iid: sp });
+    expect(zone(s, 0, 'hand')).toBe(mine - 1 + 2);
+    expect(s.pending).toMatchObject({ kind: 'confirm', player: 1 });
+    s = act(s, { type: 'RESPOND', player: 1, accept: true });
+    expect(zone(s, 1, 'hand')).toBe(theirs + 1);
   });
 });

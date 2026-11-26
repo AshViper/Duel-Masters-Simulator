@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isNonCreaturePermanent, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
-import { attackTargets, canAttackWith, canPlay, choosePayment, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
+import { altCost, attackTargets, canAttackWith, canPlay, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
@@ -671,6 +671,25 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
   // 墓地・マナゾーンから召喚できるクリーチャー（「このクリーチャーを自分の墓地から召喚してもよい」）
   if (inst.zone !== 'hand' && d.summonFrom && (d.summonFrom.zones as string[]).includes(inst.zone) && canControl(owner)) {
     rule.push({ label: `${inst.zone === 'graveyard' ? '墓地' : 'マナゾーン'}から召喚する`, run: () => play(iid), disabled: !canPlay(g, registry, owner, iid), primary: true });
+  }
+  // 別のコストでの使い方（リサイクル・ギャラクシールド・フシギバース・B・A・D など）。キリフダッシュのように決まった時に聞かれるものは出さない
+  if ((inst.zone === 'hand' || inst.zone === 'graveyard') && canControl(owner)) {
+    (d.altPlays ?? []).forEach((alt, idx) => {
+      if (alt.timing || inst.zone !== (alt.from ?? 'hand')) return;
+      if (alt.fushigi) {
+        const cands = fushigiCandidates(g, registry, owner, iid, idx);
+        if (!cands.length) rule.push({ label: `${alt.name}で召喚する`, run: () => undefined, disabled: true });
+        for (const c of cands) {
+          rule.push({
+            label: `${alt.name}：${cardDef(g, registry, c).name} をマナゾーンに置いて召喚（コスト${altCost(g, registry, owner, iid, alt, [c])}）`,
+            run: () => act({ type: 'PLAY_CARD', player: owner, iid, alt: idx, sacrifice: [c] }),
+          });
+        }
+        return;
+      }
+      const label = alt.name.startsWith('コスト') ? alt.name : `${alt.name}で${alt.toShield ? 'シールドゾーンに置く' : '使う'}（コスト${altCost(g, registry, owner, iid, alt)}）`;
+      rule.push({ label, run: () => act({ type: 'PLAY_CARD', player: owner, iid, alt: idx }), disabled: !canPlayAlt(g, registry, owner, iid, idx) });
+    });
   }
   if (inst.zone === 'battle' && d.hyper && !inst.hyper) {
     rule.push({ label: 'ハイパー化する', run: () => act({ type: 'HYPERIZE', player: owner, iid }), disabled: !canControl(owner) || !hyperizeCandidates(g, registry, owner, iid) });

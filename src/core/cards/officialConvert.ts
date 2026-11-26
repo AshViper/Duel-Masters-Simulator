@@ -264,6 +264,8 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     summonFrom: main.summonFrom,
     soul: main.soul && hasAny(main.soul) ? compact(main.soul) : undefined,
     survivor: main.survivor && hasAny(main.survivor) ? compact(main.survivor) : undefined,
+    altPlays: main.altPlays?.length ? main.altPlays : undefined,
+    galaxyReturn: main.galaxyReturn,
     support,
   };
 }
