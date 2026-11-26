@@ -173,11 +173,15 @@
 /* ───── マナ ───── */
 .mana-row { container-type: inline-size; display: flex; align-items: center; min-height: calc(var(--c-zone) * 1.397 + 2px); padding: 0 4px; overflow: hidden; }
 .mana-row .card { --w: var(--c-zone); flex: none; animation: manaIn 0.35s var(--ease-out-expo); }
-.mana-row .card + .card { margin-left: clamp(calc(var(--c-zone) * -0.72), calc((100cqw - 8px - var(--n) * var(--c-zone)) / (var(--n) - 1)), 4px); }
+.mana-row .card + .card { margin-left: clamp(calc(var(--c-zone) * -0.72), calc((100cqw - 8px - (var(--n) + var(--nt, 0) * 0.2) * var(--c-zone)) / (var(--n) - 1)), 4px); }
 .mana-row .card:not(.tapped) { box-shadow: var(--shadow-card), 0 -2px 0 0 var(--green), 0 0 9px rgba(97, 208, 149, 0.28); }
+.mana-row .card { transition: transform 0.25s var(--ease-out-quint), filter 0.25s, margin 0.25s; }
 .mana-row .card:hover { z-index: 3; transform: translateY(-4px); }
-.mana-row .card.tapped { transform: none; filter: brightness(0.42) saturate(0.55); opacity: 1; }
-.mana-row .card.tapped:hover { transform: translateY(-4px); }
+/* 使ったマナ（タップ）は横向きにする。横向きで幅が増える分（1.397 × 0.78 ≒ 1.09 枚）を左右の余白で空ける */
+.mana-row .card.tapped { transform: rotate(90deg) scale(0.78); margin-right: calc(var(--c-zone) * 0.1); filter: brightness(0.62) saturate(0.7); opacity: 1; }
+.mana-row .card.tapped:first-child { margin-left: calc(var(--c-zone) * 0.1); }
+.mana-row .card + .card.tapped { margin-left: calc(clamp(calc(var(--c-zone) * -0.72), calc((100cqw - 8px - (var(--n) + var(--nt, 0) * 0.2) * var(--c-zone)) / (var(--n) - 1)), 4px) + var(--c-zone) * 0.1); }
+.mana-row .card.tapped:hover { transform: translateY(-4px) rotate(90deg) scale(0.78); }
 .mana-civs { display: inline-flex; gap: 3px; margin-left: 4px; }
 .mana-civs i { min-width: 17px; padding: 0 4px; border-radius: 9px; font-style: normal; font-size: 10px; font-weight: 800; text-align: center; color: #111; box-shadow: 0 0 6px rgba(0, 0, 0, 0.6); }
 
@@ -245,6 +249,10 @@
 .field-cards .card::after { content: ''; position: absolute; left: 10%; right: 10%; bottom: -5px; height: 2px; border-radius: 2px; background: var(--civ-solid, #667); opacity: 0.8; box-shadow: 0 0 8px var(--civ-solid, #667); }
 .field-cards .card.tapped { margin: 0 calc(var(--w) * 0.15); transform: rotate(90deg) scale(0.86); filter: brightness(0.72); opacity: 1; }
 .field-cards .card.tapped::after { display: none; }
+/* D2フィールド・禁断の鼓動などは横向きに置く（タップとは違い、暗くしない） */
+.field-cards .card.sideways { margin: 0 calc(var(--w) * 0.15); transform: rotate(90deg) scale(0.86); }
+.field-cards .card.sideways::after { display: none; }
+.field-cards .card.sideways.tapped { filter: brightness(0.72); }
 
 /* ───── 手札 ───── */
 .hand { padding: 0; border: none; background: none; box-shadow: none; backdrop-filter: none; }
@@ -324,6 +332,7 @@
 .battle-screen .card.hl-target { box-shadow: 0 0 0 3px var(--red), 0 0 18px rgba(255, 90, 78, 0.7); animation: targetBlink 1s ease-in-out infinite; }
 .battle-screen .card.hl-attacker { box-shadow: 0 0 0 3px #ffa040, 0 0 20px #ff8020; transform: translateY(-6px); }
 .battle-screen .card.tapped.hl-attacker { transform: rotate(90deg) scale(0.86); }
+.battle-screen .field-cards .card.sideways:hover, .battle-screen .field-cards .card.sideways.hl-target { transform: rotate(90deg) scale(0.86); }
 .battle-screen .card.dimmed { filter: grayscale(1) brightness(0.45); }
 .battle-screen .card.dimmed::before { content: ''; position: absolute; inset: 0; z-index: 2; border-radius: inherit; pointer-events: none; background: repeating-linear-gradient(135deg, rgba(155, 107, 214, 0.35) 0 4px, transparent 4px 10px); }
 .battle-screen .under-badge { z-index: 3; font-weight: 700; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6); }
@@ -363,6 +372,8 @@
 .battle-screen .card.drop-ok { box-shadow: 0 0 0 2px var(--drop-c), 0 0 14px var(--drop-c); }
 .battle-screen .card.drop-over { box-shadow: 0 0 0 3px var(--drop-c), 0 0 26px var(--drop-c); transform: scale(1.08); z-index: 6; }
 .battle-screen .card.tapped.drop-over { transform: rotate(90deg) scale(0.94); }
+.battle-screen .card.sideways.drop-over { transform: rotate(90deg) scale(0.94); }
+.battle-screen .mana-row .card.tapped.drop-over { transform: rotate(90deg) scale(0.86); }
 .battle-screen .card.drop-no { filter: brightness(0.55); }
 .plate.drop-ok { border-color: var(--drop-c); box-shadow: 0 0 14px var(--drop-c); }
 .plate.drop-over { filter: brightness(1.25); box-shadow: 0 0 26px var(--drop-c), inset 0 0 22px color-mix(in srgb, var(--drop-c) 30%, transparent); }
@@ -401,6 +412,9 @@
 .drag-layer.tone-none .attack-arrow { --tone: var(--red); opacity: 0.7; }
 
 /* ───── 右サイドパネル ───── */
+.battle-screen.panel-closed { --panel-w: 0px; }
+.battle-screen .panel-toggle { margin-left: auto; white-space: nowrap; }
+.battle-screen .panel-toggle.on { border-color: var(--cyan); }
 .side-panel {
   display: flex;
   flex-direction: column;

@@ -57,6 +57,13 @@ export function BattleScreen() {
   const [toast, setToast] = useState('');
   const [banner, setBanner] = useState<{ text: string; key: number } | null>(null);
   const [flash, setFlash] = useState<PlayerId | null>(null);
+  /** 右のパネル（拡大表示・ログ・操作ボタン）。盤面を広く使うため、既定では閉じておく */
+  const [panelOpen, setPanelOpen] = useState(() => localStorage.getItem('battle.panelOpen') === '1');
+  const togglePanel = () =>
+    setPanelOpen((v) => {
+      localStorage.setItem('battle.panelOpen', v ? '0' : '1');
+      return !v;
+    });
   const logRef = useRef<HTMLOListElement>(null);
   /** ドラッグ中のリスナーから最新の盤面で判定・実行するための入口（毎回の描画で差し替える） */
   const live = useRef<{ resolve: (iid: string, t: DropTarget) => DropResult | null; run: (r: DropResult) => void } | null>(null);
@@ -66,7 +73,7 @@ export function BattleScreen() {
   }, [game?.pending]);
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-  }, [game?.log.length]);
+  }, [game?.log.length, panelOpen]);
   // ターンが変わったら中央にバナーを出す
   const turnKey = game ? `${game.turn}:${game.activePlayer}` : '';
   useEffect(() => {
@@ -265,6 +272,7 @@ export function BattleScreen() {
   const renderCard = (iid: string, size: CardSize, opts: { hidden?: boolean } = {}) => {
     const inst = g.cards[iid];
     const d = def(iid);
+    const sideways = isSideways(iid);
     return (
       <CardView
         key={iid}
@@ -281,7 +289,7 @@ export function BattleScreen() {
         onHover={opts.hidden ? undefined : (on) => setHover(on ? iid : null)}
         onPointerDown={canControl(inst.owner) ? (e) => onCardPointerDown(iid, e) : undefined}
         dropId={dropKey({ kind: 'card', iid })}
-        className={(drag?.iid === iid ? 'drag-source' : '') + (drag && drag.iid !== iid ? dropState({ kind: 'card', iid }) : '') || undefined}
+        className={[sideways && 'sideways', drag?.iid === iid && 'drag-source', drag && drag.iid !== iid && dropState({ kind: 'card', iid }).trim()].filter(Boolean).join(' ') || undefined}
         badge={
           inst.seals?.length ? (
             <span className="under-badge seal-badge" title="封印されている間、両プレイヤーはこのカードを無視する">封印 ×{inst.seals.length}</span>
@@ -294,6 +302,13 @@ export function BattleScreen() {
       />
     );
   };
+
+  /** バトルゾーンで横向きに置くカード：D2フィールドなどのフィールドと、裏返る前の禁断の鼓動 */
+  function isSideways(iid: string): boolean {
+    const inst = g.cards[iid];
+    if (inst.zone !== 'battle') return false;
+    return def(iid).type === 'field' || (!!registry[inst.cardId]?.forbidden && !inst.flipped);
+  }
 
   const side = (p: PlayerId) => {
     const P = g.players[p];
@@ -353,7 +368,7 @@ export function BattleScreen() {
             ))}
           </span>
         </span>
-        <div className="mana-row" style={{ ['--n' as string]: Math.max(2, P.zones.mana.length) }}>{P.zones.mana.map((iid) => renderCard(iid, 'xs'))}</div>
+        <div className="mana-row" style={{ ['--n' as string]: Math.max(2, P.zones.mana.length), ['--nt' as string]: P.zones.mana.length - untapped }}>{P.zones.mana.map((iid) => renderCard(iid, 'xs'))}</div>
       </div>
     );
     const piles = (
@@ -380,7 +395,7 @@ export function BattleScreen() {
     );
     const field = (
       <div className={'zone field' + (top ? ' opp' : ' mine')} {...dropProps(p, 'battle')} data-testid={`battle-${p}`}>
-        <div className="field-cards" style={{ ['--n' as string]: Math.max(1, P.zones.battle.length), ['--nt' as string]: P.zones.battle.filter((iid) => g.cards[iid].tapped).length }}>
+        <div className="field-cards" style={{ ['--n' as string]: Math.max(1, P.zones.battle.length), ['--nt' as string]: P.zones.battle.filter((iid) => g.cards[iid].tapped || isSideways(iid)).length }}>
           {P.zones.battle.map((iid) => renderCard(iid, 'fd'))}
           {P.zones.battle.length === 0 && <span className="zone-empty">バトルゾーン</span>}
         </div>
@@ -439,7 +454,7 @@ export function BattleScreen() {
             : '';
 
   return (
-    <div className={'battle-screen' + (drag ? ' is-dragging' : '')} onContextMenu={(e) => e.preventDefault()}>
+    <div className={'battle-screen' + (drag ? ' is-dragging' : '') + (panelOpen ? '' : ' panel-closed')} onContextMenu={(e) => e.preventDefault()}>
       <div className="board">
         {side(opp)}
         <div className="center-bar">
@@ -455,10 +470,14 @@ export function BattleScreen() {
           <div className="center-hint">{hint}</div>
           <button className="ghost-btn" disabled={!canNext} onClick={() => act({ type: 'NEXT_PHASE', player: active })} data-testid="next-phase">次へ ›</button>
           <button className="end-turn-btn" disabled={!canNext} onClick={() => { setAttacker(null); act({ type: 'END_TURN', player: active }); }} data-testid="end-turn">ターン終了</button>
+          <button className={'ghost-btn panel-toggle' + (panelOpen ? ' on' : '')} onClick={togglePanel} title="カードの拡大表示・ログ・操作ボタンを出し入れする" data-testid="panel-toggle">
+            {panelOpen ? 'パネルを閉じる ›' : '‹ ログ・メニュー'}
+          </button>
         </div>
         {side(me)}
       </div>
 
+      {panelOpen && (
       <aside className="side-panel">
         <HoverPreview g={g} canControl={canControl} />
         <ol className="log" ref={logRef} data-testid="log">
@@ -487,6 +506,7 @@ export function BattleScreen() {
         </div>
         <p className="muted tiny-help">ドラッグ：チャージ・召喚・攻撃・移動　右クリック：カードの詳細と手動操作　クリック：判断の選択</p>
       </aside>
+      )}
       <ActionFx g={g} me={me} solo={mode === 'solo'} />
       {pending && (
         <DecisionPanel
