@@ -122,10 +122,16 @@ export type Pending =
       max: number;
       /** 対象にとって不利な効果か（CPU の選び方に使う） */
       harmful?: boolean;
+      /** 効果の発生源（判断パネルに表示する） */
+      source?: string;
+      /** 選ぶ本人に中身を見せる非公開のカード（山札・相手が選ぶ自分のシールドなど） */
+      reveal?: boolean;
     }
   | { kind: 'confirm'; player: PlayerId; prompt: string; source?: string }
   | { kind: 'chooseMode'; player: PlayerId; prompt: string; options: string[]; source?: string }
-  | { kind: 'block'; player: PlayerId; attacker: string; blockers: string[] };
+  | { kind: 'block'; player: PlayerId; attacker: string; blockers: string[] }
+  /** 自動処理できない能力。プレイヤーが手動で処理して「処理完了」を押すまで止まる */
+  | { kind: 'manualStep'; player: PlayerId; prompt: string; text: string; source?: string };
 
 export interface LogEntry {
   turn: number;

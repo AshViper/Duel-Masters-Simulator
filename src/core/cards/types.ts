@@ -93,7 +93,8 @@ export type Condition =
 
 /** 構造化された効果定義 */
 export type EffectDef =
-  | { type: 'draw'; count: number }
+  /** upTo: 0〜count 枚の範囲で引く枚数を選ぶ（「N枚まで引く」） */
+  | { type: 'draw'; count: number; upTo?: boolean }
   | { type: 'addManaFromDeck'; count: number }
   | { type: 'addShieldFromDeck'; count: number }
   /** 山札の上から N 枚を指定ゾーンへ（墓地肥やし・マナ加速など） */
@@ -120,7 +121,26 @@ export type EffectDef =
       pickFilter?: CardFilter;
       pickTo: 'hand' | 'battle' | 'mana' | 'shield';
       restTo: 'deckBottom' | 'graveyard' | 'mana' | 'shuffle';
+      /** 条件に合うものをすべて選ぶ（選択なし） */
+      pickAll?: boolean;
+      /** 選べるなら必ず pickCount 枚選ぶ（「〜てもよい」でない） */
+      mustPick?: boolean;
+      /** opponent：相手に選ばせる */
+      chooser?: 'opponent';
     }
+  /** 手札のカードを山札の上に置く（選んだ順に上へ） */
+  | { type: 'toDeckTop'; target: TargetSpec }
+  | { type: 'shuffleDeck' }
+  /** 自分の墓地のカードをすべて山札に加えてシャッフルする */
+  | { type: 'graveyardToDeck' }
+  /** 山札の上から1枚目を公開し、クリーチャーなら出してもよい／呪文なら唱えてもよい／それ以外は otherwise へ */
+  | { type: 'revealTopCard'; ifCreature?: 'battle'; ifSpell?: 'cast'; otherwise?: 'mana' }
+  /** 相手に自分のシールドを1つ選ばせて見る。呪文ならコストを支払わずに唱えてもよい（ラッキー・ダーツ） */
+  | { type: 'shieldGamble' }
+  /** 手札から条件に合うカードを1枚、コストを支払わずに使ってもよい（maxCostHandSize: コストが手札の枚数以下） */
+  | { type: 'playFromHandFree'; filter?: CardFilter; maxCostHandSize?: boolean }
+  /** エンジン内部用：公開したカードを出す／唱える（てもよい）。しなければそのまま */
+  | { type: 'playRevealed'; iid: string; as: 'creature' | 'spell' }
   /** 相手のシールドをブレイクする（S・トリガー可） */
   | { type: 'breakShields'; count: number }
   | { type: 'extraTurn' }
@@ -236,6 +256,10 @@ export interface Keywords {
   shieldBurn?: boolean;
   /** EXライフ：出る時に山札の上から1枚をシールド化し、離れる時かわりにそのシールドを墓地に置く */
   exLife?: boolean;
+  /** マナゾーンにタップして置かれる */
+  manaTapped?: boolean;
+  /** 山札の最後の1枚を引く時、ゲームに負けるかわりに勝つ */
+  winOnLastDraw?: boolean;
 }
 
 /** ツインパクトの呪文側 */
@@ -244,7 +268,7 @@ export interface TwinSide {
   cost: number;
   civilizations: Civilization[];
   text: string;
-  keywords?: Pick<Keywords, 'shieldTrigger' | 'charger'>;
+  keywords?: Pick<Keywords, 'shieldTrigger' | 'charger' | 'manaTapped'>;
   abilities?: TriggeredAbility[];
 }
 

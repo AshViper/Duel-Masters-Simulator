@@ -371,7 +371,6 @@ export function BattleScreen() {
             <p className="muted small preview-empty">カードにカーソルを合わせると拡大表示します</p>
           )}
         </div>
-        {pending && <PendingPanel g={g} selection={selection} setSelection={setSelection} act={act} renderCard={renderCard} canControl={canControl} />}
         <ol className="log" ref={logRef} data-testid="log">
           {g.log.map((l, i) =>
             l.text.startsWith('──') ? (
@@ -398,6 +397,17 @@ export function BattleScreen() {
         </div>
         <p className="muted tiny-help">クリック：選択・攻撃／手札はメニュー　右クリック：手動操作　手札はマナ・バトルゾーンへドラッグ可</p>
       </aside>
+      {pending && (
+        <DecisionPanel
+          g={g}
+          selection={selection}
+          setSelection={setSelection}
+          act={act}
+          renderCard={renderCard}
+          canControl={canControl}
+          openZone={(player, zone) => setZoneView({ player, zone })}
+        />
+      )}
       {banner && <div className="turn-banner" key={banner.key}>{banner.text}</div>}
       {mode === 'online' && (net.status === 'disconnected' || net.status === 'connecting') && (
         <div className="net-banner" data-testid="net-banner">
@@ -517,68 +527,134 @@ function MenuItems({ g, iid, manual, act, play, showDetail, canControl }: {
   );
 }
 
-function PendingPanel({ g, selection, setSelection, act, renderCard, canControl }: {
+/**
+ * 判断パネル：プレイヤーの判断が必要な場面（はい／いいえ・モード選択・カードの選択・ブロック・自動処理できない能力）を
+ * 盤面の上の専用パネルでまとめて扱う。発生源のカードと能力の文を一緒に見せる。
+ */
+function DecisionPanel({ g, selection, setSelection, act, renderCard, canControl, openZone }: {
   g: GameState;
   selection: string[];
   setSelection: (s: string[]) => void;
   act: (a: Action) => boolean;
   renderCard: (iid: string, size: CardSize, opts?: { hidden?: boolean }) => ReactElement;
   canControl: (p: PlayerId) => boolean;
+  openZone: (player: PlayerId, zone: ZoneName) => void;
 }) {
   const registry = useApp((s) => s.registry);
+  const [collapsed, setCollapsed] = useState(false);
   const p = g.pending!;
+  const who = g.players[p.player].name;
+  const sourceId = p.kind === 'block' ? p.attacker : p.source;
+  const source = sourceId && g.cards[sourceId] ? registry[g.cards[sourceId].cardId] : undefined;
+  // 発生源が相手の伏せたシールドなどなら見せない
+  const sourceHidden = !!sourceId && ((g.cards[sourceId].zone === 'shield' && !g.cards[sourceId].faceUp) || (g.cards[sourceId].zone === 'hand' && !canControl(g.cards[sourceId].owner)));
+  const respond = (r: { accept?: boolean; selected?: string[] }) => act({ type: 'RESPOND', player: p.player, ...r });
+
+  const title =
+    p.kind === 'manualStep' ? '手動で処理する能力' : p.kind === 'block' ? 'ブロックの判断' : p.kind === 'selectCards' ? 'カードを選ぶ' : p.kind === 'chooseMode' ? '選択' : '確認';
+
+  let body: ReactElement;
   if (p.kind === 'confirm') {
-    return (
-      <div className="pending-box" data-testid="pending">
-        <p>{p.prompt}</p>
-        {p.source && renderCard(p.source, 'sm')}
+    body = (
+      <>
+        <p className="decision-prompt">{p.prompt}</p>
         <div className="row">
-          <button className="primary" onClick={() => act({ type: 'RESPOND', player: p.player, accept: true })} data-testid="pending-yes">はい</button>
-          <button onClick={() => act({ type: 'RESPOND', player: p.player, accept: false })} data-testid="pending-no">いいえ</button>
+          <button className="primary" onClick={() => respond({ accept: true })} data-testid="pending-yes">はい</button>
+          <button onClick={() => respond({ accept: false })} data-testid="pending-no">いいえ</button>
         </div>
-      </div>
+      </>
     );
-  }
-  if (p.kind === 'block') {
-    return (
-      <div className="pending-box" data-testid="pending">
-        <p>
-          {registry[g.cards[p.attacker].cardId].name}（パワー{power(g, registry, p.attacker)}）が攻撃しています。ブロックしますか？
+  } else if (p.kind === 'block') {
+    body = (
+      <>
+        <p className="decision-prompt">
+          {registry[g.cards[p.attacker].cardId].name}（パワー{power(g, registry, p.attacker)}）が攻撃しています。ブロックするクリーチャーを選んでください。
         </p>
-        <div className="zone-cards wrap">{p.blockers.map((b) => renderCard(b, 'sm'))}</div>
-        <button onClick={() => act({ type: 'RESPOND', player: p.player, selected: [] })} data-testid="no-block">ブロックしない</button>
-      </div>
+        <div className="zone-cards wrap decision-cards">{p.blockers.map((b) => renderCard(b, 'sm'))}</div>
+        <button onClick={() => respond({ selected: [] })} data-testid="no-block">ブロックしない</button>
+      </>
     );
-  }
-  if (p.kind === 'chooseMode') {
-    return (
-      <div className="pending-box" data-testid="pending">
-        <p>{p.prompt}</p>
-        {p.source && renderCard(p.source, 'sm')}
+  } else if (p.kind === 'chooseMode') {
+    body = (
+      <>
+        <p className="decision-prompt">{p.prompt}</p>
         <div className="col-buttons">
           {p.options.map((o, i) => (
-            <button key={i} className={i === 0 ? 'primary' : ''} onClick={() => act({ type: 'RESPOND', player: p.player, selected: [String(i)] })} data-testid={`mode-${i}`}>
+            <button key={i} className={i === 0 ? 'primary' : ''} onClick={() => respond({ selected: [String(i)] })} data-testid={`mode-${i}`}>
               {o}
             </button>
           ))}
         </div>
-      </div>
+      </>
+    );
+  } else if (p.kind === 'manualStep') {
+    const me = p.player;
+    body = (
+      <>
+        <p className="decision-prompt">{p.prompt}</p>
+        <blockquote className="decision-text">{p.text}</blockquote>
+        <p className="muted small">
+          この能力は自動で処理できません。下の道具や、盤面のカードの右クリック（手動移動・タップ・パワー修正）で処理し、終わったら「処理完了」を押してください。
+        </p>
+        <div className="decision-tools">
+          <button onClick={() => act({ type: 'MANUAL_DRAW', player: me, target: me })}>1枚引く</button>
+          <button onClick={() => act({ type: 'MANUAL_SHUFFLE', player: me, target: me })}>山札をシャッフル</button>
+          <button onClick={() => openZone(me, 'deck')}>山札を見る</button>
+          <button onClick={() => openZone(me, 'graveyard')}>墓地を見る</button>
+          <button onClick={() => openZone(me, 'mana')}>マナを見る</button>
+          <button onClick={() => openZone(other(me), 'graveyard')}>相手の墓地</button>
+        </div>
+        <div className="row">
+          <button className="primary" onClick={() => respond({ accept: true })} data-testid="manual-done">処理完了</button>
+        </div>
+      </>
+    );
+  } else {
+    // 山札・相手に選ばせる自分のカードの中身は、選ぶ本人（効果で見ている人）に見せる
+    const hidden = (iid: string) => {
+      const c = g.cards[iid];
+      if (c.zone === 'deck') return !canControl(p.player);
+      return (c.zone === 'shield' && !c.faceUp) || (c.zone === 'hand' && !canControl(c.owner));
+    };
+    body = (
+      <>
+        <p className="decision-prompt">{p.prompt}</p>
+        <p className="muted small">
+          {selection.length} / {p.max}枚選択中{p.min < p.max ? `（${p.min}枚以上）` : ''}。下の一覧か盤面のカードをクリックしてください。
+        </p>
+        <div className="zone-cards wrap decision-cards">{p.candidates.map((c) => renderCard(c, 'sm', { hidden: hidden(c) }))}</div>
+        <div className="row">
+          <button className="primary" disabled={selection.length < p.min || selection.length > p.max} onClick={() => respond({ selected: selection })} data-testid="pending-ok">
+            決定
+          </button>
+          <button onClick={() => setSelection([])}>選び直す</button>
+          {p.min === 0 && selection.length === 0 && <span className="muted small">選ばずに決定もできます</span>}
+        </div>
+      </>
     );
   }
-  // 山札の中身は選ぶ本人（効果で見ている人）には見せる
-  const hidden = (iid: string) => {
-    const c = g.cards[iid];
-    return (c.zone === 'shield' && !c.faceUp) || (c.zone === 'hand' && !canControl(c.owner)) || (c.zone === 'deck' && !canControl(p.player));
-  };
+
   return (
-    <div className="pending-box" data-testid="pending">
-      <p>{p.prompt}</p>
-      <p className="muted small">{selection.length} / {p.max}枚選択中（盤面か下の一覧をクリック）</p>
-      <div className="zone-cards wrap">{p.candidates.map((c) => renderCard(c, 'xs', { hidden: hidden(c) }))}</div>
-      <div className="row">
-        <button className="primary" disabled={selection.length < p.min || selection.length > p.max} onClick={() => act({ type: 'RESPOND', player: p.player, selected: selection })} data-testid="pending-ok">決定</button>
-        <button onClick={() => setSelection([])}>選び直す</button>
+    <div className={'decision-panel' + (collapsed ? ' collapsed' : '') + (p.kind === 'manualStep' ? ' manual' : '')} data-testid="pending" onClick={(e) => e.stopPropagation()}>
+      <div className="decision-head">
+        <span className="decision-badge">{title}</span>
+        <span className="decision-who">{who} の判断</span>
+        <button className="ghost-btn" onClick={() => setCollapsed(!collapsed)} title="盤面を見るために小さくする">
+          {collapsed ? '開く' : '小さくする'}
+        </button>
       </div>
+      {!collapsed && (
+        <div className="decision-main">
+          {source && !sourceHidden && (
+            <div className="decision-source">
+              <CardView card={source} size="sm" />
+              <div className="decision-source-name">{source.name}</div>
+              <div className="decision-source-text">{source.text}</div>
+            </div>
+          )}
+          <div className="decision-body">{body}</div>
+        </div>
+      )}
     </div>
   );
 }

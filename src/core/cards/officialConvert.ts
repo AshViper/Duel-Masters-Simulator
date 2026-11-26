@@ -97,7 +97,7 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     twinParsed = parseAbilityText(twin.text, 'spell');
     twin = {
       ...twin,
-      keywords: twinParsed.keywords.shieldTrigger || twinParsed.keywords.charger ? { ...(twinParsed.keywords.shieldTrigger ? { shieldTrigger: true } : {}), ...(twinParsed.keywords.charger ? { charger: true } : {}) } : undefined,
+      keywords: twinKeywords(twinParsed.keywords),
       abilities: twinParsed.abilities.length ? twinParsed.abilities : undefined,
     };
   }
@@ -113,4 +113,13 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     twin,
     support,
   };
+}
+
+/** ツインパクトの呪文側で使うキーワード */
+function twinKeywords(kw: ParsedAbilities['keywords']): TwinSide['keywords'] {
+  const out: NonNullable<TwinSide['keywords']> = {};
+  if (kw.shieldTrigger) out.shieldTrigger = true;
+  if (kw.charger) out.charger = true;
+  if (kw.manaTapped) out.manaTapped = true;
+  return Object.keys(out).length ? out : undefined;
 }

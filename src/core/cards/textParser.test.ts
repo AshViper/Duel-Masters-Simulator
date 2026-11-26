@@ -48,7 +48,7 @@ describe('能力テキストの読み取り', () => {
 
   it('呪文：山札を見て選ぶ・山札から探す', () => {
     expect(spell('自分の山札の上から3枚を見る。そのうちの1枚を手札に加え、残りを好きな順序で山札の下に置く。').abilities[0].effects).toEqual([
-      { type: 'lookAtTop', count: 3, pickCount: 1, pickTo: 'hand', restTo: 'deckBottom' },
+      { type: 'lookAtTop', count: 3, pickCount: 1, pickTo: 'hand', restTo: 'deckBottom', mustPick: true },
     ]);
     expect(spell('自分の山札を見る。その中からクリーチャーを1体選び、相手に見せてから手札に加えてもよい。その後、山札をシャッフルする。').abilities[0].effects).toEqual([
       { type: 'lookAtTop', count: 99, pickCount: 1, pickFilter: { cardType: 'creature' }, pickTo: 'hand', restTo: 'shuffle' },
@@ -90,7 +90,7 @@ describe('能力テキストの読み取り', () => {
     // 能力語つきの文は読まない
     expect(creature('鬼タイム：自分と相手のシールドの数が合計６つ以下で、自分のターンなら、このクリーチャーは破壊されない。').manualLines).toHaveLength(1);
     // 一部だけ読める文も丸ごと手動にする
-    const partial = creature('このクリーチャーがバトルゾーンに出た時、カードを1枚引く。その後、自分の手札を2枚、好きな順序で山札の上に置く。');
+    const partial = creature('このクリーチャーがバトルゾーンに出た時、カードを1枚引く。その後、相手の手札を見る。');
     expect(partial.abilities[0].effects[0].type).toBe('manual');
   });
 });

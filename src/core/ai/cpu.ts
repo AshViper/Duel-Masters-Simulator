@@ -32,6 +32,8 @@ function pick<T>(xs: T[], rand: () => number): T {
 function respond(state: GameState, reg: CardRegistry, me: PlayerId, level: Difficulty, rand: () => number): Action {
   const p = state.pending!;
   if (p.kind === 'confirm') return { type: 'RESPOND', player: me, accept: level === 'easy' ? rand() < 0.8 : true };
+  // 自動処理できない能力は CPU には処理できないので、そのまま進める（ログには残る）
+  if (p.kind === 'manualStep') return { type: 'RESPOND', player: me, accept: true };
 
   if (p.kind === 'block') {
     const atk = p.attacker;
