@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
 import { attackTargets, canAttackWith, canPlay, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
@@ -8,15 +8,23 @@ import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
 import { useOnline } from '../../store/onlineStore';
 import { CardDetail, Modal } from '../components/CardDetail';
 import { CardView, CIV_COLOR, type CardSize } from '../components/CardView';
+import '../battle.css';
+import { dropKey, parseDropKey, resolveDrop, type DropResult, type DropTarget } from './battleDrag';
 
 const CIV_ORDER = CIVILIZATIONS;
 
-interface Menu {
+/** ドラッグ中の状態。active になるまで（少し動かすまで）はクリック扱い */
+interface DragState {
   iid: string;
   x: number;
   y: number;
-  manual: boolean;
+  /** 掴んだ時のカードの中心（攻撃の矢印の始点） */
+  ox: number;
+  oy: number;
+  tilt: number;
+  over: DropTarget | null;
 }
+const DRAG_THRESHOLD = 6;
 
 const MOVE_TARGETS: ZoneName[] = ['hand', 'battle', 'mana', 'shield', 'graveyard', 'deck'];
 
@@ -29,7 +37,10 @@ export function BattleScreen() {
   const { registry, decks } = useApp();
   const [attacker, setAttacker] = useState<string | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
-  const [menu, setMenu] = useState<Menu | null>(null);
+  const [inspect, setInspect] = useState<string | null>(null);
+  const [drag, setDrag] = useState<DragState | null>(null);
+  /** ドラッグの直後に発生するクリックを無視する */
+  const suppressClick = useRef(false);
   const [detail, setDetail] = useState<CardDefinition | null>(null);
   const [zoneView, setZoneView] = useState<{ player: PlayerId; zone: ZoneName } | null>(null);
   const [evolve, setEvolve] = useState<{ iid: string; bases: string[]; neo?: boolean } | null>(null);
@@ -38,6 +49,8 @@ export function BattleScreen() {
   const [banner, setBanner] = useState<{ text: string; key: number } | null>(null);
   const [flash, setFlash] = useState<PlayerId | null>(null);
   const logRef = useRef<HTMLOListElement>(null);
+  /** ドラッグ中のリスナーから最新の盤面で判定・実行するための入口（毎回の描画で差し替える） */
+  const live = useRef<{ resolve: (iid: string, t: DropTarget) => DropResult | null; run: (r: DropResult) => void } | null>(null);
 
   useEffect(() => {
     setSelection([]);
@@ -85,10 +98,7 @@ export function BattleScreen() {
   const canControl = (p: PlayerId) => mode === 'solo' || p === me;
   const cpuThinking = isCpuTurnPlayer(g, mode) !== null;
   const pending = g.pending && canControl(g.pending.player) ? g.pending : null;
-  const act = (a: Action) => {
-    setMenu(null);
-    return dispatch(a);
-  };
+  const act = (a: Action) => dispatch(a);
   const def = (iid: string) => cardDef(g, registry, iid);
   const active = g.activePlayer;
   const myTurnControl = canControl(active) && isIdle(g);
@@ -114,6 +124,7 @@ export function BattleScreen() {
 
   function onCardClick(iid: string, e: MouseEvent) {
     e.stopPropagation();
+    if (suppressClick.current) return;
     const inst = g.cards[iid];
     if (pending?.kind === 'selectCards' && pending.candidates.includes(iid)) {
       setSelection((s) => (s.includes(iid) ? s.filter((x) => x !== iid) : s.length < pending.max ? [...s, iid] : s));
@@ -132,18 +143,15 @@ export function BattleScreen() {
       setAttacker(attacker === iid ? null : iid);
       return;
     }
-    if (inst.zone === 'hand' && canControl(inst.owner)) {
-      setMenu({ iid, x: e.clientX, y: e.clientY, manual: false });
-      return;
-    }
     if (inst.zone === 'shield' || (inst.zone === 'hand' && !canControl(inst.owner))) return;
-    setDetail(def(iid));
+    setInspect(iid);
   }
 
+  /** 右クリック：カードの詳細（手動操作もここから） */
   function onContext(iid: string, e: MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    setMenu({ iid, x: e.clientX, y: e.clientY, manual: true });
+    setInspect(iid);
   }
 
   function attackPlayer() {
@@ -152,25 +160,71 @@ export function BattleScreen() {
     setAttacker(null);
   }
 
-  // ─── ドラッグ＆ドロップ ───
-  const onDragStart = (iid: string) => (e: DragEvent) => e.dataTransfer.setData('text/iid', iid);
-  const onDrop = (p: PlayerId, zone: ZoneName) => (e: DragEvent) => {
-    e.preventDefault();
-    const iid = e.dataTransfer.getData('text/iid');
-    const inst = g.cards[iid];
-    if (!inst || inst.owner !== p) return;
-    if (inst.zone === 'hand' && zone === 'mana' && g.phase === 'charge' && !g.players[p].chargedThisTurn && g.activePlayer === p) {
-      act({ type: 'CHARGE_MANA', player: p, iid });
-    } else if (inst.zone === 'hand' && zone === 'battle' && g.activePlayer === p) {
-      play(iid);
-    } else if (inst.zone !== zone) {
-      act({ type: 'MANUAL_MOVE', player: p, iid, to: zone });
-    }
+  // ─── ドラッグ操作（ポインターで掴んで、盤面の落とし先に離す） ───
+  live.current = {
+    resolve: (iid, t) => resolveDrop(g, registry, iid, t, canControl),
+    run: (r) => {
+      setAttacker(null);
+      if (r.run.type === 'play') play(r.run.iid);
+      else act(r.run.action);
+    },
   };
-  const dropProps = (p: PlayerId, zone: ZoneName) => (canControl(p) ? { onDragOver: (e: DragEvent) => e.preventDefault(), onDrop: onDrop(p, zone) } : {});
+  const dropResultOf = (t: DropTarget) => (drag ? resolveDrop(g, registry, drag.iid, t, canControl) : null);
+
+  function onCardPointerDown(iid: string, e: ReactPointerEvent) {
+    if (e.button !== 0 || !canControl(g.cards[iid].owner)) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let active = false;
+    let lastX = sx;
+    let tilt = 0;
+    let over: DropTarget | null = null;
+    const move = (ev: PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < DRAG_THRESHOLD) return;
+        active = true;
+        setHover(null);
+      }
+      // 横に動かした勢いで少し傾ける
+      tilt = Math.max(-14, Math.min(14, tilt * 0.6 + (ev.clientX - lastX) * 0.9));
+      lastX = ev.clientX;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('[data-drop]') as HTMLElement | null;
+      over = parseDropKey(el?.dataset.drop);
+      setDrag({ iid, x: ev.clientX, y: ev.clientY, ox: rect.left + rect.width / 2, oy: rect.top + rect.height / 2, tilt, over });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      if (!active) return;
+      suppressClick.current = true;
+      setTimeout(() => (suppressClick.current = false), 0);
+      setDrag(null);
+      const r = over && live.current?.resolve(iid, over);
+      if (r) live.current?.run(r);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }
+
+  /** ドラッグ中の落とし先の見た目（置ける／今乗っている） */
+  const dropState = (t: DropTarget): string => {
+    if (!drag) return '';
+    const r = dropResultOf(t);
+    if (!r) return ' drop-no';
+    const on = drag.over && dropKey(drag.over) === dropKey(t);
+    return ` drop-ok drop-${r.tone}` + (on ? ' drop-over' : '');
+  };
+  const dropProps = (p: PlayerId, zone: ZoneName) => {
+    const t: DropTarget = { kind: 'zone', player: p, zone };
+    const st = dropState(t).trim();
+    return { 'data-drop': dropKey(t), 'data-dropstate': st || undefined, 'data-droplabel': st.includes('drop-over') ? dropResultOf(t)?.label : undefined };
+  };
 
   // ─── ゾーン描画 ───
-  const highlightOf = (iid: string): 'target' | 'attacker' | 'playable' | null => {
+  const highlightOf = (iid: string): 'target' | 'attacker' | 'playable' | 'ready' | null => {
     if (pending?.kind === 'selectCards' && pending.candidates.includes(iid)) return 'target';
     if (pending?.kind === 'block' && pending.blockers.includes(iid)) return 'target';
     if (attacker === iid) return 'attacker';
@@ -178,7 +232,7 @@ export function BattleScreen() {
     const inst = g.cards[iid];
     if (myTurnControl && inst.owner === active) {
       if (inst.zone === 'hand' && (canPlay(g, registry, active, iid) || canPlay(g, registry, active, iid, 'twin'))) return 'playable';
-      if (inst.zone === 'battle' && !attacker && canAttackWith(g, registry, active, iid)) return 'playable';
+      if (inst.zone === 'battle' && !attacker && canAttackWith(g, registry, active, iid)) return 'ready';
     }
     return null;
   };
@@ -200,8 +254,9 @@ export function BattleScreen() {
         onClick={(e) => onCardClick(iid, e)}
         onContextMenu={(e) => onContext(iid, e)}
         onHover={opts.hidden ? undefined : (on) => setHover(on ? iid : null)}
-        draggable={canControl(inst.owner)}
-        onDragStart={onDragStart(iid)}
+        onPointerDown={canControl(inst.owner) ? (e) => onCardPointerDown(iid, e) : undefined}
+        dropId={dropKey({ kind: 'card', iid })}
+        className={(drag?.iid === iid ? 'drag-source' : '') + (drag && drag.iid !== iid ? dropState({ kind: 'card', iid }) : '') || undefined}
         badge={
           inst.seals?.length ? (
             <span className="under-badge seal-badge" title="封印されている間、両プレイヤーはこのカードを無視する">封印 ×{inst.seals.length}</span>
@@ -225,7 +280,12 @@ export function BattleScreen() {
     const graveTop = P.zones.graveyard[P.zones.graveyard.length - 1];
 
     const plate = (
-      <div className={'plate' + (g.activePlayer === p ? ' active' : '') + (targetable ? ' targetable' : '')} onClick={() => targetable && attackPlayer()} data-testid={`plate-${p}`}>
+      <div
+        className={'plate' + (g.activePlayer === p ? ' active' : '') + (targetable ? ' targetable' : '') + dropState({ kind: 'plate', player: p })}
+        onClick={() => targetable && attackPlayer()}
+        data-drop={dropKey({ kind: 'plate', player: p })}
+        data-testid={`plate-${p}`}
+      >
         <div className="plate-avatar">{P.name.slice(0, 1)}</div>
         <div className="plate-body">
           <div className="plate-name">
@@ -270,12 +330,12 @@ export function BattleScreen() {
     );
     const piles = (
       <div className="piles">
-        <button className="pile deck-pile" onClick={() => setZoneView({ player: p, zone: 'deck' })} {...dropProps(p, 'deck')} data-testid={`pile-${p}-deck`} title="山札">
+        <button className="pile deck-pile" onClick={() => setZoneView({ player: p, zone: 'deck' })} onContextMenu={(e) => { e.preventDefault(); setZoneView({ player: p, zone: 'deck' }); }} {...dropProps(p, 'deck')} data-testid={`pile-${p}-deck`} title="山札">
           <span className="pile-stack" />
           <span className="pile-count">{P.zones.deck.length}</span>
           <span className="pile-label">山札</span>
         </button>
-        <button className="pile grave-pile" onClick={() => setZoneView({ player: p, zone: 'graveyard' })} {...dropProps(p, 'graveyard')} data-testid={`pile-${p}-graveyard`} title="墓地">
+        <button className="pile grave-pile" onClick={() => setZoneView({ player: p, zone: 'graveyard' })} onContextMenu={(e) => { e.preventDefault(); setZoneView({ player: p, zone: 'graveyard' }); }} {...dropProps(p, 'graveyard')} data-testid={`pile-${p}-graveyard`} title="墓地">
           {graveTop ? <span className="pile-top">{renderCard(graveTop, 'xs')}</span> : <span className="pile-stack empty" />}
           <span className="pile-count">{P.zones.graveyard.length}</span>
           <span className="pile-label">墓地</span>
@@ -291,7 +351,7 @@ export function BattleScreen() {
       </div>
     );
     const hand = (
-      <div className={'zone hand' + (handHidden ? ' hidden-hand' : '') + (top ? ' opp' : '')} data-testid={`hand-${p}`}>
+      <div className={'zone hand' + (handHidden ? ' hidden-hand' : '') + (top ? ' opp' : '')} {...dropProps(p, 'hand')} data-testid={`hand-${p}`}>
         <div className="hand-fan">{P.zones.hand.map((iid) => renderCard(iid, handHidden ? 'xs' : 'hd', { hidden: handHidden }))}</div>
       </div>
     );
@@ -338,14 +398,14 @@ export function BattleScreen() {
             ? '相手のターンです'
             : myTurnControl
             ? g.phase === 'charge' && !g.players[active].chargedThisTurn
-              ? '手札を1枚マナに置けます（ドラッグ／クリック）'
+              ? '手札を1枚マナゾーンへドラッグしてチャージできます'
               : g.phase === 'attack'
-                ? '光っているクリーチャーで攻撃できます'
-                : '光っているカードを使えます'
+                ? '光っているクリーチャーを相手のクリーチャー・シールドへドラッグして攻撃'
+                : '光っているカードをバトルゾーンへドラッグして使えます'
             : '';
 
   return (
-    <div className="battle-screen" onClick={() => { setMenu(null); }}>
+    <div className={'battle-screen' + (drag ? ' is-dragging' : '')} onContextMenu={(e) => e.preventDefault()}>
       <div className="board">
         {side(opp)}
         <div className="center-bar">
@@ -407,7 +467,7 @@ export function BattleScreen() {
           <button className="danger" onClick={() => confirm('投了しますか？') && act({ type: 'CONCEDE', player: mode === 'solo' ? active : me })}>投了</button>
           <button onClick={() => confirm(mode === 'online' ? '対戦を終了してホームに戻りますか？（相手との接続も切れます）' : 'ホームに戻りますか？（保存していない進行は失われます）') && quit()}>ホーム</button>
         </div>
-        <p className="muted tiny-help">クリック：選択・攻撃／手札はメニュー　右クリック：手動操作　手札はマナ・バトルゾーンへドラッグ可</p>
+        <p className="muted tiny-help">ドラッグ：チャージ・召喚・攻撃・移動　右クリック：カードの詳細と手動操作　クリック：判断の選択</p>
       </aside>
       {pending && (
         <DecisionPanel
@@ -420,7 +480,14 @@ export function BattleScreen() {
           openZone={(player, zone) => setZoneView({ player, zone })}
         />
       )}
-      {banner && <div className="turn-banner" key={banner.key}>{banner.text}</div>}
+      {banner && (
+        <div className={'turn-banner' + (mode !== 'solo' && g.activePlayer !== me ? ' enemy' : '')} key={banner.key}>
+          <div className="turn-banner-frame">
+            <small>TURN {g.turn}</small>
+            <span>{banner.text}</span>
+          </div>
+        </div>
+      )}
       {mode === 'online' && (net.status === 'disconnected' || net.status === 'connecting') && (
         <div className="net-banner" data-testid="net-banner">
           <span>{net.status === 'connecting' ? '再接続しています…' : net.message}</span>
@@ -428,19 +495,17 @@ export function BattleScreen() {
         </div>
       )}
 
-      {menu && (
-        <div className="ctx-menu" style={{ left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - (menu.manual ? 380 : 140)) }} onClick={(e) => e.stopPropagation()}>
-          <MenuItems
-            g={g}
-            iid={menu.iid}
-            manual={menu.manual}
-            act={act}
-            play={(iid) => { setMenu(null); play(iid); }}
-            showDetail={() => { setDetail(def(menu.iid)); setMenu(null); }}
-            canControl={canControl}
-          />
-        </div>
+      {inspect && g.cards[inspect] && (
+        <Inspector
+          g={g}
+          iid={inspect}
+          onClose={() => setInspect(null)}
+          act={(a) => { setInspect(null); return act(a); }}
+          play={(iid) => { setInspect(null); play(iid); }}
+          canControl={canControl}
+        />
       )}
+      {drag && <DragLayer g={g} drag={drag} result={drag.over ? dropResultOf(drag.over) : null} attackMode={g.cards[drag.iid]?.zone === 'battle' && attackTargetsOf(drag.iid).length > 0} />}
       {detail && <CardDetail card={detail} onClose={() => setDetail(null)} />}
       {zoneView && (
         <ZoneViewer
@@ -470,7 +535,8 @@ export function BattleScreen() {
       {toast && <div className="toast">{toast}</div>}
       {over && (
         <div className="modal-backdrop">
-          <div className="modal result" data-testid="result">
+          <div className={'modal result' + (mode !== 'solo' && g.winner !== null ? (g.winner === me ? ' win' : ' lose') : ' win')} data-testid="result">
+            <div className="result-kicker">{mode !== 'solo' && g.winner !== null ? (g.winner === me ? 'VICTORY' : 'DEFEAT') : 'GAME SET'}</div>
             <h2>{g.winner === null ? '引き分け' : mode !== 'solo' ? (g.winner === me ? '勝利！' : '敗北…') : `${g.players[g.winner].name} の勝利`}</h2>
             <p>{g.gameOverReason}（{g.turn}ターン）</p>
             <div className="row center">
@@ -498,52 +564,128 @@ export function BattleScreen() {
   );
 }
 
-function MenuItems({ g, iid, manual, act, play, showDetail, canControl }: {
+/** 右クリックで開くカードの詳細。ルール上の操作と手動操作のボタンもここにまとめる */
+function Inspector({ g, iid, onClose, act, play, canControl }: {
   g: GameState;
   iid: string;
-  manual: boolean;
+  onClose: () => void;
   act: (a: Action) => boolean;
   play: (iid: string) => void;
-  showDetail: () => void;
   canControl: (p: PlayerId) => boolean;
 }) {
   const registry = useApp((s) => s.registry);
   const inst = g.cards[iid];
   const owner = inst.owner;
+  const controllable = canControl(owner) || canControl(other(owner));
   const actor: PlayerId = canControl(owner) ? owner : canControl(other(owner)) ? other(owner) : 0;
   const d = cardDef(g, registry, iid);
-  const items: { label: string; run: () => void; disabled?: boolean }[] = [];
-  if (!manual && inst.zone === 'hand') {
+  const hidden = (inst.zone === 'shield' && !inst.faceUp) || (inst.zone === 'hand' && !canControl(owner)) || inst.zone === 'deck';
+  type Item = { label: string; run: () => void; disabled?: boolean; primary?: boolean };
+  const rule: Item[] = [];
+  const manual: Item[] = [];
+  if (inst.zone === 'hand' && canControl(owner)) {
     const chargeOk = g.activePlayer === owner && g.phase === 'charge' && !g.players[owner].chargedThisTurn && isIdle(g);
-    items.push({ label: d.type === 'spell' ? '唱える' : '召喚する', run: () => play(iid), disabled: !canPlay(g, registry, owner, iid) });
+    rule.push({ label: d.type === 'spell' ? '唱える' : '召喚する', run: () => play(iid), disabled: !canPlay(g, registry, owner, iid), primary: true });
     if (d.twin) {
-      items.push({ label: `呪文側「${d.twin.name}」を唱える`, run: () => act({ type: 'PLAY_CARD', player: owner, iid, side: 'twin' }), disabled: !canPlay(g, registry, owner, iid, 'twin') });
+      rule.push({ label: `「${d.twin.name}」を唱える`, run: () => act({ type: 'PLAY_CARD', player: owner, iid, side: 'twin' }), disabled: !canPlay(g, registry, owner, iid, 'twin') });
     }
-    items.push({ label: 'マナチャージ', run: () => act({ type: 'CHARGE_MANA', player: owner, iid }), disabled: !chargeOk });
+    rule.push({ label: 'マナチャージ', run: () => act({ type: 'CHARGE_MANA', player: owner, iid }), disabled: !chargeOk });
   }
-  items.push({ label: '詳細を見る', run: showDetail });
   if (inst.zone === 'battle' && d.hyper && !inst.hyper) {
-    items.push({ label: 'ハイパー化する', run: () => act({ type: 'HYPERIZE', player: owner, iid }), disabled: !canControl(owner) || !hyperizeCandidates(g, registry, owner, iid) });
+    rule.push({ label: 'ハイパー化する', run: () => act({ type: 'HYPERIZE', player: owner, iid }), disabled: !canControl(owner) || !hyperizeCandidates(g, registry, owner, iid) });
   }
-  if (manual || inst.zone !== 'hand') {
-    items.push({ label: inst.tapped ? 'アンタップ（手動）' : 'タップ（手動）', run: () => act({ type: 'MANUAL_TAP', player: actor, iid, tapped: !inst.tapped }) });
+  if (controllable) {
+    manual.push({ label: inst.tapped ? 'アンタップ' : 'タップ', run: () => act({ type: 'MANUAL_TAP', player: actor, iid, tapped: !inst.tapped }) });
     if (inst.zone === 'battle') {
-      items.push({ label: 'パワー +1000（手動）', run: () => act({ type: 'MANUAL_POWER', player: actor, iid, amount: 1000 }) });
-      items.push({ label: 'パワー −1000（手動）', run: () => act({ type: 'MANUAL_POWER', player: actor, iid, amount: -1000 }) });
+      manual.push({ label: 'パワー +1000', run: () => act({ type: 'MANUAL_POWER', player: actor, iid, amount: 1000 }) });
+      manual.push({ label: 'パワー −1000', run: () => act({ type: 'MANUAL_POWER', player: actor, iid, amount: -1000 }) });
     }
     for (const z of MOVE_TARGETS) {
       if (z === inst.zone) continue;
-      items.push({ label: `${ZONE_LABEL[z]}へ移動${z === 'deck' ? '（上）' : ''}（手動）`, run: () => act({ type: 'MANUAL_MOVE', player: actor, iid, to: z }) });
+      manual.push({ label: `${ZONE_LABEL[z]}へ${z === 'deck' ? '（上）' : ''}`, run: () => act({ type: 'MANUAL_MOVE', player: actor, iid, to: z }) });
     }
-    items.push({ label: '山札の下へ移動（手動）', run: () => act({ type: 'MANUAL_MOVE', player: actor, iid, to: 'deck', toTop: false }) });
+    manual.push({ label: '山札の下へ', run: () => act({ type: 'MANUAL_MOVE', player: actor, iid, to: 'deck', toTop: false }) });
   }
+  const where = `${g.players[owner].name} の${ZONE_LABEL[inst.zone]}`;
+  const stateLine = [
+    inst.zone === 'battle' && !isIgnored(g, registry, iid) ? `現在のパワー ${power(g, registry, iid)}` : null,
+    inst.tapped ? 'タップ中' : null,
+    inst.under.length ? `進化元 ${inst.under.length}枚` : null,
+    inst.seals?.length ? `封印 ${inst.seals.length}枚` : null,
+  ].filter(Boolean).join('・');
+  const buttons = (
+    <div className="inspect-ops" data-testid="inspector">
+      <div className="inspect-where">{where}{stateLine && <span>　{stateLine}</span>}</div>
+      {rule.length > 0 && (
+        <div className="inspect-group">
+          <h4>操作</h4>
+          <div className="inspect-buttons">
+            {rule.map((it) => <button key={it.label} className={it.primary ? 'primary' : ''} disabled={it.disabled} onClick={it.run}>{it.label}</button>)}
+          </div>
+        </div>
+      )}
+      {manual.length > 0 && (
+        <div className="inspect-group">
+          <h4>手動操作</h4>
+          <div className="inspect-buttons manual">
+            {manual.map((it) => <button key={it.label} disabled={it.disabled} onClick={it.run}>{it.label}</button>)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+  if (hidden) {
+    return (
+      <Modal onClose={onClose}>
+        <div className="detail">
+          <CardView faceDown size="lg" />
+          <div className="detail-info">
+            <h2>{inst.zone === 'shield' ? 'シールド' : '非公開のカード'}</h2>
+            {buttons}
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+  return <CardDetail card={d} onClose={onClose} actions={buttons} />;
+}
+
+/** ドラッグ中に指についてくるカード・攻撃の矢印・何が起きるかのラベル */
+function DragLayer({ g, drag, result, attackMode }: { g: GameState; drag: DragState; result: DropResult | null; attackMode: boolean }) {
+  const registry = useApp((s) => s.registry);
+  const inst = g.cards[drag.iid];
+  if (!inst) return null;
+  const d = cardDef(g, registry, drag.iid);
+  const tone = result?.tone ?? 'none';
   return (
-    <>
-      <div className="ctx-title">{inst.zone === 'shield' && !inst.faceUp && !canControl(owner) ? 'シールド' : d.name}</div>
-      {items.map((it) => (
-        <button key={it.label} disabled={it.disabled} onClick={it.run}>{it.label}</button>
-      ))}
-    </>
+    <div className={'drag-layer tone-' + tone}>
+      {attackMode && (() => {
+        // 始点から指先へ、少し持ち上げたベジェ曲線の矢印
+        const mx = (drag.ox + drag.x) / 2;
+        const my = (drag.oy + drag.y) / 2 - Math.min(160, Math.hypot(drag.x - drag.ox, drag.y - drag.oy) * 0.35);
+        const d = `M ${drag.ox} ${drag.oy} Q ${mx} ${my} ${drag.x} ${drag.y}`;
+        return (
+          <svg className="attack-arrow" width="100%" height="100%">
+            <defs>
+              <marker id="arrow-head" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" />
+              </marker>
+            </defs>
+            <path className="arrow-glow" d={d} />
+            <path className="arrow-line" d={d} markerEnd="url(#arrow-head)" />
+            <circle className="arrow-origin" cx={drag.ox} cy={drag.oy} r="7" />
+          </svg>
+        );
+      })()}
+      {!attackMode && (
+        <div className="drag-ghost" style={{ left: drag.x, top: drag.y, transform: `translate(-50%, -60%) rotate(${drag.tilt}deg)` }}>
+          <CardView card={d} size="hd" faceDown={inst.zone === 'shield' && !inst.faceUp} />
+        </div>
+      )}
+      <div className="drag-chip" style={{ left: drag.x, top: drag.y }}>
+        {result ? result.label : attackMode ? '攻撃先へドラッグ' : '置き場所へドラッグ'}
+      </div>
+    </div>
   );
 }
 

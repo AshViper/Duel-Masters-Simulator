@@ -1,4 +1,4 @@
-import type { CSSProperties, DragEvent, MouseEvent, ReactNode } from 'react';
+import type { CSSProperties, DragEvent, MouseEvent, PointerEvent, ReactNode } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, type CardDefinition, type Civilization } from '../../core/cards/types';
 import { useCachedImage } from '../../db/imageCache';
 
@@ -30,7 +30,7 @@ interface Props {
   /** 常在効果込みのコスト（元と違えば色付きで表示） */
   cost?: number;
   selected?: boolean;
-  highlight?: 'target' | 'attacker' | 'playable' | null;
+  highlight?: 'target' | 'attacker' | 'playable' | 'ready' | null;
   badge?: ReactNode;
   onClick?: (e: MouseEvent) => void;
   onContextMenu?: (e: MouseEvent) => void;
@@ -41,16 +41,22 @@ interface Props {
   testId?: string;
   /** 封印などで無視されているカードを薄く表示する */
   dimmed?: boolean;
+  /** 盤面のドラッグ操作（ポインターで掴む） */
+  onPointerDown?: (e: PointerEvent) => void;
+  /** ドラッグの落とし先として使う時のキー（data-drop） */
+  dropId?: string;
+  /** 追加のクラス */
+  className?: string;
 }
 
 /** 画像がなくても読めるカード表示。文明ごとのアクセントカラー付き */
-export function CardView({ card, faceDown, tapped, size = 'md', power, cost, selected, highlight, badge, onClick, onContextMenu, onHover, draggable, onDragStart, title, testId, dimmed }: Props) {
-  const cls = ['card', `card-${size}`, tapped && 'tapped', dimmed && 'dimmed', selected && 'selected', highlight && `hl-${highlight}`, onClick && 'clickable'].filter(Boolean).join(' ');
+export function CardView({ card, faceDown, tapped, size = 'md', power, cost, selected, highlight, badge, onClick, onContextMenu, onHover, draggable, onDragStart, title, testId, dimmed, onPointerDown, dropId, className }: Props) {
+  const cls = ['card', `card-${size}`, className, tapped && 'tapped', dimmed && 'dimmed', selected && 'selected', highlight && `hl-${highlight}`, onClick && 'clickable'].filter(Boolean).join(' ');
   // 保存済みの画像（公式カードなど）。ブラウザ内の IndexedDB から読むので通信しない
   const cachedImg = useCachedImage(faceDown ? undefined : card?.imageRef);
   if (faceDown || !card) {
     return (
-      <div className={cls + ' face-down'} onClick={onClick} onContextMenu={onContextMenu} title={title} data-testid={testId}>
+      <div className={cls + ' face-down'} onClick={onClick} onContextMenu={onContextMenu} onPointerDown={onPointerDown} data-drop={dropId} title={title} data-testid={testId}>
         <div className="card-back-mark">◆</div>
         {badge}
       </div>
@@ -62,7 +68,7 @@ export function CardView({ card, faceDown, tapped, size = 'md', power, cost, sel
     const powerChanged = power !== undefined && card.power !== undefined && power !== card.power;
     const costChanged = cost !== undefined && cost !== card.cost;
     return (
-      <div className={cls + ' has-image'} style={style} onClick={onClick} onContextMenu={onContextMenu} onMouseEnter={onHover && (() => onHover(true))} onMouseLeave={onHover && (() => onHover(false))} draggable={draggable} onDragStart={onDragStart} title={title ?? card.name} data-testid={testId}>
+      <div className={cls + ' has-image'} style={style} onClick={onClick} onContextMenu={onContextMenu} onMouseEnter={onHover && (() => onHover(true))} onMouseLeave={onHover && (() => onHover(false))} draggable={draggable} onDragStart={onDragStart} onPointerDown={onPointerDown} data-drop={dropId} title={title ?? card.name} data-testid={testId}>
         <img className="card-full-img" src={cachedImg} alt={card.name} draggable={false} />
         {costChanged && <span className={'img-badge img-cost ' + (cost! < card.cost ? 'down' : 'up')}>{cost}</span>}
         {powerChanged && <span className={'img-badge img-power ' + (power! > card.power! ? 'up' : 'down')}>{power}</span>}
@@ -72,7 +78,7 @@ export function CardView({ card, faceDown, tapped, size = 'md', power, cost, sel
     );
   }
   return (
-    <div className={cls} style={style} onClick={onClick} onContextMenu={onContextMenu} onMouseEnter={onHover && (() => onHover(true))} onMouseLeave={onHover && (() => onHover(false))} draggable={draggable} onDragStart={onDragStart} title={title ?? card.name} data-testid={testId}>
+    <div className={cls} style={style} onClick={onClick} onContextMenu={onContextMenu} onMouseEnter={onHover && (() => onHover(true))} onMouseLeave={onHover && (() => onHover(false))} draggable={draggable} onDragStart={onDragStart} onPointerDown={onPointerDown} data-drop={dropId} title={title ?? card.name} data-testid={testId}>
       <div className="card-frame">
         <div className="card-head">
           <span className={'card-cost' + (cost !== undefined && cost !== card.cost ? (cost < card.cost ? ' down' : ' up') : '')}>{cost ?? card.cost}</span>
