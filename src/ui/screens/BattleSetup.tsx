@@ -35,7 +35,7 @@ export function BattleSetupScreen() {
   return (
     <div className="screen">
       <Header title="対戦開始" />
-      <div className="setup">
+      <div className="setup battle-setup">
         <div className="mode-tabs">
           <button className={mode === 'cpu' ? 'on' : ''} onClick={() => setMode('cpu')} data-testid="mode-cpu">CPU対戦</button>
           <button className={mode === 'solo' ? 'on' : ''} onClick={() => setMode('solo')} data-testid="mode-solo">1人回し（両方を操作）</button>
