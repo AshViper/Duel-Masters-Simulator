@@ -230,14 +230,8 @@ a.btn { display: inline-block; padding: 6px 12px; border: 1px solid var(--line);
 .deck-grid8 { max-width: calc((100vh - 300px) / 5 * 63 / 88 * 8 + 42px); margin: 0 auto; }
 .issues .warning-summary { color: var(--gold); cursor: pointer; }
 
-/* 対戦画面の微調整：重ねて並べ、スクロールバーを出さない */
-.shield-row, .mana-row { overflow: hidden; }
-.shield-row .card { margin-right: -12px; }
-.shield-row .card:last-child { margin-right: 0; }
-.shield-row .card:hover { z-index: 2; }
-.mana-row .card { margin-right: -28px; }
+/* 対戦画面の微調整（並べ方・大きさは battle.css） */
 .board .img-manual { display: none; }
-.center-hint { white-space: normal; line-height: 1.3; font-size: 11px; }
 .plate-stats { gap: 4px; flex-wrap: wrap; }
 .plate-stats span { background: #0a1430; border: 1px solid #23396d; border-radius: 8px; padding: 0 6px; font-size: 11px; }
 .plate-stats span b { color: var(--text); margin-left: 2px; }
@@ -251,14 +245,6 @@ a.btn { display: inline-block; padding: 6px 12px; border: 1px solid var(--line);
   .phase:not(.on) { padding: 3px 5px; font-size: 10px; }
   .end-turn-btn { padding: 8px 14px; }
 }
-.shield-row .card { margin-right: -24px; }
-.shield-row .card:hover { transform: translateY(-4px); }
-.side-row { grid-template-columns: minmax(140px, 180px) minmax(140px, 1fr) minmax(0, 1.3fr) minmax(96px, 124px); }
-/* 枚数（--n）に応じて重なりを自動で調整し、枠に収める */
-.shield-row { gap: 0; }
-.shield-row .card { margin-right: min(4px, calc((100% - 46px * var(--n)) / (var(--n) - 1))); }
-.mana-row .card { margin-right: min(-14px, calc((100% - 46px * var(--n)) / (var(--n) - 1))); }
-.shield-row .card:last-child, .mana-row .card:last-child { margin-right: 0; }
 
 /* テキストからデッキを作る */
 .text-import { display: flex; flex-direction: column; gap: 10px; min-width: min(900px, 85vw); }

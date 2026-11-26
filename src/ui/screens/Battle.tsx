@@ -380,7 +380,7 @@ export function BattleScreen() {
     );
     const field = (
       <div className={'zone field' + (top ? ' opp' : ' mine')} {...dropProps(p, 'battle')} data-testid={`battle-${p}`}>
-        <div className="field-cards">
+        <div className="field-cards" style={{ ['--n' as string]: Math.max(1, P.zones.battle.length), ['--nt' as string]: P.zones.battle.filter((iid) => g.cards[iid].tapped).length }}>
           {P.zones.battle.map((iid) => renderCard(iid, 'fd'))}
           {P.zones.battle.length === 0 && <span className="zone-empty">バトルゾーン</span>}
         </div>
@@ -388,7 +388,7 @@ export function BattleScreen() {
     );
     const hand = (
       <div className={'zone hand' + (handHidden ? ' hidden-hand' : '') + (top ? ' opp' : '')} {...dropProps(p, 'hand')} data-testid={`hand-${p}`}>
-        <div className="hand-fan">{P.zones.hand.map((iid) => renderCard(iid, handHidden ? 'xs' : 'hd', { hidden: handHidden }))}</div>
+        <div className="hand-fan" style={{ ['--n' as string]: Math.max(2, P.zones.hand.length) }}>{P.zones.hand.map((iid) => renderCard(iid, handHidden ? 'xs' : 'hd', { hidden: handHidden }))}</div>
       </div>
     );
     const row = (
@@ -718,10 +718,12 @@ function HoverPreview({ g, canControl }: { g: GameState; canControl: (p: PlayerI
     <div className="preview" data-testid="preview">
       <CardView card={d} size="md" power={p} />
       <div className="preview-info">
-        <div className="preview-name">{d.name}</div>
-        <div className="muted small">
-          {d.typeLabel ?? CARD_TYPE_LABEL[d.type]}・コスト{d.cost}
-          {p !== undefined && `・パワー${p}`}
+        <div className="preview-head">
+          <div className="preview-name">{d.name}</div>
+          <div className="muted small">
+            {d.typeLabel ?? CARD_TYPE_LABEL[d.type]}・コスト{d.cost}
+            {p !== undefined && `・パワー${p}`}
+          </div>
         </div>
         <div className="preview-text">{d.text}</div>
       </div>

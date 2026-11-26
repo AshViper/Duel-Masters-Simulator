@@ -88,6 +88,8 @@ export function ActionFx({ g, me, solo }: { g: GameState; me: PlayerId; solo: bo
   const prev = useRef<GameState | null>(null);
   /** 直前の盤面でのバトルゾーンのカードの位置（離れたカードの残像を出す場所） */
   const rects = useRef(new Map<string, { x: number; y: number; w: number }>());
+  /** 1つ前の盤面での位置。レイアウト効果（位置の記録）は通常の効果より先に動くので、こちらを読む */
+  const prevRects = useRef(new Map<string, { x: number; y: number; w: number }>());
 
   useEffect(() => {
     const before = prev.current;
@@ -163,10 +165,13 @@ export function ActionFx({ g, me, solo }: { g: GameState; me: PlayerId; solo: bo
           });
           break;
         }
-        case 'BATTLE_WON':
-          items.push({ tone: 'battle', player: g.cards[e.winner]?.owner ?? null, title: 'バトル', text: `${name(e.winner)} の勝ち（${name(e.loser)}）`, card: defOf(e.winner) });
+        case 'BATTLE_WON': {
+          // 破壊より先に「バトル」を見せる
+          const at = items.findIndex((x) => x.tone === 'destroy');
+          items.splice(at < 0 ? items.length : at, 0, { tone: 'battle', player: g.cards[e.winner]?.owner ?? null, title: 'バトル', text: `${name(e.winner)} の勝ち（${name(e.loser)}）`, card: defOf(e.winner) });
           later.push(() => pulse(cardEl(e.winner), 'fx-win', 1100));
           break;
+        }
         case 'SHIELD_BROKEN':
           breaks[e.player] = (breaks[e.player] ?? 0) + 1;
           break;
@@ -174,7 +179,7 @@ export function ActionFx({ g, me, solo }: { g: GameState; me: PlayerId; solo: bo
           items.push({ tone: 'destroy', player: e.player, title: '破壊', text: `${who(e.player)}の ${name(e.iid)}`, card: defOf(e.iid) });
           break;
         case 'CREATURE_LEFT': {
-          const r = rects.current.get(e.iid);
+          const r = prevRects.current.get(e.iid);
           const destroyed = g.lastEvents.some((x) => x.type === 'CREATURE_DESTROYED' && x.iid === e.iid);
           if (r) newGhosts.push({ id: ++seq, card: defOf(e.iid), x: r.x, y: r.y, w: r.w, kind: destroyed ? 'destroy' : 'leave', label: destroyed ? '破壊' : (LEAVE_LABEL[e.to] ?? ZONE_LABEL[e.to]) });
           if (!destroyed && e.to !== 'graveyard') {
@@ -189,6 +194,25 @@ export function ActionFx({ g, me, solo }: { g: GameState; me: PlayerId; solo: bo
           break;
         default:
           break;
+      }
+    }
+    // 効果でタップ・アンタップされたクリーチャー（攻撃・ブロック・ターンはじめのアンタップは除く）
+    if (!g.lastEvents.some((x) => x.type === 'TURN_STARTED' || x.type === 'ATTACK_DECLARED')) {
+      const blockers = new Set(g.lastEvents.flatMap((x) => (x.type === 'BLOCKED' ? [x.blocker] : [])));
+      const changed: Record<string, string[]> = {};
+      for (const p of [0, 1] as PlayerId[]) {
+        for (const iid of g.players[p].zones.battle) {
+          const was = before.cards[iid];
+          if (!was || was.zone !== 'battle' || was.tapped === g.cards[iid].tapped || blockers.has(iid)) continue;
+          const k = `${p}:${g.cards[iid].tapped ? 'tap' : 'untap'}`;
+          (changed[k] ??= []).push(iid);
+          later.push(() => pulse(cardEl(iid), 'fx-tapped', 1000));
+        }
+      }
+      for (const [k, list] of Object.entries(changed)) {
+        const [p, kind] = k.split(':');
+        const pid = Number(p) as PlayerId;
+        items.push({ tone: 'leave', player: pid, title: kind === 'tap' ? 'タップ' : 'アンタップ', text: `${who(pid)}の ${list.map(name).join('、')}`, card: list.length === 1 ? defOf(list[0]) : undefined });
       }
     }
     // ドロー（ターンはじめの1枚は流れで分かるので出さない）・シールドブレイクはまとめて1行に
@@ -232,6 +256,7 @@ export function ActionFx({ g, me, solo }: { g: GameState; me: PlayerId; solo: bo
         m.set(iid, { x: r.left + r.width / 2, y: r.top + r.height / 2, w: Math.min(r.width, r.height) });
       }
     }
+    prevRects.current = rects.current;
     rects.current = m;
   }, [g]);
 
