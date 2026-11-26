@@ -153,7 +153,7 @@ export type Task =
   /** after: 唱えた後、墓地のかわりに置く場所 */
   | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin'; after?: 'deckBottom' | 'hand' }
   /** summoned: 召喚で出る（効果で「出す」のではない） */
-  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; paid?: boolean; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
+  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveFrom?: string[]; evolveDeck?: { count: number; creatureOnly?: boolean }; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; paid?: boolean; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
   /** 呪文を解決し終えたら墓地へ */
   | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin'; after?: 'deckBottom' | 'hand' }
   | { kind: 'hyperize'; player: PlayerId; iid: string }
@@ -264,7 +264,8 @@ export type Action =
   | { type: 'CHARGE_MANA'; player: PlayerId; iid: string }
   /** sacrifice：ササゲールで破壊する／ハイパーエナジーでタップする自分のクリーチャー（コストを少なくする） */
   /** alt: 別のコストでの使い方（カード定義の altPlays の番号）。フシギバースは sacrifice[0] がマナゾーンに置くクリーチャー */
-  | { type: 'PLAY_CARD'; player: PlayerId; iid: string; evolveOn?: string; manaIids?: string[]; side?: 'main' | 'twin'; sacrifice?: string[]; alt?: number }
+  /** evolveFrom: 進化元にするカード（マナ進化・墓地進化・進化V/GV など、バトルゾーンの1体以外を進化元にする時） */
+  | { type: 'PLAY_CARD'; player: PlayerId; iid: string; evolveFrom?: string[]; evolveOn?: string; manaIids?: string[]; side?: 'main' | 'twin'; sacrifice?: string[]; alt?: number }
   | { type: 'ATTACK'; player: PlayerId; attacker: string; target: AttackTarget }
   | { type: 'RESPOND'; player: PlayerId; selected?: string[]; accept?: boolean }
   /** 手動処理：任意のカードを任意のゾーンへ移動 */

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isNonCreaturePermanent, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
-import { altCost, attackTargets, canAttackWith, canPlay, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
+import { altCost, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
@@ -51,7 +51,7 @@ export function BattleScreen() {
   const suppressClick = useRef(false);
   const [detail, setDetail] = useState<CardDefinition | null>(null);
   const [zoneView, setZoneView] = useState<{ player: PlayerId; zone: ZoneName } | null>(null);
-  const [evolve, setEvolve] = useState<{ iid: string; bases: string[]; neo?: boolean; sacrifice?: string[] } | null>(null);
+  const [evolve, setEvolve] = useState<{ iid: string; bases: string[]; neo?: boolean; sacrifice?: string[]; multi?: boolean; picked?: string[]; optional?: boolean } | null>(null);
   /** ササゲール：ディスペクターを召喚する時に破壊するクリーチャーを選ぶ */
   const [sasa, setSasa] = useState<{ iid: string; cands: string[]; chosen: string[] } | null>(null);
   const [toast, setToast] = useState('');
@@ -134,6 +134,13 @@ export function BattleScreen() {
     }
     const sac = sacrifice ?? [];
     const extra = sac.length ? { sacrifice: sac } : {};
+    // マナ進化・墓地進化・進化V/GV など：進化元を何枚も、バトルゾーン以外からも選ぶ
+    const mspec = multiEvolveSpec(d);
+    if (mspec) {
+      if (mspec.deckTop || !mspec.zones.length) return void act({ type: 'PLAY_CARD', player: owner, iid, ...extra });
+      const bases = evolveSourceCandidates(g, registry, owner, iid).filter((b) => !sac.includes(b));
+      return setEvolve({ iid, bases, multi: true, picked: [], optional: mspec.optional, sacrifice: sac });
+    }
     if (d.type === 'evolution') {
       const bases = evolutionBases(g, registry, owner, iid).filter((b) => !sac.includes(b));
       if (bases.length > 1) return setEvolve({ iid, bases, sacrifice: sac });
@@ -555,7 +562,41 @@ export function BattleScreen() {
           canControl={canControl}
         />
       )}
-      {evolve && (
+      {evolve?.multi && (
+        <Modal onClose={() => setEvolve(null)}>
+          <h3>進化元を選んでください（選んだ順に下に重なります）</h3>
+          <div className="zone-cards wrap">
+            {evolve.bases.length === 0 && <p className="muted">進化元にできるカードがありません</p>}
+            {evolve.bases.map((b) => {
+              const on = !!evolve.picked?.includes(b);
+              const hidden = g.cards[b].zone === 'shield' && !g.cards[b].faceUp;
+              return (
+                <div
+                  key={b}
+                  className={'evolve-pick' + (on ? ' on' : '')}
+                  onClick={() => setEvolve({ ...evolve, picked: on ? (evolve.picked ?? []).filter((x) => x !== b) : [...(evolve.picked ?? []), b] })}
+                >
+                  {hidden ? <div className="evolve-hidden">シールド</div> : <CardView card={def(b)} size="sm" />}
+                  <small>{ZONE_LABEL[g.cards[b].zone]}</small>
+                </div>
+              );
+            })}
+          </div>
+          <div className="row">
+            <button
+              className="gold"
+              disabled={!validEvolveSources(g, registry, g.cards[evolve.iid].owner, evolve.iid, evolve.picked ?? [])}
+              onClick={() => { act({ type: 'PLAY_CARD', player: g.cards[evolve.iid].owner, iid: evolve.iid, evolveFrom: evolve.picked, ...(evolve.sacrifice?.length ? { sacrifice: evolve.sacrifice } : {}) }); setEvolve(null); }}
+            >
+              この進化元に重ねて出す
+            </button>
+            {evolve.optional && (
+              <button onClick={() => { act({ type: 'PLAY_CARD', player: g.cards[evolve.iid].owner, iid: evolve.iid, ...(evolve.sacrifice?.length ? { sacrifice: evolve.sacrifice } : {}) }); setEvolve(null); }}>重ねずに出す</button>
+            )}
+          </div>
+        </Modal>
+      )}
+      {evolve && !evolve.multi && (
         <Modal onClose={() => setEvolve(null)}>
           <h3>{evolve.neo ? 'NEO進化：重ねるクリーチャーを選んでください' : '進化元を選んでください'}</h3>
           <div className="zone-cards wrap">

@@ -8,6 +8,7 @@ import {
   playFace,
   type AltPlay,
   type Applies,
+  type EvolveSpec,
   type CardDefinition,
   type CardFilter,
   type Civilization,
@@ -668,8 +669,61 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
 // ───────────────────────── 召喚・支払い ─────────────────────────
 
 /** 進化元として選べるクリーチャー */
+/** バトルゾーンのクリーチャー1体だけを進化元にする指定か（ふつうの進化と同じ流れで処理できる） */
+function simpleSpec(spec: EvolveSpec | undefined): boolean {
+  return !!spec && !spec.deckTop && !spec.eachZone && !spec.atLeast && spec.count === 1 && spec.zones.length === 1 && spec.zones[0] === 'battle';
+}
+
+/** 進化元を何枚も・バトルゾーン以外から選ぶ進化の指定（なければ undefined） */
+export function multiEvolveSpec(d: CardDefinition): EvolveSpec | undefined {
+  return d.evolveSpec && !simpleSpec(d.evolveSpec) ? d.evolveSpec : undefined;
+}
+
+/** 進化元にできるカード（multiEvolveSpec のあるカード用） */
+export function evolveSourceCandidates(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string[] {
+  const spec = multiEvolveSpec(def(state, reg, iid));
+  if (!spec || spec.deckTop) return [];
+  const out: string[] = [];
+  for (const z of spec.zones) {
+    const list = z === 'battle' ? [...battleCards(state, reg, player), ...state.players[player].zones.battle.filter((b) => !isCreatureType(def(state, reg, b).type) && def(state, reg, b).keywords?.shinkarize)] : state.players[player].zones[z];
+    // 裏向きのシールドは中身を見ずに選ぶので、条件なしの時だけ進化元にできる
+    for (const c of list) if (c !== iid && (z === 'shield' && !spec.filter ? true : matchFilter(state, reg, c, spec.filter, iid, true))) out.push(c);
+  }
+  return out;
+}
+
+/** 選んだ進化元が、進化の指定に合っているか */
+export function validEvolveSources(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, sources: string[]): boolean {
+  const spec = multiEvolveSpec(def(state, reg, iid));
+  if (!spec || spec.deckTop) return false;
+  const cands = evolveSourceCandidates(state, reg, player, iid);
+  if (new Set(sources).size !== sources.length || sources.some((x) => !cands.includes(x))) return false;
+  if (spec.eachZone) return sources.length === spec.zones.length && spec.zones.every((z) => sources.filter((x) => state.cards[x].zone === z).length === 1);
+  return spec.atLeast ? sources.length >= spec.count : sources.length === spec.count;
+}
+
+/** 進化元の選び方の1つ（CPU 用・選ぶ余地がない時用）。そろわなければ null */
+export function defaultEvolveSources(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string[] | null {
+  const spec = multiEvolveSpec(def(state, reg, iid));
+  if (!spec || spec.deckTop) return null;
+  const cands = evolveSourceCandidates(state, reg, player, iid);
+  if (spec.eachZone) {
+    const pick = spec.zones.map((z) => cands.find((x) => state.cards[x].zone === z));
+    return pick.every((x): x is string => !!x) ? (pick as string[]) : null;
+  }
+  // バトルゾーン以外のカードを先に使う
+  const sorted = [...cands].sort((a, b) => Number(state.cards[a].zone === 'battle') - Number(state.cards[b].zone === 'battle'));
+  return sorted.length >= spec.count ? sorted.slice(0, spec.count) : null;
+}
+
 export function evolutionBases(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string[] {
   const d = def(state, reg, iid);
+  if (multiEvolveSpec(d)) return [];
+  // 究極進化・スター進化など：バトルゾーンの条件に合う1体
+  if (d.evolveSpec) {
+    const all = [...battleCards(state, reg, player), ...state.players[player].zones.battle.filter((b) => !isCreatureType(def(state, reg, b).type) && def(state, reg, b).keywords?.shinkarize)];
+    return all.filter((b) => b !== iid && matchFilter(state, reg, b, d.evolveSpec!.filter, iid, true));
+  }
   // NEO進化：条件に合うクリーチャーの上に重ねてもよい
   // シンカライズ：クリーチャーであるかのように進化元にできるタマシード
   const bases = [...battleCards(state, reg, player), ...state.players[player].zones.battle.filter((b) => !isCreatureType(def(state, reg, b).type) && def(state, reg, b).keywords?.shinkarize)];
@@ -799,7 +853,10 @@ function canPlayImpl(state: GameState, reg: CardRegistry, player: PlayerId, iid:
   if (inst.zone !== 'hand' && !(side === 'main' && canSummonFromZone(state, reg, player, iid))) return false;
   const d = def(state, reg, iid);
   if (side === 'twin' && !d.twin) return false;
-  if (side === 'main' && d.type === 'evolution' && evolutionBases(state, reg, player, iid).length === 0) return false;
+  const mspec = side === 'main' ? multiEvolveSpec(d) : undefined;
+  if (mspec && !mspec.optional) {
+    if (mspec.deckTop ? state.players[player].zones.deck.length < mspec.deckTop.count : defaultEvolveSources(state, reg, player, iid) === null) return false;
+  } else if (side === 'main' && d.type === 'evolution' && !mspec && evolutionBases(state, reg, player, iid).length === 0) return false;
   if (playRestriction(state, reg, player, iid, side)) return false;
   if (choosePayment(state, reg, player, iid, undefined, side) !== null) return true;
   // NEO進化クリーチャーとして召喚すれば払える

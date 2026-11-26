@@ -4,6 +4,7 @@
 // 誘発のタイミングだけ分かる能力は、その時にログで手動処理を促す（manual 効果）。
 import type {
   AltPlay,
+  EvolveSpec,
   Applies,
   AttackSwap,
   CardFilter,
@@ -54,6 +55,8 @@ export interface ParsedAbilities {
   altPlays?: AltPlay[];
   /** 自分のターンのはじめに、表向きで自分のシールドゾーンにあれば召喚する */
   galaxyReturn?: boolean;
+  /** 進化元の指定（マナ進化・墓地進化・進化V/GV・スター進化など） */
+  evolveSpec?: EvolveSpec;
   /** NEO進化クリーチャーとして召喚する時のコスト軽減 */
   neoCostReduce?: number;
   /** 手札にある間の誘発 */
@@ -1677,7 +1680,7 @@ function parseFromReminder(line: string, options: string[], kind: 'creature' | '
     out.abilities.push(...tmp.abilities);
     out.statics.push(...tmp.statics);
     out.replacements.push(...tmp.replacements);
-    for (const k of ['selfCost', 'condCost', 'gZero', 'attackSwap', 'neoEvolution', 'evolvesFrom', 'summonFrom', 'neoCostReduce'] as const) if (tmp[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = tmp[k];
+    for (const k of ['selfCost', 'condCost', 'gZero', 'attackSwap', 'neoEvolution', 'evolvesFrom', 'summonFrom', 'neoCostReduce', 'evolveSpec'] as const) if (tmp[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = tmp[k];
     if (tmp.altPlays) (out.altPlays ??= []).push(...tmp.altPlays);
     if (tmp.handTriggers) (out.handTriggers ??= []).push(...tmp.handTriggers);
     return true;
@@ -2062,6 +2065,17 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     out.neoEvolution = filter;
     return true;
   }
+  // 進化の種類（マナ進化・墓地進化・手札進化・シールド進化・デッキ進化・進化V/GV・究極進化・スター進化・超無限進化など）
+  const es = kind === 'creature' ? parseEvolveSpec(t) : null;
+  if (es) {
+    out.evolveSpec = es.spec;
+    // スター進化：離れる時、かわりに一番上のカードが離れる／G-NEO進化：かわりに下のカードすべてが離れる
+    if (es.star) out.replacements.push({ event: 'leaveBattle', subject: 'self', instead: 'shedTop' });
+    if (es.gneo) out.replacements.push({ event: 'leaveBattle', subject: 'self', instead: 'shedUnder' });
+    return true;
+  }
+  // S-MAX進化：進化元を必要としない（負ける時の置換は手動）
+  if (/^[^:：]{0,6}S-MAX進化[:：]/.test(t) && kind === 'creature') out.evolveSpec = { zones: [], count: 0, optional: true };
   // エターナル・Ω：離れる時、かわりに手札に戻す
   if (/^エターナル・[ΩΩ]。?$/.test(t) && kind === 'creature') {
     out.replacements.push({ event: 'leaveBattle', subject: 'self', instead: 'toHand' });
@@ -2226,6 +2240,56 @@ function parseAltPlay(t: string, rawLine: string, kind: 'creature' | 'spell'): A
     alt.then = groups.flatMap((g) => g.effects);
   }
   return alt;
+}
+
+/** 進化元の条件（「進化クリーチャー」「エイリアン」「火または自然のクリーチャー」「呪文」「カード」）を読む */
+function evolveFilter(text: string): CardFilter | null {
+  const w = text.replace(/^自分の/, '').replace(/、$/, '');
+  if (!w || w === 'カード') return {};
+  // 「究極進化クリーチャー」：進化クリーチャーとして扱う
+  if (w === '究極進化クリーチャー') return { evolution: true };
+  const f: CardFilter = {};
+  if (parsePickWhat(w, f)) return f;
+  // 「デモニオ、闇、または自然の、クリーチャー」：種族か文明のどれかに合うもの
+  const list = w.match(/^(.+?)の?、?クリーチャー$/);
+  if (list && /、|または/.test(list[1])) {
+    const items = list[1].split(/、(?:または)?|または/).map((x) => x.replace(/の$/, '')).filter(Boolean);
+    if (items.every((x) => /^[^、のをにがで「」]+$/.test(x))) return { anyOf: items.map((x) => (CIV[x] ? { civilization: CIV[x] } : { race: x })) };
+  }
+  return parseSwapCondition(w);
+}
+
+const EVOLVE_ZONE: Record<string, EvolveSpec['zones'][number]> = { マナゾーン: 'mana', 墓地: 'graveyard', 手札: 'hand', シールドゾーン: 'shield' };
+
+/**
+ * 進化の種類の行を、進化元の指定（EvolveSpec）にする。
+ * 能力語（マナ進化・墓地進化V…）ではなく、本文の書き方（どこから・何枚・どんなカード）で読むので、新しい名前の進化でも同じ書き方なら読める
+ */
+function parseEvolveSpec(t: string): { spec: EvolveSpec; star: boolean; gneo: boolean } | null {
+  const lm = t.match(/^(.{0,12}?進化(?:V|GV)?(?:・Ω)?(?:MAX)?)[:：—―ー-](.+?)。?$/);
+  if (!lm) return null;
+  const label = lm[1];
+  const optional = /もよい$/.test(lm[2]) || /NEO/.test(label);
+  const body = lm[2].replace(/置いてもよい$/, '置く').replace(/出してもよい$/, '出す');
+  const OUT = 'このクリーチャーをその上に重ねつつ(?:バトルゾーンに)?出す';
+  const make = (zones: EvolveSpec['zones'], what: string, count: number, extra: Partial<EvolveSpec> = {}): EvolveSpec | null => {
+    const f = evolveFilter(what);
+    return f && { zones, ...(Object.keys(f).length ? { filter: f } : {}), count, ...extra, ...(optional ? { optional: true } : {}) };
+  };
+  let m: RegExpMatchArray | null;
+  let spec: EvolveSpec | null = null;
+  if (new RegExp(`^自分の山札の上から1枚目を表向きにする。そのカードがクリーチャーなら、${OUT}。クリーチャー以外なら、このクリーチャーを自分の手札に戻す$`).test(body)) spec = { zones: [], count: 1, deckTop: { count: 1, creatureOnly: true } };
+  else if ((m = body.match(/^このクリーチャーを、自分の山札の上から(\d+)枚の上に重ねつつ(?:バトルゾーンに)?出す$/))) spec = { zones: [], count: n(m[1]), deckTop: { count: n(m[1]) } };
+  else if ((m = body.match(new RegExp(`^墓地、マナゾーン、バトルゾーンから自分の(.+?)を1(?:体|枚)ずつ選び、${OUT}$`)))) spec = make(['graveyard', 'mana', 'battle'], m[1], 3, { eachZone: true });
+  else if ((m = body.match(new RegExp(`^自分の(.+?)を(\\d+)(?:体|枚)以上、墓地、マナゾーンまたはバトルゾーンから選び、${OUT}$`)))) spec = make(['graveyard', 'mana', 'battle'], m[1], n(m[2]), { atLeast: true });
+  else if ((m = body.match(/^バトルゾーンまたは墓地の、?(.+?)(\d+)体の上に重ねつつ(?:バトルゾーンに)?出す$/))) spec = make(['battle', 'graveyard'], m[1], n(m[2]));
+  else if ((m = body.match(new RegExp(`^自分のシールドを(\\d+)つ選び、${OUT}$`)))) spec = make(['shield'], '', n(m[1]));
+  else if ((m = body.match(/^自分の(マナゾーン|墓地|手札)にある、?(.+?)(\d+)(?:体|枚)の上に重ねつつ(?:バトルゾーンに)?出す$/))) spec = make([EVOLVE_ZONE[m[1]]], m[2], n(m[3]));
+  else if ((m = body.match(new RegExp(`^(.+?)を(\\d+)(?:体|枚)(以上)?自分の(マナゾーン|墓地|手札|シールドゾーン)から選び、${OUT}$`)))) spec = make([EVOLVE_ZONE[m[4]]], m[1], n(m[2]), m[3] ? { atLeast: true } : {});
+  else if ((m = body.match(/^進化元のカードが\d+枚以上になるように、(?:自分の)?(.+?)1体以上の上に置く$/))) spec = make(['battle'], m[1], 1, { atLeast: true });
+  else if ((m = body.match(/^(.+?)(?:いずれか)?(\d+)体を重ねた上に置く$/))) spec = make(['battle'], m[1], n(m[2]));
+  else if ((m = body.match(/^(?:自分の)?(.+?)(\d+)体(以上)?の上に置く$/))) spec = make(['battle'], m[1], n(m[2]), m[3] ? { atLeast: true } : {});
+  return spec && { spec, star: label.includes('スター'), gneo: label.includes('G-NEO') };
 }
 
 /** 補足説明がない時に使う、S級侵略の種類ごとの使えるゾーン */

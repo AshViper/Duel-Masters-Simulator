@@ -1,5 +1,5 @@
 import type { CardRegistry } from '../cards/registry';
-import { attackTargets, canPlay, canPlayAlt, choosePayment, def, evolutionBases, fushigiCandidates, isIdle, minimalSacrifice } from './queries';
+import { attackTargets, canPlay, canPlayAlt, choosePayment, def, defaultEvolveSources, multiEvolveSpec, evolutionBases, fushigiCandidates, isIdle, minimalSacrifice } from './queries';
 import type { Action, GameState, PlayerId } from './types';
 
 /**
@@ -20,7 +20,12 @@ export function getLegalActions(state: GameState, reg: CardRegistry, player: Pla
       // ササゲール：使わないと払えない時だけ、少ない数で破壊する
       const sac = minimalSacrifice(state, reg, player, iid) ?? [];
       const extra = sac.length ? { sacrifice: sac } : {};
-      if (def(state, reg, iid).type === 'evolution') {
+      const mspec = multiEvolveSpec(def(state, reg, iid));
+      if (mspec) {
+        // マナ進化・墓地進化・進化V/GV など：進化元をそろえて出す
+        const src = mspec.deckTop ? null : defaultEvolveSources(state, reg, player, iid);
+        out.push({ type: 'PLAY_CARD', player, iid, ...(src ? { evolveFrom: src } : {}), ...extra });
+      } else if (def(state, reg, iid).type === 'evolution') {
         for (const b of evolutionBases(state, reg, player, iid)) if (!sac.includes(b)) out.push({ type: 'PLAY_CARD', player, iid, evolveOn: b, ...extra });
       } else if (def(state, reg, iid).neoCostReduce && !sac.length && choosePayment(state, reg, player, iid) === null) {
         // NEO進化クリーチャーとして召喚しないと払えない：進化元に重ねる

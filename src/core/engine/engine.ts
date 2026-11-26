@@ -7,6 +7,7 @@ import type { CardRegistry } from '../cards/registry';
 import { asMove, MOVE_DEST, type MoveEffect } from '../cards/effects';
 import {
   type AltPlay,
+  type CardDefinition,
   CIV_LABEL,
   isCreatureType,
   isNonCreaturePermanent,
@@ -30,6 +31,10 @@ import {
   evalCondition,
   countQuantity,
   entryBlocked,
+  multiEvolveSpec,
+  validEvolveSources,
+  defaultEvolveSources,
+  evolveSourceCandidates,
   ignoresAttackLocks,
   withoutAttackLocks,
   altCost,
@@ -102,6 +107,7 @@ const INSTEAD_LABEL: Record<ReplacementAbility['instead'], string> = {
   toShield: 'シールドに加える',
   toDeckBottom: '山札の下に置く',
   destroySelf: 'このクリーチャーを破壊する',
+  shedTop: '一番上のカードだけを離す',
   stay: 'バトルゾーンにとどまる',
   escape: '自分のシールドを1つ手札に加える',
   shedUnder: '下のカードすべてを離す',
@@ -241,7 +247,7 @@ export class Ctx {
         return this.chargeMana(a.player, a.iid);
       case 'PLAY_CARD':
         if (a.alt !== undefined) return this.playAlt(a.player, a.iid, a.alt, a.manaIids, a.sacrifice ?? []);
-        return this.playCard(a.player, a.iid, a.evolveOn, a.manaIids, a.side ?? 'main', a.sacrifice ?? []);
+        return this.playCard(a.player, a.iid, a.evolveOn, a.manaIids, a.side ?? 'main', a.sacrifice ?? [], a.evolveFrom);
       case 'ATTACK':
         return this.attack(a.player, a.attacker, a.target);
     }
@@ -369,7 +375,7 @@ export class Ctx {
     this.run();
   }
 
-  private playCard(player: PlayerId, iid: string, evolveOn: string | undefined, manaIids: string[] | undefined, side: 'main' | 'twin', sacrifice: string[] = []): void {
+  private playCard(player: PlayerId, iid: string, evolveOn: string | undefined, manaIids: string[] | undefined, side: 'main' | 'twin', sacrifice: string[] = [], evolveFrom?: string[]): void {
     const s = this.s;
     const inst = s.cards[iid];
     if (!inst || inst.owner !== player || (inst.zone !== 'hand' && !(side === 'main' && canSummonFromZone(s, this.reg, player, iid)))) throw new IllegalAction('手札のカードを選んでください');
@@ -379,7 +385,26 @@ export class Ctx {
     const face = playFace(d, side);
     const restricted = playRestriction(s, this.reg, player, iid, side);
     if (restricted) throw new IllegalAction(restricted);
-    if (face.type !== 'evolution' && evolveOn) {
+    // マナ進化・墓地進化・進化V/GV・デッキ進化など：進化元を何枚も、バトルゾーン以外からも選ぶ
+    const mspec = side === 'main' ? multiEvolveSpec(d) : undefined;
+    if (mspec) {
+      evolveOn = undefined;
+      if (mspec.deckTop) {
+        evolveFrom = undefined;
+        if (s.players[player].zones.deck.length < mspec.deckTop.count) throw new IllegalAction('山札が足りません');
+      } else if (evolveFrom?.length) {
+        if (!validEvolveSources(s, this.reg, player, iid, evolveFrom)) throw new IllegalAction('その進化元には重ねられません');
+      } else if (!mspec.optional) {
+        // 選ぶ余地がなければ自動で決める
+        const auto = defaultEvolveSources(s, this.reg, player, iid);
+        if (!auto) throw new IllegalAction('進化元がそろっていません');
+        if (mspec.atLeast || evolveSourceCandidates(s, this.reg, player, iid).length > auto.length) throw new IllegalAction('進化元を選んでください');
+        evolveFrom = auto;
+      }
+    } else evolveFrom = undefined;
+    if (mspec) {
+      // 進化元は上で確かめた
+    } else if (face.type !== 'evolution' && evolveOn) {
       // NEO進化：重ねて召喚する
       if (side !== 'main' || !evolutionBases(s, this.reg, player, iid).includes(evolveOn)) throw new IllegalAction('そのクリーチャーには進化できません');
     } else if (face.type === 'evolution') {
@@ -401,7 +426,7 @@ export class Ctx {
       if (hyperEnergy && new Set(sacrifice.map((x) => def(s, this.reg, x).cost)).size !== sacrifice.length) throw new IllegalAction('ハイパーエナジーでは、コストが異なるクリーチャーをタップします');
     }
     // NEO進化クリーチャーとして（重ねて）召喚する
-    const neo = !!evolveOn && face.type !== 'evolution';
+    const neo = (!!evolveOn || !!evolveFrom?.length) && face.type !== 'evolution';
     const cost = effectiveCost(s, this.reg, player, iid, side, sacrifice, neo);
     const pay = choosePayment(s, this.reg, player, iid, manaIids, side, sacrifice, neo);
     if (!pay) throw new IllegalAction(`マナが足りません（コスト${cost}・${face.civilizations.map((c) => CIV_LABEL[c]).join('/')}）`);
@@ -422,7 +447,7 @@ export class Ctx {
     const verb = face.type === 'spell' ? '唱える' : face.type === 'field' ? 'バトルゾーンに出す' : face.type === 'tamaseed' ? '使う' : inst.zone === 'hand' ? '召喚' : `${inst.zone === 'graveyard' ? '墓地' : 'マナゾーン'}から召喚`;
     this.log(`${face.name} を${verb}（${cost}マナ）`, player);
     this.emit({ type: 'CARD_PLAYED', player, iid });
-    s.queue.push(face.type === 'spell' ? { kind: 'castSpell', player, iid, side } : { kind: 'enterBattle', player, iid, evolveOn, paid: cost > 0, ...(isCreatureType(face.type) ? { summoned: true } : {}) });
+    s.queue.push(face.type === 'spell' ? { kind: 'castSpell', player, iid, side } : { kind: 'enterBattle', player, iid, evolveOn, ...(evolveFrom?.length ? { evolveFrom } : {}), ...(mspec?.deckTop ? { evolveDeck: mspec.deckTop } : {}), paid: cost > 0, ...(isCreatureType(face.type) ? { summoned: true } : {}) });
     this.run();
   }
 
@@ -706,7 +731,54 @@ export class Ctx {
             return false;
           }
         }
-        if (task.evolveOn) {
+        if (task.evolveFrom?.length || task.evolveDeck) {
+          // 進化元を何枚も・バトルゾーン以外からも重ねる進化
+          let sources = (task.evolveFrom ?? []).filter((x) => s.cards[x] && x !== task.iid);
+          if (task.evolveDeck) {
+            const deckNow = s.players[inst.owner].zones.deck;
+            sources = deckNow.slice(-task.evolveDeck.count).reverse();
+            if (task.evolveDeck.creatureOnly) {
+              const top = sources[0];
+              this.log(`山札の上から ${top ? this.name(top) : 'なし'} を表向きにした`, task.player);
+              if (!top || !isCreatureType(def(s, this.reg, top).type)) {
+                this.log(`クリーチャーではないので、${this.name(task.iid)} は出せずに手札に残る`, task.player);
+                return false;
+              }
+            }
+          }
+          if (!sources.length) {
+            this.log(`進化元がないため ${this.name(task.iid)} は出せなかった`, task.player);
+            return false;
+          }
+          const under: string[] = [];
+          let tapped = false;
+          const evolvedDefs: CardDefinition[] = [];
+          for (const x of sources) {
+            const xi = s.cards[x];
+            if (xi.zone === 'battle') {
+              evolvedDefs.push(def(s, this.reg, x));
+              const bz = s.players[xi.owner].zones.battle;
+              const k = bz.indexOf(x);
+              if (k >= 0) bz.splice(k, 1);
+              tapped ||= xi.tapped;
+              under.push(x, ...xi.under);
+              xi.under = [];
+            } else {
+              const list = s.players[xi.owner].zones[xi.zone];
+              const k = list.indexOf(x);
+              if (k >= 0) list.splice(k, 1);
+              // 下にあるカードは、ゾーンの一覧には入れずにクリーチャーに持たせる
+              xi.zone = 'battle';
+              under.push(x);
+            }
+            xi.tapped = false;
+          }
+          this.moveCard(task.iid, 'battle');
+          inst.under = under;
+          inst.tapped = tapped;
+          this.log(`${this.name(task.iid)} を、進化元${sources.length}枚の上に重ねて出した`, task.player);
+          for (const ed of evolvedDefs) for (const ab of ed.abilities ?? []) if (ab.when === 'onEvolved') this.addTrigger(inst.owner, task.iid, this.abilityTasks(ab, inst.owner, task.iid));
+        } else if (task.evolveOn) {
           const base = s.cards[task.evolveOn];
           if (!base || base.zone !== 'battle') {
             this.log(`進化元がいないため ${this.name(task.iid)} は出せなかった`, task.player);
@@ -1264,6 +1336,18 @@ export class Ctx {
           for (const u of shed) this.emit({ type: 'UNDER_LEFT', iid: task.iid, card: u });
           return false;
         }
+        case 'shedTop': {
+          // スター進化：かわりに一番上のカードが離れ、下のカードがクリーチャーとして残る
+          if (!inst.under.length) {
+            this.insertFront({ ...task, chosen: undefined, replaced: [...replaced, key] });
+            return false;
+          }
+          this.popTop(task.iid);
+          this.moveCard(task.iid, task.to, { toTop: task.toTop ?? true });
+          if (task.cause === 'destroy') this.emit({ type: 'CREATURE_DESTROYED', player: inst.owner, iid: task.iid });
+          this.emit({ type: 'CREATURE_LEFT', player: inst.owner, iid: task.iid, to: task.to });
+          return false;
+        }
         case 'seal': {
           // かわりに封印を付ける：山札の上から1枚を封印にし、バトルゾーンにとどまる（封印中は両プレイヤーが無視する）
           if (!s.players[s.cards[task.iid].owner].zones.deck.length) {
@@ -1644,18 +1728,8 @@ export class Ctx {
           this.insertFront({ kind: 'leave', iid: source, to: 'graveyard', cause: 'destroy' });
           return false;
         }
-        // すぐ下のカードが、残りのカードを下に持つクリーチャーとして残る（タップの状態は引き継ぐ）
-        const [next, ...rest] = inst.under;
-        const zone = s.players[inst.owner].zones.battle;
-        const k = zone.indexOf(source);
-        const n = s.cards[next];
-        inst.under = [];
-        n.under = rest;
-        n.tapped = inst.tapped;
-        n.zone = 'battle';
-        if (k >= 0) zone.splice(k, 1, next);
-        else zone.push(next);
-        this.log(`${this.name(source)} の一番上のカードを破壊した（${this.name(next)} が残る）`, controller);
+        const next = this.popTop(source);
+        this.log(`${this.name(source)} の一番上のカードを破壊した（${next ? this.name(next) : ''} が残る）`, controller);
         this.moveCard(source, 'graveyard');
         this.emit({ type: 'CREATURE_DESTROYED', player: inst.owner, iid: source });
         this.emit({ type: 'CREATURE_LEFT', player: inst.owner, iid: source, to: 'graveyard' });
@@ -2033,6 +2107,27 @@ export class Ctx {
         }
       }
     });
+  }
+
+  /**
+   * 重なったクリーチャーの一番上のカードを外す：すぐ下のカードが、残りのカードを下に持つクリーチャーとして残る（タップの状態は引き継ぐ）。
+   * 外したカードはバトルゾーンの一覧から抜けるだけなので、呼んだ側で移動する。残ったカードを返す
+   */
+  private popTop(top: string): string | null {
+    const s = this.s;
+    const inst = s.cards[top];
+    if (!inst.under.length) return null;
+    const [next, ...rest] = inst.under;
+    const zone = s.players[inst.owner].zones.battle;
+    const k = zone.indexOf(top);
+    const n = s.cards[next];
+    inst.under = [];
+    n.under = rest;
+    n.tapped = inst.tapped;
+    n.zone = 'battle';
+    if (k >= 0) zone.splice(k, 1, next);
+    else zone.push(next);
+    return next;
   }
 
   /** カードを、バトルゾーンのクリーチャー（host）の下に置く */

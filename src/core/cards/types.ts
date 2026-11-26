@@ -440,7 +440,8 @@ export interface ReplacementAbility {
   /** escape: かわりに自分のシールドを1つ手札に加える（エスケープ）。shedUnder: かわりに下のカードすべてが離れる（G-NEO進化） */
   /** seal: かわりにそのクリーチャーに封印を付ける（Dの禁断 ドキンダムエリア） */
   /** destroyOther: かわりに自分の他のクリーチャーを1体破壊する */
-  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther';
+  /** shedTop: かわりに一番上のカードが離れる（スター進化。下のカードがクリーチャーとして残る） */
+  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther' | 'shedTop';
   optional?: boolean;
 }
 
@@ -592,6 +593,27 @@ export interface AltPlay {
   timing?: 'attackEndBreak' | 'ownAttack';
 }
 
+/**
+ * 進化元の指定（マナ進化・墓地進化・手札進化・シールド進化・デッキ進化・進化V/GV・究極進化・スター進化・超無限進化 など）。
+ * 「どのゾーンの・どんなカードを・何枚」を1つの形で表す。新しい進化の種類は、読み取りでこの形にするだけでよい
+ */
+export interface EvolveSpec {
+  /** 進化元にできるカードのあるゾーン */
+  zones: ('battle' | 'mana' | 'graveyard' | 'hand' | 'shield')[];
+  /** 進化元の条件 */
+  filter?: CardFilter;
+  /** 必要な枚数（進化V は2、進化GV は3） */
+  count: number;
+  /** count 枚以上（超無限進化） */
+  atLeast?: boolean;
+  /** 各ゾーンから1枚ずつ選ぶ（進化GV・Ω） */
+  eachZone?: boolean;
+  /** 重ねずに出してもよい（NEO進化の仲間） */
+  optional?: boolean;
+  /** 山札の上から count 枚を進化元にする（デッキ進化）。creatureOnly: クリーチャーでなければ出せずに手札に戻る */
+  deckTop?: { count: number; creatureOnly?: boolean };
+}
+
 export interface CardDefinition {
   id: string;
   name: string;
@@ -634,6 +656,8 @@ export interface CardDefinition {
   hyperText?: string;
   /** ハイパーモードで加わる能力（hyperText を読み取ったもの） */
   hyperForm?: Pick<CardDefinition, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
+  /** 進化元の指定（バトルゾーンのクリーチャー1体以外の進化）。あれば evolvesFrom より優先する */
+  evolveSpec?: EvolveSpec;
   /** NEO進化クリーチャーとして召喚する（重ねて召喚する）なら、召喚コストをこの数だけ少なくする */
   neoCostReduce?: number;
   /** NEO進化：このクリーチャーを、条件に合う自分のクリーチャーの上に重ねて召喚してもよい */

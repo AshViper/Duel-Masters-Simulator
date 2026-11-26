@@ -680,3 +680,9 @@
 @keyframes fxTapped { 0%, 100% { filter: none; } 30% { filter: brightness(1.8) drop-shadow(0 0 16px #8fb8ff); } }
 @keyframes fxWin { 0%, 100% { filter: none; } 30% { filter: brightness(1.8) drop-shadow(0 0 22px #ff9f43); } }
 @keyframes fxPile { 0%, 100% { filter: none; } 35% { filter: brightness(1.8) drop-shadow(0 0 12px var(--cyan)); } }
+
+/* 進化元を何枚も選ぶ画面 */
+.evolve-pick { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; }
+.evolve-pick.on { border-color: #e9c46a; background: rgba(233, 196, 106, 0.12); }
+.evolve-pick small { color: var(--faint, #8a94a6); font-size: 11px; }
+.evolve-hidden { width: clamp(96px, 15vh, 140px); aspect-ratio: 63 / 88; display: grid; place-items: center; border-radius: 8px; border: 1px solid rgba(233, 196, 106, 0.4); background: rgba(8, 13, 23, 0.7); color: #e9c46a; font-size: 13px; }
