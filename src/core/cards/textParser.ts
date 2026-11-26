@@ -183,6 +183,9 @@ const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArr
   ['水晶チャージャー', { crystalCharger: true }],
   ['ハイパーエナジー', { hyperEnergy: true }],
   ['Zラッシュ', { zRush: true }],
+  // 補足説明の言い方：「このクリーチャーはシールドを6つブレイクする」（H・ブレイカーなど）、Evoチャージャー
+  [/^このクリーチャーはシールドを(\d+)(?:つ|枚)?ブレイクする$/, (m) => ({ breaker: Number(m[1]) })],
+  ['この呪文を唱えた後、墓地に置くかわりに自分のマナゾーンに置く', { charger: true }],
   ['相手のターンに相手のクリーチャーが出て、その能力がトリガーした時、自分もその能力を使ってもよい', { mimicEnemySummon: true }],
 ];
 
@@ -391,6 +394,7 @@ function parseMods(mods: string, filter: CardFilter): boolean {
     [/^多色の?/, () => (filter.multicolor = true)],
     [/^進化(?=$)/, () => (filter.evolution = true)],
     [/^(?:一番パワーが|パワーが一番)(大きい|小さい)/, (x) => (filter.extremePower = x[1] === '大きい' ? 'highest' : 'lowest')],
+    [/^これより(パワー|コスト)が(小さい|大きい)/, (x) => (filter.relativeToSource = { stat: x[1] === 'パワー' ? 'power' : 'cost', cmp: x[2] === '小さい' ? 'less' : 'greater' })],
     [/^このクリーチャーより(パワー|コスト)が(小さい|大きい)/, (x) => (filter.relativeToSource = { stat: x[1] === 'パワー' ? 'power' : 'cost', cmp: x[2] === '小さい' ? 'less' : 'greater' })],
     [/^名前に《([^》]+)》とある/, (x) => (filter.nameIncludes = x[1])],
     [/^コストがマナ枚数より大きい/, () => (filter.costAboveOwnerMana = true)],
@@ -687,6 +691,16 @@ function parseSentence(s: string): EffectDef[] | null {
   const ref = parseRefSentence(s);
   if (ref) return ref;
   if (s === '数字を1つ選ぶ') return [{ type: 'chooseNumber' }];
+  // メクレイド：「アビス・メクレイド5する」＝山札の上から3枚を見て、コスト5以下のアビスを1枚（W・メクレイドは2枚まで）、コストを支払わずに使ってもよい。残りは山札の下
+  if ((m = s.match(/^(?:自分は)?(.+?)・(W・)?メクレイド(\d+|∞)する$/))) {
+    const pickFilter: CardFilter = { race: m[1], ...(m[3] === '∞' ? {} : { maxCost: n(m[3]) }) };
+    return [
+      { type: 'lookAtTop', count: 3, pickCount: m[2] ? 2 : 1, pickFilter, pickTo: 'none', restTo: 'deckBottom' },
+      { type: 'playFree', target: { owner: 'self', zone: 'deck', count: 'all', ref: 'chosen', anyZone: true } },
+    ];
+  }
+  // フレンド・バーストなど：「このクリーチャーの呪文側を、バトルゾーンに置いたままコストを支払わずに唱える」
+  if (/^この(?:クリーチャー|カード)の呪文側を、?バトルゾーンに置いたまま、?コストを支払わずに唱える$/.test(s)) return [{ type: 'castOwnTwin' }];
   // 「その呪文を相手の墓地からコストを支払わずに唱える」「選んだ呪文があればコストを支払わずに唱える」：前の文のカードを使う
   if (/^(?:その|選んだ|それらの)(?:呪文|クリーチャー|カード)(?:があれば、?|を)(?:(?:自分|相手)の(?:墓地|手札|マナゾーン|山札)から)?、?コストを支払わずに(?:唱える|実行する|召喚する|出す|使う)$/.test(s)) {
     const target = refAnyZone();
@@ -948,9 +962,10 @@ function parseBody(body: string, options: string[]): Group[] | null {
       s = `自分の山札の${shuffled[1]}`;
     }
     // 「〜が3体出るまで表向きにする。その3体を出す。（その後、山札をシャッフルする）」
+    const untilS = stripOptional(s);
     const until =
-      s.match(/^自分の山札の上から(.+?)が(?:(\d+)体)?出るまで、?(?:表向きにする|カードをすべてのプレイヤーに見せる)$/) ??
-      s.match(/^(.+?)が()出るまで、自分の山札の上からカードをすべてのプレイヤーに見せる$/);
+      untilS.text.match(/^自分の山札の上から、?(.+?)が(?:(\d+)体)?出るまで、?(?:表向きにする|カードをすべてのプレイヤーに見せる)$/) ??
+      untilS.text.match(/^(.+?)が()出るまで、自分の山札の上からカードをすべてのプレイヤーに見せる$/);
     if (until) {
       const filter: CardFilter = {};
       if (!parsePickWhat(until[1], filter)) return null;
@@ -959,11 +974,13 @@ function parseBody(body: string, options: string[]): Group[] | null {
       i++;
       let restTo: 'graveyard' | 'shuffle' | 'deckBottom' = then[1].includes('墓地') ? 'graveyard' : 'deckBottom';
       if (!then[1].includes('墓地')) {
-        if (sentences[i + 1] !== '山札をシャッフルする') return null;
+        // 「その後、山札をシャッフルする」／「残りをシャッフルし、山札の下に置く」
+        if (sentences[i + 1] === '山札をシャッフルする') restTo = 'shuffle';
+        else if (/^残りを(?:シャッフルし、?|シャッフルして、?)?(?:自分の)?山札の(?:一番)?下に置く$/.test(sentences[i + 1] ?? '')) restTo = 'deckBottom';
+        else return null;
         i++;
-        restTo = 'shuffle';
       }
-      pushGroup(groups, false, [{ type: 'revealUntil', filter, count: until[2] ? n(until[2]) : 1, to: then[1].startsWith('手札') ? 'hand' : 'battle', restTo }], chain);
+      pushGroup(groups, untilS.optional, [{ type: 'revealUntil', filter, count: until[2] ? n(until[2]) : 1, to: then[1].startsWith('手札') ? 'hand' : 'battle', restTo }], chain);
       continue;
     }
     // 「次の能力を3回まで使う」：▶ の行がその能力
@@ -1474,7 +1491,7 @@ function parsePer(t: string): { per: Quantity; unit: number } | null {
 /** 「このクリーチャーの召喚コストを、クリーチャー1体につき1少なくする。ただしコストは2以下にならない」 */
 function parseSelfCost(t: string): ParsedAbilities['selfCost'] | null {
   const m =
-    t.match(/^このクリーチャーの召喚コストを、(.+?につき)(\d+)少なくする(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/) ??
+    t.match(/^この(?:クリーチャー|カード)の(?:召喚|実行)コスト(?:を|は)、(.+?につき)(\d+)少なく(?:する|なる)(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/) ??
     t.match(/^(.+?につき)、?このクリーチャーの召喚コストは(\d+)少なくなる(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/);
   if (!m) return null;
   const p = parsePer(m[1]);
@@ -1641,6 +1658,42 @@ function parseStatic(t: string): StaticAbility[] | null {
 
 // ───────────────────────── 入口 ─────────────────────────
 
+/**
+ * 知らない能力語を、カッコの補足説明から読む。
+ * 能力語の多くは、補足説明に効果がふつうの文で書いてある（「水ステルス（相手のマナゾーンに水のカードが1枚でもあれば、このクリーチャーはブロックされない）」）。
+ * 補足説明がすべて読めた時だけ使う。
+ * - 「能力語（補足説明）」「能力語：指定（補足説明）」：補足説明をそのまま能力として読む
+ * - 「〜時、アビス・メクレイド5する。（アビス・メクレイド5：〜）」：文の中の能力語を、補足説明の内容に置き換えて読む
+ */
+function parseFromReminder(line: string, options: string[], kind: 'creature' | 'spell' | 'other', out: ParsedAbilities): boolean {
+  if (kind === 'other') return false;
+  const raw = line.normalize('NFKC').replace(/[\s　]+/g, '').replace(/[−‐－–]/g, '-');
+  const tryParse = (text: string): boolean => {
+    const tmp: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
+    if (!applyKeywordLine(text, tmp.keywords) && !parseLine(text, options, kind, tmp)) return false;
+    // タイミングだけ分かって中身が手動、という読み方は使わない
+    if (tmp.abilities.some((a) => a.effects.some((e) => e.type === 'manual'))) return false;
+    Object.assign(out.keywords, tmp.keywords);
+    out.abilities.push(...tmp.abilities);
+    out.statics.push(...tmp.statics);
+    out.replacements.push(...tmp.replacements);
+    for (const k of ['selfCost', 'condCost', 'gZero', 'attackSwap', 'neoEvolution', 'evolvesFrom', 'summonFrom', 'neoCostReduce'] as const) if (tmp[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = tmp[k];
+    if (tmp.altPlays) (out.altPlays ??= []).push(...tmp.altPlays);
+    if (tmp.handTriggers) (out.handTriggers ??= []).push(...tmp.handTriggers);
+    return true;
+  };
+  // 文の中の能力語を、補足説明の定義に置き換える
+  const macro = raw.match(/^(.+?)\(([^():。、]{2,24}):([^()]+)\)$/);
+  if (macro && macro[1].includes(`${macro[2]}する`)) {
+    const body = macro[3].replace(/。$/, '');
+    return tryParse(macro[1].split(`${macro[2]}する`).join(body));
+  }
+  // 能力語だけの行：補足説明を能力として読む
+  const label = raw.match(/^([^()。、]{1,28})\(([^()]+)\)。?$/);
+  if (label) return tryParse(label[2]);
+  return false;
+}
+
 /** 能力テキストの段落を、1つの能力ごとにまとめる（途中で改行された文をつなぎ、▶ の選択肢を前の能力に付ける） */
 export function splitAbilityLines(text: string): { line: string; options: string[] }[] {
   const paras = text
@@ -1762,8 +1815,8 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
       if (soul) applyKeywordLine(line, soul.keywords);
       continue;
     }
-    const ok = parseLine(line, options, kind, result);
-    if (soul) parseLine(line, options, kind, soul);
+    const ok = parseLine(line, options, kind, result) || parseFromReminder(line, options, kind, result);
+    if (soul && !parseLine(line, options, kind, soul)) parseFromReminder(line, options, kind, soul);
     (ok ? result.parsedLines : result.manualLines).push([line, ...options.map((o) => `▶${o}`)].join('\n'));
   }
   if (soul) result.soul = { keywords: soul.keywords, abilities: soul.abilities, statics: soul.statics, replacements: soul.replacements };

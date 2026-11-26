@@ -817,3 +817,50 @@ describe('能力の文ごとの効果定義', () => {
     expect(r.errors).toHaveLength(1);
   });
 });
+
+describe('能力語を補足説明から読む・メクレイド', () => {
+  it('知らない能力語は、カッコの補足説明を能力として読む', () => {
+    const stealth = parseAbilityText('水ステルス(相手のマナゾーンに水のカードが１枚でもあれば、このクリーチャーはブロックされない)', 'creature');
+    expect(stealth.manualLines).toHaveLength(0);
+    expect(stealth.statics[0]).toMatchObject({ type: 'grantKeyword', keywords: { unblockable: true }, condition: { type: 'compare' } });
+    expect(parseAbilityText('H・ブレイカー（このクリーチャーはシールドを６つブレイクする）', 'creature').keywords.breaker).toBe(6);
+    const yobi = parseAbilityText('ヨビニオン（このクリーチャーが召喚によって出た時、自分の山札の上から、これよりコストが小さいクリーチャーが出るまで表向きにしてもよい。そのクリーチャーを出す。残りをシャッフルし、山札の下に置く）', 'creature');
+    expect(yobi.manualLines).toHaveLength(0);
+    expect(yobi.abilities[0]).toMatchObject({ when: 'onSummon', optional: true, effects: [{ type: 'revealUntil', to: 'battle', restTo: 'deckBottom' }] });
+    // 補足説明が読めない能力語は手動のまま
+    expect(parseAbilityText('ダイナモ（バトルが始まる時、あるいはこのクリーチャーで攻撃できる時、このクリーチャーをタップしてもよい）', 'creature').manualLines).toHaveLength(1);
+  });
+
+  it('文の中の能力語は、補足説明の定義に置き換えて読む。メクレイドは補足説明がなくても読む', () => {
+    const withReminder = parseAbilityText('このクリーチャーが出た時、アビス・メクレイド５する。（アビス・メクレイド５：自分の山札の上から３枚を見る。その中から、コスト５以下のアビスを１枚、コストを支払わずに使ってもよい。残りを好きな順序で山札の下に置く）', 'creature');
+    expect(withReminder.manualLines).toHaveLength(0);
+    const bare = parseAbilityText('このクリーチャーが出た時、アビス・メクレイド５する。', 'creature');
+    expect(bare.abilities[0].effects).toEqual([
+      { type: 'lookAtTop', count: 3, pickCount: 1, pickFilter: { race: 'アビス', maxCost: 5 }, pickTo: 'none', restTo: 'deckBottom' },
+      { type: 'playFree', target: { owner: 'self', zone: 'deck', count: 'all', ref: 'chosen', anyZone: true } },
+    ]);
+  });
+
+  it('メクレイド：山札の上から3枚を見て、条件に合うクリーチャーをコストを支払わずに出す', () => {
+    const mek = mk('m-95', ['このクリーチャーが出た時、テスト・メクレイド５する。']);
+    const r = buildRegistry([...SAMPLE_CARDS, ...Object.values(C), mek]);
+    let s = createGame({ players: [{ name: 'A', deck: filler }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, r);
+    const add = (cardId: string, zone: ZoneName) => {
+      const iid = `t${s.nextIid++}`;
+      s.cards[iid] = { iid, cardId, owner: 0, zone: 'deck', tapped: false, enteredTurn: 0, powerModTurn: 0, under: [], faceUp: false };
+      s.players[0].zones.deck.unshift(iid);
+      new Ctx(s, r).moveCard(iid, zone);
+      return iid;
+    };
+    const target = add(C.vanilla.id, 'deck');
+    const c = add(mek.id, 'hand');
+    add(C.vanilla.id, 'mana');
+    let res = applyAction(s, { type: 'PLAY_CARD', player: 0, iid: c }, r);
+    s = res.state;
+    expect(s.pending?.kind === 'selectCards' && s.pending.candidates).toContain(target);
+    res = applyAction(s, { type: 'RESPOND', player: 0, selected: [target] }, r);
+    s = res.state;
+    expect(res.error).toBeFalsy();
+    expect(s.cards[target].zone).toBe('battle');
+  });
+});
