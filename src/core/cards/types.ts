@@ -92,6 +92,8 @@ export interface CardFilter {
   costIsChosenNumber?: boolean;
   /** 効果の発生源自身だけ（「このクリーチャーに封印を付ける」） */
   selfOnly?: boolean;
+  /** 裏向きのカード（マナゾーンの裏向きのカード、裏向きのシールド） */
+  faceDown?: boolean;
   /** カードの種類名にこの文字列を含む（「ミリオン・フレイム」など、エンジンの種類にない種類） */
   typeLabelIncludes?: string;
   /** このうちのどれかに合うもの（「呪文または名前に《X》とあるカード」） */
@@ -136,6 +138,8 @@ export interface Quantity {
   who: 'self' | 'opponent' | 'any';
   zone: 'battle' | 'mana' | 'shield' | 'graveyard' | 'hand' | 'deck';
   filter?: CardFilter;
+  /** バトルゾーンを数える時、クリーチャー以外（タマシード・フィールド）も数える */
+  withPermanents?: boolean;
   /** 枚数ではなく、異なるコストの種類を数える（「コストが異なる自分のクリーチャー1体につき」） */
   distinctCost?: boolean;
 }
@@ -365,6 +369,10 @@ export const TRIGGER_EVENTS = [
   'onUnderLeft',
   /** カードが自分のクリーチャーの下を離れた時（このクリーチャー自身も含む） */
   'onOwnUnderLeft',
+  /** カードがシールドゾーンを離れた時（who で誰のシールドゾーンか） */
+  'onShieldLeft',
+  /** このクリーチャーの「EXライフ」シールドが離れた時 */
+  'onExLifeLeft',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
@@ -524,6 +532,8 @@ export interface Keywords {
   lure?: boolean;
   /** このクリーチャーの攻撃中、相手は「G・ストライク」を使えない */
   noGStrikeAgainst?: boolean;
+  /** ウェーブストライカーを持つ（数えるための印） */
+  waveStriker?: boolean;
   /** シンカライズ：クリーチャーであるかのように、この上に進化クリーチャーを置いてもよい（タマシード） */
   shinkarize?: boolean;
   /** Zラッシュ：シールドが離れたら、次の自分のターンのはじめまでハイパーモードになる */

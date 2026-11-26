@@ -122,6 +122,8 @@ export type GameEvent =
   /** 手札を捨てた（効果で手札から墓地へ） */
   | { type: 'CARD_DISCARDED'; player: PlayerId; iid: string }
   | { type: 'CARD_MOVED'; iid: string; from: ZoneName; to: ZoneName }
+  /** カードがシールドゾーンを離れた（player: そのシールドゾーンの持ち主） */
+  | { type: 'SHIELD_LEFT'; player: PlayerId; iid: string }
   /** クリーチャー（iid）の下にあったカード（card）が、その下を離れた */
   | { type: 'UNDER_LEFT'; iid: string; card: string }
   | { type: 'GAME_OVER'; winner: PlayerId | null; reason: string };

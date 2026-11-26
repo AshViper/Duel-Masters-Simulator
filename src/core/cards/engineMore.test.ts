@@ -864,3 +864,58 @@ describe('能力語を補足説明から読む・メクレイド', () => {
     expect(s.cards[target].zone).toBe('battle');
   });
 });
+
+describe('条件を満たすと能力を得る・能力語つきの本文', () => {
+  it('「〜があれば、このクリーチャーは次の能力を得る」：次の行を条件つきの能力として読む', () => {
+    const meta = mk('m-100', ['メタモーフ（自分のマナゾーンに７枚以上カードがあれば、このクリーチャーは次の能力を得る）\n\nこのクリーチャーはブロックされない。']);
+    expect(meta.support).toBe('full');
+    const r = buildRegistry([...SAMPLE_CARDS, ...Object.values(C), meta]);
+    const s = createGame({ players: [{ name: 'A', deck: filler }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, r);
+    const add = (cardId: string, zone: ZoneName) => {
+      const iid = `t${s.nextIid++}`;
+      s.cards[iid] = { iid, cardId, owner: 0, zone: 'deck', tapped: false, enteredTurn: 0, powerModTurn: 0, under: [], faceUp: false };
+      s.players[0].zones.deck.unshift(iid);
+      new Ctx(s, r).moveCard(iid, zone);
+      return iid;
+    };
+    const c = add(meta.id, 'battle');
+    for (let i = 0; i < 6; i++) add(C.vanilla.id, 'mana');
+    expect(keywords(s, r, c).unblockable).toBeFalsy();
+    add(C.vanilla.id, 'mana');
+    expect(keywords(s, r, c).unblockable).toBe(true);
+  });
+
+  it('ウェーブストライカー：他に2体以上いる時だけ、印の付いた能力を得る', () => {
+    const p = parseAbilityText('ウェーブストライカー（「ウェーブストライカー」を持つクリーチャーが他に２体以上あれば、このクリーチャーに次のw能力を与える）\n\nw自分のクリーチャーすべてのパワーを+5000し、「ブロッカー」と「W・ブレイカー」を与える。', 'creature');
+    expect(p.manualLines).toHaveLength(0);
+    expect(p.keywords.waveStriker).toBe(true);
+    expect(p.statics).toHaveLength(2);
+    expect(p.statics[0].condition).toEqual({ type: 'compare', left: { who: 'any', zone: 'battle', filter: { hasKeyword: 'waveStriker', excludeSelf: true } }, op: '>=', right: 2 });
+  });
+
+  it('知らない能力語でも「能力語：本文」の本文が読めれば使う。補足説明に条件がある行は読まない', () => {
+    const civil = parseAbilityText('シビルカウント３：自分の火のクリーチャーまたは火のタマシードが合計３つ以上あれば、このクリーチャーは「スピードアタッカー」を得る。', 'creature');
+    expect(civil.manualLines).toHaveLength(0);
+    expect(civil.statics[0]).toMatchObject({ type: 'grantKeyword', keywords: { speedAttacker: true }, condition: { type: 'compare', left: { withPermanents: true } } });
+    expect(parseAbilityText('バラバラエティ３：自分のクリーチャーすべてに「スピードアタッカー」を与える。（コストが異なる自分のエレメントが３つ以上あれば、このクリーチャーにこの能力を与える）', 'creature').manualLines).toHaveLength(1);
+  });
+
+  it('「カードが自分のシールドゾーンを離れた時」「「EXライフ」シールドが離れた時」', () => {
+    expect(parseAbilityText('オシオキムーン：カードが自分のシールドゾーンを離れた時、相手は自身のアンタップしているクリーチャーを１体選び、破壊する。', 'creature').abilities[0]).toMatchObject({ when: 'onShieldLeft', who: 'self' });
+    const ex = parseAbilityText('このクリーチャーが出た時またはこのクリーチャーの「EXライフ」シールドが離れた時、カードを１枚引く。', 'creature');
+    expect(ex.abilities.map((a) => a.when)).toEqual(['onSummon', 'onExLifeLeft']);
+    // エンジン：シールドが離れると誘発する
+    const card = mk('m-101', ['カードが自分のシールドゾーンを離れた時、カードを１枚引く。']);
+    const r = buildRegistry([...SAMPLE_CARDS, ...Object.values(C), card]);
+    const s = createGame({ players: [{ name: 'A', deck: filler }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, r);
+    const iid = `t${s.nextIid++}`;
+    s.cards[iid] = { iid, cardId: card.id, owner: 0, zone: 'deck', tapped: false, enteredTurn: 0, powerModTurn: 0, under: [], faceUp: false };
+    s.players[0].zones.deck.unshift(iid);
+    const ctx = new Ctx(s, r);
+    ctx.moveCard(iid, 'battle');
+    const hand = s.players[0].zones.hand.length;
+    ctx.moveCard(s.players[0].zones.shield[0], 'graveyard');
+    ctx.run();
+    expect(s.players[0].zones.hand.length).toBe(hand + 1);
+  });
+});

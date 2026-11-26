@@ -196,6 +196,7 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   if (f.not && matchFilter(state, reg, iid, f.not, source, noPower)) return false;
   if (f.anyOf && !f.anyOf.some((x) => matchFilter(state, reg, iid, x, source, noPower))) return false;
   if (f.selfOnly && iid !== source) return false;
+  if (f.faceDown && inst.faceUp !== false) return false;
   if (f.typeLabelIncludes && !(d.typeLabel ?? '').includes(f.typeLabelIncludes)) return false;
   if (f.costIsChosenNumber && d.cost !== state.chosenNumber) return false;
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(d.type) : d.type !== f.cardType)) return false;
@@ -617,7 +618,7 @@ export function targetCandidates(state: GameState, reg: CardRegistry, controller
 export function countQuantity(state: GameState, reg: CardRegistry, controller: PlayerId, q: Quantity, noPower = false, source?: string): number {
   const players: PlayerId[] = q.who === 'self' ? [controller] : q.who === 'opponent' ? [other(controller)] : [controller, other(controller)];
   // フィールド・タマシードを数える時はクリーチャー以外も見る
-  const inBattle = (p: PlayerId) => (q.filter?.cardType && isNonCreaturePermanent(q.filter.cardType) ? battleAndFields(state, reg, p) : battleCards(state, reg, p));
+  const inBattle = (p: PlayerId) => (q.withPermanents || (q.filter?.cardType && isNonCreaturePermanent(q.filter.cardType)) ? battleAndFields(state, reg, p) : battleCards(state, reg, p));
   const hits = players.flatMap((p) => (q.zone === 'battle' ? inBattle(p) : state.players[p].zones[q.zone]).filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)));
   // 「コストが異なる〜1体につき」：コストの種類の数
   if (q.distinctCost) return new Set(hits.map((iid) => def(state, reg, iid).cost)).size;

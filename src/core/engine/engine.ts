@@ -1295,6 +1295,7 @@ export class Ctx {
       inst.exLifeShields = exShields.slice(2);
       this.moveCard(sh, 'graveyard');
       this.log(`${this.name(task.iid)} はEXライフのシールドを墓地に置いて、バトルゾーンにとどまった`, inst.owner);
+      this.triggerFrom(task.iid, 'onExLifeLeft');
       return false;
     }
     const rep = (chosen ? reps.find((x) => x.key === chosen) : reps[0]) ?? null;
@@ -2585,6 +2586,18 @@ export class Ctx {
       case 'CREATURE_TAPPED':
         this.triggerFrom(e.iid, 'onTap');
         break;
+      // 「カードが自分のシールドゾーンを離れた時」「このクリーチャーの「EXライフ」シールドが離れた時」
+      case 'SHIELD_LEFT':
+        for (const iid of battleAll()) {
+          this.triggerFrom(iid, 'onShieldLeft', (ab) => this.whoMatches(ab.who, s.cards[iid].owner, e.player), e.iid);
+          const bi = s.cards[iid];
+          if (bi.exLifeShield === e.iid || bi.exLifeShields?.includes(e.iid)) {
+            if (bi.exLifeShield === e.iid) bi.exLifeShield = bi.exLifeShields?.shift();
+            else bi.exLifeShields = bi.exLifeShields!.filter((x) => x !== e.iid);
+            this.triggerFrom(iid, 'onExLifeLeft');
+          }
+        }
+        break;
       // 「カードがこのクリーチャーの下を離れた時」「カードが自分のクリーチャーの下を離れた時」
       case 'UNDER_LEFT': {
         const host = s.cards[e.iid];
@@ -2743,6 +2756,7 @@ export class Ctx {
     else owner.zones[to].push(iid);
     this.emit({ type: 'CARD_MOVED', iid, from, to });
     if (to === 'shield' && from !== 'shield') this.emit({ type: 'SHIELD_ADDED', player: inst.owner, iid });
+    if (from === 'shield' && to !== 'shield') this.emit({ type: 'SHIELD_LEFT', player: inst.owner, iid });
     // Zラッシュ：シールドが離れたら、次の自分のターンのはじめまでハイパーモードになる
     if (from === 'shield' && to !== 'shield') {
       for (const b of [...s.players[0].zones.battle, ...s.players[1].zones.battle]) {

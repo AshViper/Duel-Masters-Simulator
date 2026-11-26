@@ -94,6 +94,8 @@ export function normalizeText(s: string): string {
     .replace(/クリーチャー(\d+)体選び/g, 'クリーチャーを$1体選び')
     .replace(/墓地のかわりに/g, '墓地に置くかわりに')
     .replace(/コストが(\d+)以(上|下)の/g, 'コスト$1以$2の')
+    .replace(/このクリーチャーの「EXライフ」シールドが離れた時/g, 'このクリーチャーがEXライフシールドを失った時')
+    .replace(/(自分|相手)のマナゾーンに(\d+)枚以上カードがあれば/g, '$1のマナゾーンにカードが$2枚以上あれば')
     .replace(/を無限の数、?/g, 'をすべて')
     .replace(/カードをもう(\d+)枚/g, 'カードを$1枚')
     // 「山札の上から10枚を表向きにし、その中から〜」「4枚を見て、そのうちの〜」は2つの文として読む
@@ -223,6 +225,7 @@ const EVENTS: { re: RegExp; self?: TriggerEvent; other?: TriggerEvent; ownInclud
   { re: /^(?:バトルゾーンを)?離れた時/, self: 'onLeave', other: 'onOtherLeave' },
   { re: /^ブロック(?:した|する)時/, self: 'onBlock' },
   { re: /^進化する時/, self: 'onEvolved' },
+  { re: /^EXライフシールドを失った時/, self: 'onExLifeLeft' },
   { re: /^禁断解放した時/, self: 'onUnleash' },
   { re: /^バトルに勝った時/, self: 'onBattleWin', other: 'onOtherBattleWin' },
   { re: /^タップした時/, self: 'onTap' },
@@ -250,6 +253,7 @@ const PLAYER_EVENTS: { re: RegExp; when: TriggerEvent; filter?: CardFilter }[] =
   { re: /^(自分|相手)が(?:自身の)?手札を(?:1枚)?捨てた時、/, when: 'onDiscard' },
   { re: /^(自分|相手)が手札から呪文を捨てた時、/, when: 'onDiscard', filter: { cardType: 'spell' } },
   { re: /^カードが(自分|相手)のシールドゾーンに置かれた時、/, when: 'onShieldAdded' },
+  { re: /^カードが(自分|相手)のシールドゾーンを離れた時、/, when: 'onShieldLeft' },
 ];
 
 /**
@@ -1697,6 +1701,29 @@ function parseFromReminder(line: string, options: string[], kind: 'creature' | '
   return false;
 }
 
+/** 読み取った能力のまとまりを、もう1つに足す */
+function mergeParsed(out: ParsedAbilities, tmp: ParsedAbilities): void {
+  Object.assign(out.keywords, tmp.keywords);
+  out.abilities.push(...tmp.abilities);
+  out.statics.push(...tmp.statics);
+  out.replacements.push(...tmp.replacements);
+  for (const k of ['selfCost', 'condCost', 'gZero', 'attackSwap', 'neoEvolution', 'evolvesFrom', 'summonFrom', 'neoCostReduce', 'evolveSpec'] as const) if (tmp[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = tmp[k];
+  if (tmp.altPlays) (out.altPlays ??= []).push(...tmp.altPlays);
+  if (tmp.handTriggers) (out.handTriggers ??= []).push(...tmp.handTriggers);
+}
+
+/**
+ * 「能力語（〜があれば、このクリーチャーは次の能力を得る）」の行：条件を返す（メタモーフ・ノー・チョイス・ウェーブストライカー）。
+ * 次の行（頭に r・w などの印が付くこともある）が、その条件つきで得る能力になる
+ */
+function parseGrantFrame(line: string): { condition: Condition; label: string } | null {
+  const raw = line.normalize('NFKC').replace(/[\s　]+/g, '');
+  const m = raw.match(/^([^()。、:]{2,20})\((.+?)、?このクリーチャー(?:は次の.?能力を得る|に次の.?能力を与える)\)$/);
+  if (!m) return null;
+  const c = splitCondition(`${normalizeText(m[2])}、x`);
+  return c.condition && c.body === 'x' ? { condition: c.condition, label: m[1] } : null;
+}
+
 /** 能力テキストの段落を、1つの能力ごとにまとめる（途中で改行された文をつなぎ、▶ の選択肢を前の能力に付ける） */
 export function splitAbilityLines(text: string): { line: string; options: string[] }[] {
   const paras = text
@@ -1735,6 +1762,7 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
   // 超魂X：この行より後の能力は、このカードが下にあるクリーチャーにも与える
   let soul: ParsedAbilities | null = null;
   const empty = (): ParsedAbilities => ({ keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] });
+  let pendingFrame: { condition: Condition; line: string } | null = null;
   for (const { line: rawLine, options } of splitAbilityLines(text)) {
     // 条件つきの能力のアイコン：{S} サバイバー、{x+} S・トリガー・プラス、{xB} スーパー・S・トリガー
     const icon = rawLine.normalize('NFKC').trim().match(/^\{(S|x\+|xB)\}\s*([\s\S]*)$/);
@@ -1742,6 +1770,29 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
     const t = stripIcons(normalizeText(line));
     // 補足説明（カッコ書き）だけの行は能力ではない
     if (!t && !options.length) continue;
+    // 「〜があれば、このクリーチャーは次の能力を得る」：次の行を、その条件つきの能力として読む
+    if (pendingFrame) {
+      const frame = pendingFrame;
+      pendingFrame = null;
+      const tmp = empty();
+      const bodyLine = rawLine.normalize('NFKC').trim().replace(/^(?:\{[a-zA-Z]\}|[a-zA-Z](?![a-zA-Z]))\s*/, '');
+      const ok = kind !== 'other' && (applyKeywordLine(bodyLine, tmp.keywords) || parseLine(bodyLine, options, kind, tmp)) && !tmp.replacements.length && !tmp.abilities.some((a) => a.effects.some((e) => e.type === 'manual'));
+      const key = [rawLine, ...options.map((o) => `▶${o}`)].join('\n');
+      if (ok) {
+        const and = (c?: Condition): Condition => (c ? { type: 'and', conditions: [frame.condition, c] } : frame.condition);
+        if (Object.keys(tmp.keywords).length) result.statics.push({ type: 'grantKeyword', keywords: tmp.keywords, appliesTo: { owner: 'self', onlySelf: true }, condition: frame.condition });
+        for (const st of tmp.statics) result.statics.push({ ...st, condition: and(st.condition) });
+        for (const ab of tmp.abilities) result.abilities.push({ ...ab, condition: and(ab.condition) });
+        result.parsedLines.push(frame.line, key);
+      } else result.manualLines.push(frame.line, key);
+      continue;
+    }
+    const frame = kind === 'creature' ? parseGrantFrame(rawLine) : null;
+    if (frame) {
+      if (frame.label === 'ウェーブストライカー') result.keywords.waveStriker = true;
+      pendingFrame = { condition: frame.condition, line: rawLine };
+      continue;
+    }
     // 能力の文ごとの効果定義があれば、読み取りより優先して使う
     const lineDef = findLineDef(rawLine, options);
     if (lineDef) {
@@ -1840,6 +1891,39 @@ function parseAwakenLink(t: string): ParsedAbilities['awakenLink'] | null {
 /** 本文の先頭の「〜があれば、」「〜なら、」を条件にする */
 function splitCondition(body: string): { body: string | null; condition?: Condition } {
   const who = (w: string) => (w === '自分' ? 'self' : 'opponent') as Quantity['who'];
+  // シビルカウント：「自分の火のクリーチャーまたは火のタマシードが合計3つ以上あれば、」
+  const civil = body.match(/^自分の(光|水|闇|火|自然)のクリーチャーまたは\1のタマシードが合計(\d+)(?:つ|体|枚)以上あれば、(.+)$/);
+  if (civil)
+    return {
+      body: civil[3],
+      condition: { type: 'compare', left: { who: 'self', zone: 'battle', withPermanents: true, filter: { civilization: CIV[civil[1]], anyOf: [{ cardType: 'creature' }, { cardType: 'tamaseed' }] } }, op: '>=', right: n(civil[2]) },
+    };
+  // 水晶武装：「自分のマナゾーンに裏向きのカードが4枚以上あれば、」
+  const crystal = body.match(/^(自分|相手)のマナゾーンに裏向きのカードが(\d+)枚以上あれば、(.+)$/);
+  if (crystal) return { body: crystal[3], condition: { type: 'compare', left: { who: who(crystal[1]), zone: 'mana', filter: { faceDown: true } }, op: '>=', right: n(crystal[2]) } };
+  // マナドライブ：「自分のマナゾーンのカードが3枚以上で闇文明があれば、」
+  const drive = body.match(/^自分のマナゾーンのカードが(\d+)枚以上で(光|水|闇|火|自然)文明があれば、(.+)$/);
+  if (drive)
+    return {
+      body: drive[3],
+      condition: {
+        type: 'and',
+        conditions: [
+          { type: 'compare', left: { who: 'self', zone: 'mana' }, op: '>=', right: n(drive[1]) },
+          { type: 'compare', left: { who: 'self', zone: 'mana', filter: { civilization: CIV[drive[2]] } }, op: '>=', right: 1 },
+        ],
+      },
+    };
+  // ノー・チョイス：「手札を1枚も持っていないプレイヤーがひとりでもいれば、」
+  const noHand = body.match(/^手札を1枚も持っていないプレイヤーが(?:ひとり|1人)でもいれば、(.+)$/);
+  if (noHand)
+    return {
+      body: noHand[1],
+      condition: { type: 'or', conditions: [{ type: 'compare', left: { who: 'self', zone: 'hand' }, op: '<=', right: 0 }, { type: 'compare', left: { who: 'opponent', zone: 'hand' }, op: '<=', right: 0 }] },
+    };
+  // ウェーブストライカー：「「ウェーブストライカー」を持つクリーチャーが他に2体以上あれば、」
+  const wave = body.match(/^「ウェーブストライカー」を持つクリーチャーが他に(\d+)体以上あれば、(.+)$/);
+  if (wave) return { body: wave[2], condition: { type: 'compare', left: { who: 'any', zone: 'battle', filter: { hasKeyword: 'waveStriker', excludeSelf: true } }, op: '>=', right: n(wave[1]) } };
   // 「そのクリーチャーがコストを支払わずに出ていたら、」（誘発の原因になったクリーチャー）
   const free = body.match(/^(?:その|それらの)クリーチャーがコストを支払わずに出ていたら、(.+)$/);
   if (free) return { body: free[1], condition: { type: 'subjectEnteredFree' } };
@@ -2008,6 +2092,16 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   // 名前だけの能力語（「マナ武装5：」「鬼タイム：」など）。条件は後ろの文に書いてあるので外して読む
   const label = t.match(/^(?:マナ武装|龍マナ武装|鬼タイム|革命|マナドライブ|シンカパワー|メテオバーン)\d*[:：](.+)$/);
   if (label) return parseLine(label[1], options, kind, out);
+  // 知らない能力語でも「能力語：本文」で、本文がふつうの能力としてすべて読めればそれを使う（シビルカウント3：〜、水晶武装4：〜）。
+  // カッコの補足説明に条件が書いてある行（バラバラエティなど）は、本文だけでは条件が分からないので読まない
+  const anyLabel = /[(（]/.test(line) ? null : t.match(/^[^、。:：「」]{2,14}?\d*(?:\((?:光|水|闇|火|自然)\))?[:：](.{8,})$/);
+  if (anyLabel && !/^(?:進化|NEO進化|G-NEO進化|侵略|革命チェンジ|シンパシー|G・ゼロ|アタック・チャンス|Dスイッチ|ハイパー化|ウルトラ・セイバー)/.test(t)) {
+    const tmp: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
+    if (parseLine(anyLabel[1], options, kind, tmp) && !tmp.abilities.some((a) => a.effects.some((e) => e.type === 'manual'))) {
+      mergeParsed(out, tmp);
+      return true;
+    }
+  }
   // G・ゼロ：「G・ゼロ：バトルゾーンに自分の〜があれば、このクリーチャーをコストを支払わずに召喚してもよい」
   const gz = t.match(/^G・ゼロ[:：\-](.+)、この(?:クリーチャー|呪文|カード)を(?:コストを支払わずに|コスト0で)(?:召喚し|唱え|使っ)てもよい。?$/);
   if (gz) {
