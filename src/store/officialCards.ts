@@ -3,7 +3,9 @@ import type { OfficialCardDetail } from '../server/dmOfficial';
 import { db } from '../db/db';
 import { deleteImages, hasImage, saveImage } from '../db/imageCache';
 import { useApp } from './appStore';
-import { apiFetch, isProxyMissing, NO_PROXY_MESSAGE } from '../ui/officialApi';
+import { apiFetch, isProxyMissing, needsBridge, NO_PROXY_MESSAGE } from '../ui/officialApi';
+import { isBridgeConnected } from '../ui/officialBridge';
+import type { CardDefinition } from '../core/cards/types';
 
 // 公式カードを「デッキ構築・対戦で使えるように」ブラウザへ保存する。
 // 公式サーバーへのアクセスは保存する時だけ。保存済みのカードは再取得しない。
@@ -15,9 +17,8 @@ export function isOfficialSaved(id: string): boolean {
 export async function saveOfficialCard(id: string): Promise<'saved' | 'skipped'> {
   const cardId = officialCardId(id);
   const existing = useApp.getState().registry[cardId];
-  // 古い版で保存した禁断の鼓動・サイキック・クリーチャー（裏側のパワーが分からない）は保存し直す
-  const stale = (!!existing?.forbidden && existing.forbidden.creature.power === undefined) || (!!existing?.psychic && existing.psychic.back.power === undefined) || (!!existing?.twin && /サイキック/.test(existing.typeLabel ?? ''));
-  if (!stale && existing?.imageRef && (await hasImage(existing.imageRef))) return 'skipped';
+  const stale = !!existing && isStaleOfficial(existing);
+  if (!stale && existing?.imageRef && (await hasImage(existing.imageRef)) && !(await backImageMissing(existing))) return 'skipped';
 
   const res = await apiFetch(`/dm-api/detail?id=${encodeURIComponent(id)}`);
   if (isProxyMissing(res)) throw new Error(NO_PROXY_MESSAGE);
@@ -40,6 +41,59 @@ export async function saveOfficialCard(id: string): Promise<'saved' | 'skipped'>
   }
   await useApp.getState().importCards([card]);
   return 'saved';
+}
+
+/** 古い版で保存した禁断の鼓動・サイキック・クリーチャー（裏側のパワーが分からない）。公式から保存し直す必要がある */
+function isStaleOfficial(card: CardDefinition): boolean {
+  return (!!card.forbidden && card.forbidden.creature.power === undefined) || (!!card.psychic && card.psychic.back.power === undefined) || (!!card.twin && /サイキック/.test(card.typeLabel ?? ''));
+}
+
+/** 裏返る面（禁断クリーチャー・サイキックの裏面）がある公式カードで、裏面の画像が保存されていないか */
+async function backImageMissing(card: CardDefinition): Promise<boolean> {
+  return !!(card.forbidden || card.psychic) && !!card.imageRef && !(await hasImage(`${card.imageRef}:b`));
+}
+
+/**
+ * 保存済みの公式カードのうち、裏面の画像がないもの（保存時に取得に失敗したなど）の画像だけを取り直す。
+ * 古い版で保存した禁断・サイキックのカードは、カードごと保存し直す。
+ * 起動時に裏で1回だけ動かす。中継がない環境（ブリッジ未接続）や失敗した時は何もしない。
+ */
+let repairing = false;
+export async function repairBackImages(): Promise<number> {
+  if (repairing || (needsBridge() && !isBridgeConnected())) return 0;
+  repairing = true;
+  let fixed = 0;
+  try {
+    const cards = Object.values(useApp.getState().registry).filter((c) => c.id.startsWith(OFFICIAL_PREFIX));
+    for (const card of cards) {
+      // 古い版で保存したカードは、裏側のパワーなどが欠けている（禁断解放した途端に破壊されるなど）ので、まるごと保存し直す
+      if (isStaleOfficial(card)) {
+        try {
+          if ((await saveOfficialCard(card.id.slice(OFFICIAL_PREFIX.length))) === 'saved') fixed++;
+        } catch {
+          // 通信できない時は次の起動でまた試す
+        }
+        continue;
+      }
+      if (!(await backImageMissing(card))) continue;
+      try {
+        const res = await apiFetch(`/dm-api/detail?id=${encodeURIComponent(card.id.slice(OFFICIAL_PREFIX.length))}`);
+        if (!res.ok || isProxyMissing(res)) continue;
+        const detail = (await res.json()) as OfficialCardDetail;
+        const backUrl = detail.faces[1]?.imageUrl;
+        if (!backUrl) continue;
+        const img = await apiFetch(`/dm-api/image?path=${encodeURIComponent(new URL(backUrl).pathname)}`);
+        if (!img.ok) continue;
+        await saveImage(`${card.imageRef}:b`, await img.blob(), backUrl);
+        fixed++;
+      } catch {
+        // 通信できない時は次の起動でまた試す
+      }
+    }
+  } finally {
+    repairing = false;
+  }
+  return fixed;
 }
 
 /** 複数枚を順番に保存する（公式サーバー側の間隔制御は中継サーバーが行う） */

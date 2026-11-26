@@ -53,6 +53,14 @@ export async function saveImage(key: string, blob: Blob, source: string): Promis
   const old = urls.get(key);
   if (old) URL.revokeObjectURL(old);
   urls.delete(key);
+  // 表示待ちの CardView（裏面の画像をあとから保存した時など）にも知らせる
+  const waiting = listeners.get(key);
+  if (waiting?.size) {
+    const url = URL.createObjectURL(blob);
+    urls.set(key, url);
+    for (const fn of waiting) fn(url);
+    listeners.delete(key);
+  }
 }
 
 export async function hasImage(key: string): Promise<boolean> {

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useApp } from '../store/appStore';
+import { repairBackImages } from '../store/officialCards';
 import { BattleScreen } from './screens/Battle';
 import { BattleSetupScreen } from './screens/BattleSetup';
 import { DeckBuilderScreen } from './screens/DeckBuilder';
@@ -34,13 +35,18 @@ function Shell() {
 function CurrentScreen() {
   const { screen, ready, init, editingDeckId, go } = useApp();
   useEffect(() => {
-    void init();
+    // 起動後、裏面の画像が抜けている公式カード（禁断・サイキック）の画像を裏で取り直す
+    void init().then(() => repairBackImages());
   }, [init]);
   // ブックマークレットで公式サイトから開かれたら、ホームから公式カード検索へ進む
   const bridged = useBridgeConnected();
   useEffect(() => {
     if (bridged && ready && useApp.getState().screen === 'home') go('official');
   }, [bridged, ready, go]);
+  // 公開版では中継（ブックマークレット）がつながってから公式へアクセスできるので、つながった時にも取り直す
+  useEffect(() => {
+    if (bridged && ready) void repairBackImages();
+  }, [bridged, ready]);
   if (!ready) return <div className="loading">読み込み中…</div>;
   switch (screen) {
     case 'home':
