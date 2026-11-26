@@ -1,4 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { validateLineDefs } from '../../core/cards/lineDefs';
+import { faceKind, OFFICIAL_PREFIX } from '../../core/cards/officialConvert';
+import { parseAbilityText } from '../../core/cards/textParser';
 import { DEFAULT_FORMAT } from '../../core/deck/rules';
 import { db, type MatchRecord } from '../../db/db';
 import { useApp } from '../../store/appStore';
@@ -71,6 +74,8 @@ export function SettingsScreen() {
             </div>
           </section>
 
+          <LineDefsPanel />
+
           <section className="panel settings-group danger-zone">
             <div className="panel-title">データ</div>
             <div className="setting-row">
@@ -123,6 +128,65 @@ export function SettingsScreen() {
         </section>
       </div>
     </div>
+  );
+}
+
+/** 能力の文ごとの効果定義：手動になっている能力の書き出しと、定義（JSON）の取り込み */
+function LineDefsPanel() {
+  const { settings, updateSettings, cards } = useApp();
+  const [text, setText] = useState(JSON.stringify(settings.lineDefs ?? {}, null, 1));
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const count = Object.keys(settings.lineDefs ?? {}).length;
+  const manual = useMemo(() => {
+    const lines = new Set<string>();
+    for (const c of cards) {
+      if (!c.id.startsWith(OFFICIAL_PREFIX) || c.support === 'full') continue;
+      for (const l of parseAbilityText(c.text, faceKind(c)).manualLines) lines.add(l.replace(/\n/g, ''));
+      if (c.twin) for (const l of parseAbilityText(c.twin.text, 'spell').manualLines) lines.add(l.replace(/\n/g, ''));
+    }
+    return [...lines];
+  }, [cards]);
+  return (
+    <section className="panel settings-group">
+      <div className="panel-title">
+        効果定義
+        <span>取り込み済み {count}件・手動の能力 {manual.length}種類</span>
+      </div>
+      <p className="muted small">自動処理できない能力に、効果の定義（JSON）を持たせます。キーは能力の文、値は abilities などの定義です。</p>
+      <textarea className="linedefs-text" spellCheck={false} rows={5} value={text} onChange={(e) => setText(e.target.value)} />
+      <div className="settings-actions">
+        {msg && <span className={msg.ok ? 'ok' : 'ng'}>{msg.text}</span>}
+        <button
+          disabled={manual.length === 0}
+          title="保存してあるカードで手動になっている能力の文を、定義を書くためのひな形にして入力欄に入れます"
+          onClick={() => {
+            const skeleton = Object.fromEntries(manual.map((l) => [l, { abilities: [] }]));
+            setText(JSON.stringify({ ...skeleton, ...(settings.lineDefs ?? {}) }, null, 1));
+            setMsg({ ok: true, text: `手動の能力 ${manual.length}種類のひな形を入れました（保存はまだです）` });
+          }}
+        >
+          手動の能力を書き出す
+        </button>
+        <button
+          className="gold"
+          onClick={() => {
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(text || '{}');
+            } catch {
+              return setMsg({ ok: false, text: 'JSON の形式が正しくありません' });
+            }
+            const { defs, errors } = validateLineDefs(parsed);
+            // 中身が空のひな形（abilities: [] だけ）は保存しない
+            const filled = Object.fromEntries(Object.entries(defs).filter(([, d]) => Object.entries(d).some(([k, v]) => k !== 'note' && (Array.isArray(v) ? v.length > 0 : v && Object.keys(v).length > 0))));
+            void updateSettings({ lineDefs: filled });
+            setMsg(errors.length ? { ok: false, text: `${errors[0]}（ほか${errors.length - 1}件）。正しい${Object.keys(filled).length}件だけ保存しました` } : { ok: true, text: `${Object.keys(filled).length}件を保存し、カードの能力を読み直しました` });
+          }}
+        >
+          効果定義を保存
+        </button>
+      </div>
+    </section>
   );
 }
 

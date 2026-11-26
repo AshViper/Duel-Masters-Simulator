@@ -606,6 +606,8 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       return !evalCondition(state, reg, controller, c.condition, noPower, source);
     case 'and':
       return c.conditions.every((x) => evalCondition(state, reg, controller, x, noPower, source));
+    case 'or':
+      return c.conditions.some((x) => evalCondition(state, reg, controller, x, noPower, source));
     case 'compare': {
       const l = countQuantity(state, reg, controller, c.left, noPower, source);
       const r = typeof c.right === 'number' ? c.right : countQuantity(state, reg, controller, c.right, noPower, source);

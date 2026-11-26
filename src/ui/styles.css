@@ -623,6 +623,7 @@ a.bookmarklet, .official a.bookmarklet { display: inline-block; padding: 2px 10p
 .setting-control input[type="range"] { width: clamp(120px, 12vw, 220px); accent-color: var(--accent); min-height: 0; padding: 0; border: none; background: none; box-shadow: none; }
 .setting-control .unit { color: var(--faint); font-size: 12px; width: 18px; }
 .settings-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 8px; }
+.linedefs-text { width: 100%; min-height: 96px; resize: vertical; font: 12.5px/1.5 ui-monospace, Consolas, monospace; }
 .danger-zone { border-color: rgba(244, 91, 105, 0.35); }
 .danger-zone .panel-title { color: #ff9aa5; }
 .settings-group.restricted { flex: 1; min-height: 0; overflow: hidden; }

@@ -20,6 +20,7 @@ import type {
   TriggerEvent,
 } from './types';
 import { move } from './effects';
+import { allLineDefs, type LineDef } from './lineDefs';
 
 export interface ParsedAbilities {
   keywords: Keywords;
@@ -95,6 +96,25 @@ export function normalizeText(s: string): string {
     .replace(/表向きにし、(?=その(?:中|うち|\d+体))/g, '表向きにする。')
     // 「相手のマナゾーンにあるカードの枚数よりコストが大きい相手のクリーチャー」：持ち主のマナの枚数と比べる修飾語にまとめる
     .replace(/(?:相手|自分)のマナゾーンにあるカードの枚数よりコストが大きい(相手|自分)の/g, '$1のコストがマナ枚数より大きい');
+}
+
+/** 能力の文ごとの効果定義（lineDefs.ts）を、照合用にそろえたキーで引く表。定義が変わったら作り直す */
+let lineDefTable: { revision: number; map: Map<string, LineDef> } | null = null;
+
+/** 照合用のキー：全角・半角、空白、カッコの補足説明の違いをなくす。選択肢は「▶」でつなぐ */
+export function lineDefKey(line: string, options: string[] = []): string {
+  return [...line.split(/[▶►]/), ...options]
+    .map((x) => stripIcons(normalizeText(x)).replace(/。$/, ''))
+    .filter(Boolean)
+    .join('▶');
+}
+
+function findLineDef(line: string, options: string[]): LineDef | undefined {
+  const { defs, revision } = allLineDefs();
+  if (!lineDefTable || lineDefTable.revision !== revision) {
+    lineDefTable = { revision, map: new Map(Object.entries(defs).map(([k, v]) => [lineDefKey(k), v])) };
+  }
+  return lineDefTable.map.get(lineDefKey(line, options));
 }
 
 /** 能力の頭に付くアイコン（{2W} W・ブレイカーなど、キーワードの名前と同じ意味のもの） */
@@ -1662,6 +1682,19 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
     const t = stripIcons(normalizeText(line));
     // 補足説明（カッコ書き）だけの行は能力ではない
     if (!t && !options.length) continue;
+    // 能力の文ごとの効果定義があれば、読み取りより優先して使う
+    const lineDef = findLineDef(rawLine, options);
+    if (lineDef) {
+      for (const dst of soul ? [result, soul] : [result]) {
+        Object.assign(dst.keywords, lineDef.keywords ?? {});
+        dst.abilities.push(...(lineDef.abilities ?? []));
+        dst.statics.push(...(lineDef.statics ?? []));
+        dst.replacements.push(...(lineDef.replacements ?? []));
+      }
+      if (lineDef.altPlays?.length) (result.altPlays ??= []).push(...lineDef.altPlays);
+      result.parsedLines.push([rawLine, ...options.map((o) => `▶${o}`)].join('\n'));
+      continue;
+    }
     if (t === 'サバイバー' && result.survivor) {
       result.parsedLines.push(rawLine);
       continue;

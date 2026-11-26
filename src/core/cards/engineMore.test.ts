@@ -10,6 +10,7 @@ import { SAMPLE_CARDS } from '../testing/fixtureCards';
 import { convertOfficialCard } from './officialConvert';
 import { buildRegistry } from './registry';
 import { parseAbilityText } from './textParser';
+import { setUserLineDefs, validateLineDefs } from './lineDefs';
 import type { ZoneName } from './types';
 
 const base = { packName: '(T 1/1)', imageUrl: '', rarity: 'C', mana: '1', illustrator: '', flavor: '' };
@@ -769,5 +770,50 @@ describe('前の文のカード・枚数を使う効果、下に置く、手札�
     const pick = s.pending?.kind === 'selectCards' ? s.pending.candidates.slice(0, moved) : [];
     s = act(s, { type: 'RESPOND', player: 0, selected: pick });
     expect(zone(s, 0, 'hand')).toBe(moved);
+  });
+});
+
+describe('能力の文ごとの効果定義', () => {
+  const jan = 'このクリーチャーが出た時、相手とじゃんけんする。';
+
+  it('アプリに入っている定義：読み取りでは読めない文が自動になる（全角・補足説明の違いは無視する）', () => {
+    const p = parseAbilityText('このクリーチャーが出た時、自分の、リキッド・ピープルまたはハンター１つにつき、相手のクリーチャーを１体選んでもよい。次の自分のターンのはじめまで、それらは攻撃もブロックもできない。（補足）', 'creature');
+    expect(p.manualLines).toHaveLength(0);
+    expect(p.abilities[0].effects[0].type).toBe('repeat');
+    // 選択肢つきの能力（呪文）
+    const s = parseAbilityText('次の中から１回選ぶ。自分のクリーチャーまたはタマシードの中に水と闇があれば、両方選んでもよい。\n\n▶カードを３枚引き、自分の手札を１枚捨てる。\n\n▶コスト８以下のクリーチャーを１体、自分の墓地から出す。', 'spell');
+    expect(s.manualLines).toHaveLength(0);
+    expect(s.abilities[0]).toMatchObject({ when: 'onCast', effects: [{ type: 'chooseOne' }] });
+  });
+
+  it('取り込んだ定義：手動だった能力が自動になり、エンジンで動く。外すと手動に戻る', () => {
+    expect(parseAbilityText(jan, 'creature').manualLines).toHaveLength(1);
+    setUserLineDefs({ [jan]: { abilities: [{ when: 'onSummon', effects: [{ type: 'draw', count: 2 }] }] } });
+    try {
+      const card = mk('m-90', [jan]);
+      expect(card.support).toBe('full');
+      const r = buildRegistry([...SAMPLE_CARDS, ...Object.values(C), card]);
+      let s = createGame({ players: [{ name: 'A', deck: filler }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, r);
+      const iid = `t${s.nextIid++}`;
+      s.cards[iid] = { iid, cardId: card.id, owner: 0, zone: 'deck', tapped: false, enteredTurn: 0, powerModTurn: 0, under: [], faceUp: false };
+      s.players[0].zones.deck.unshift(iid);
+      new Ctx(s, r).moveCard(iid, 'hand');
+      mana(s, 1);
+      const hand = zone(s, 0, 'hand');
+      const res = applyAction(s, { type: 'PLAY_CARD', player: 0, iid }, r);
+      s = res.state;
+      expect(res.error).toBeFalsy();
+      expect(zone(s, 0, 'hand')).toBe(hand - 1 + 2);
+    } finally {
+      setUserLineDefs(undefined);
+    }
+    expect(parseAbilityText(jan, 'creature').manualLines).toHaveLength(1);
+  });
+
+  it('取り込む JSON の形を確かめる', () => {
+    expect(validateLineDefs([]).errors).toHaveLength(1);
+    const r = validateLineDefs({ 正しい文: { abilities: [{ when: 'onSummon', effects: [{ type: 'draw', count: 1 }] }] }, だめな文: { abilities: [{ when: 'いつか', effects: [] }] } });
+    expect(Object.keys(r.defs)).toEqual(['正しい文']);
+    expect(r.errors).toHaveLength(1);
   });
 });

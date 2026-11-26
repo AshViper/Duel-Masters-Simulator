@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { buildRegistry, type CardRegistry } from '../core/cards/registry';
 import type { CardDefinition } from '../core/cards/types';
 import { applyParsedEffects, OFFICIAL_PREFIX } from '../core/cards/officialConvert';
+import { setUserLineDefs, type LineDefs } from '../core/cards/lineDefs';
 
 /** 保存済みの公式カードは、読み込むたびに能力テキストを読み直す（読み取りの改良を反映するため） */
 function withParsedEffects(cards: CardDefinition[]): CardDefinition[] {
@@ -18,6 +19,8 @@ export interface Settings {
   format: DeckFormat;
   /** オンライン対戦で相手に見せる名前 */
   playerName: string;
+  /** 利用者が取り込んだ、能力の文ごとの効果定義（読めない能力を自動処理にする） */
+  lineDefs?: LineDefs;
 }
 
 const DEFAULT_SETTINGS: Settings = { cpuDelayMs: 700, confirmEndTurn: false, format: DEFAULT_FORMAT, playerName: '' };
@@ -99,13 +102,16 @@ export const useApp = create<AppState>((set, get) => ({
       db.settings.get('settings'),
       db.settings.get('recentDecks'),
     ]);
+    const settings: Settings = { ...DEFAULT_SETTINGS, ...((settingsRow?.value as Partial<Settings>) ?? {}) };
+    // 能力を読み直す前に、取り込んである効果定義を使えるようにする
+    setUserLineDefs(settings.lineDefs);
     const cards = withParsedEffects(custom);
     const deckIds = new Set(decks.map((d) => d.id));
     set({
       cards,
       registry: buildRegistry(cards),
       decks,
-      settings: { ...DEFAULT_SETTINGS, ...((settingsRow?.value as Partial<Settings>) ?? {}) },
+      settings,
       recentDeckIds: ((recentRow?.value as string[]) ?? []).filter((id) => deckIds.has(id)),
       ready: true,
     });
@@ -157,6 +163,12 @@ export const useApp = create<AppState>((set, get) => ({
     const settings = { ...get().settings, ...patch };
     await db.settings.put({ key: 'settings', value: settings });
     set({ settings });
+    // 効果定義が変わったら、保存済みのカードの能力を読み直す
+    if ('lineDefs' in patch) {
+      setUserLineDefs(settings.lineDefs);
+      const all = withParsedEffects(await db.customCards.toArray());
+      set({ cards: all, registry: buildRegistry(all) });
+    }
   },
 
   touchRecent: async (deckId) => {

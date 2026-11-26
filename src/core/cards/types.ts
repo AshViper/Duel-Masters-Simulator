@@ -140,6 +140,7 @@ export type Condition =
   | { type: 'compare'; left: Quantity; op: '>' | '>=' | '<' | '<=' | '=='; right: Quantity | number }
   | { type: 'not'; condition: Condition }
   | { type: 'and'; conditions: Condition[] }
+  | { type: 'or'; conditions: Condition[] }
   /** このクリーチャーがこのターンに攻撃していた */
   | { type: 'attackedThisTurn' }
   /** このカード自身が進化クリーチャー（「これが進化クリーチャーなら」） */
