@@ -371,12 +371,15 @@ export function power(state: GameState, reg: CardRegistry, iid: string): number 
 function powerImpl(state: GameState, reg: CardRegistry, iid: string): number {
   const inst = state.cards[iid];
   const d = def(state, reg, iid);
-  let p = (d.power ?? 0) + inst.powerModTurn + (inst.powerModUntil?.amount ?? 0);
+  let p = (d.power ?? 0) + inst.powerModTurn + (inst.powerModUntil?.amount ?? 0) + (inst.powerModLasting ?? 0);
   if (inst.zone !== 'battle') return Math.max(0, p);
   const attacking = state.combat?.attacker === iid;
+  // バトル中：攻撃しているか、ブロックしたか、攻撃されているクリーチャー
+  const cb = state.combat;
+  const battling = !!cb && (cb.attacker === iid || cb.blocker === iid || (cb.target.kind === 'creature' && cb.target.iid === iid));
   for (const a of activeStatics(state, reg)) {
     const s = a.static;
-    if (s.type === 'powerMod' && (!s.attackingOnly || attacking) && appliesToCreature(state, reg, a, s.appliesTo, iid))
+    if (s.type === 'powerMod' && (!s.attackingOnly || attacking) && (!s.battleOnly || battling) && appliesToCreature(state, reg, a, s.appliesTo, iid))
       p += s.perCount ? s.amount * countQuantity(state, reg, a.controller, s.perCount, true, a.source) : s.amount;
   }
   if (attacking) p += keywords(state, reg, iid).powerAttacker ?? 0;
@@ -695,6 +698,8 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       // NEO進化・G-NEO進化で重ねたクリーチャーも進化クリーチャー
       return def(state, reg, source!).type === 'evolution' || (inst.zone === 'battle' && inst.under.length > 0);
     }
+    case 'summonedThisTurn':
+      return (state.players[c.who === 'self' ? controller : other(controller)].summonsThisTurn ?? 0) > 0;
     case 'castThisTurn':
       return (state.players[c.who === 'self' ? controller : other(controller)].spellsThisTurn ?? 0) > 0;
     case 'chosenDistinctNames': {

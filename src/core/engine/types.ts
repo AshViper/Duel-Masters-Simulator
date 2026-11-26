@@ -14,6 +14,8 @@ export interface CardInstance {
   enteredTurn: number;
   /** ターン終了時に消えるパワー修正 */
   powerModTurn: number;
+  /** バトルゾーンを離れるまで続くパワーの増減（プラチナ・ドライブ） */
+  powerModLasting?: number;
   /** ターン終了時に消えるキーワード能力 */
   keywordsTurn?: Keywords;
   /** 進化クリーチャーの下にあるカード */
@@ -68,6 +70,8 @@ export interface PlayerState {
   spellsThisTurn?: number;
   /** このターンに出したクリーチャーの数 */
   creaturesThisTurn?: number;
+  /** このターンに召喚したクリーチャーの数 */
+  summonsThisTurn?: number;
   /** このターンに使ったカード（「各ターン、1体目の」の判定用） */
   playedThisTurn?: string[];
   /** このターンに、このプレイヤーのクリーチャーがコストを支払わずに出た数 */
@@ -131,6 +135,8 @@ export type GameEvent =
   | { type: 'CARD_TARGETED'; iid: string; by: PlayerId }
   | { type: 'BATTLE_WON'; winner: string; loser: string }
   | { type: 'SHIELD_BROKEN'; player: PlayerId; iid: string }
+  /** クリーチャー iid がシールドをブレイクした（1回のブレイクで1度。player はそのクリーチャーの持ち主） */
+  | { type: 'BROKE_SHIELDS'; player: PlayerId; iid: string }
   /** カードがシールドゾーンに置かれた（player: そのシールドゾーンの持ち主） */
   | { type: 'SHIELD_ADDED'; player: PlayerId; iid: string }
   /** 手札を捨てた（効果で手札から墓地へ） */

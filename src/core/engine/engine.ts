@@ -377,6 +377,7 @@ export class Ctx {
       p.drawnThisTurn = 0;
       p.spellsThisTurn = 0;
       p.creaturesThisTurn = 0;
+      p.summonsThisTurn = 0;
       p.playedThisTurn = [];
       p.shieldsBrokenThisTurn = 0;
       p.battleWinsThisTurn = 0;
@@ -854,6 +855,17 @@ export class Ctx {
         // チャージャー：墓地のかわりにマナゾーンに置く
         const kw = task.side === 'twin' ? d.twin?.keywords : d.keywords;
         const charger = kw?.charger || kw?.crystalCharger;
+        // サイクロンなど：唱えた後、墓地のかわりに手札に戻す（afterSummon：この呪文の直前に使ったカードが召喚したクリーチャー）
+        if (kw?.spellToHand) {
+          const played = s.players[s.cards[task.iid].owner].playedThisTurn ?? [];
+          const before = played[played.lastIndexOf(task.iid) - 1];
+          const ok = kw.spellToHand === 'always' || (!!before && s.cards[before]?.zone === 'battle' && isCreatureType(def(s, this.reg, before).type));
+          if (ok) {
+            this.moveCard(task.iid, 'hand');
+            this.log(`${this.name(task.iid)} を、唱えた後に手札に戻した`, s.cards[task.iid].owner);
+            return false;
+          }
+        }
         this.moveCard(task.iid, charger ? 'mana' : 'graveyard');
         // 水晶チャージャー：裏向きでマナゾーンに置く（文明を持たないマナになる）
         if (kw?.crystalCharger) s.cards[task.iid].faceUp = false;
@@ -1237,6 +1249,8 @@ export class Ctx {
           }
           return [sh, ...under];
         });
+        // 「このクリーチャーがシールドをブレイクした時」：1回のブレイクで1度
+        if (chosen.length && s.cards[task.source]?.zone === 'battle') this.emit({ type: 'BROKE_SHIELDS', player: s.cards[task.source].owner, iid: task.source });
         const triggers: Task[] = [];
         // ブレイクしたシールドを手札に加えるかわりに墓地に置く
         const burn = s.cards[task.source]?.zone === 'battle' && !!keywords(s, this.reg, task.source).shieldBurn;
@@ -1586,7 +1600,7 @@ export class Ctx {
             return false;
           }
           // シールドを手札に加える（S・トリガーは使えない）
-          this.moveCard(shields[shields.length - 1], 'hand');
+          for (let k = 0; k < (ability.count ?? 1) && shields.length; k++) this.moveCard(shields[shields.length - 1], 'hand');
           return false;
         }
         case 'destroySelf':
@@ -1654,6 +1668,9 @@ export class Ctx {
         const subjectOk = ab.subject === 'self' ? src === iid : ab.subject === 'otherOwn' ? src !== iid : true;
         if (!subjectOk || !matchFilter(s, this.reg, iid, ab.filter, src)) continue;
         if (ab.instead === 'destroySelf' && src === iid) continue;
+        if (ab.condition && !evalCondition(s, this.reg, s.cards[src].owner, ab.condition, false, src)) continue;
+        // 真・エスケープ・マナ武装：シールドが足りなければ置換しない
+        if (ab.instead === 'escape' && s.players[s.cards[src].owner].zones.shield.length < (ab.count ?? 1)) continue;
         out.push({ source: src, ability: ab, key });
       }
     }
@@ -2252,7 +2269,8 @@ export class Ctx {
       case 'powerMod': {
         const apply = (iid: string) => {
           const inst = s.cards[iid];
-          if (e.untilNextTurn) {
+          if (e.untilLeave) inst.powerModLasting = (inst.powerModLasting ?? 0) + e.amount;
+          else if (e.untilNextTurn) {
             const prev = inst.powerModUntil?.player === controller ? inst.powerModUntil.amount : 0;
             inst.powerModUntil = { amount: prev + e.amount, player: controller };
           } else inst.powerModTurn += e.amount;
@@ -2944,6 +2962,7 @@ export class Ctx {
           this.triggerFrom(other_, 'onOtherSummon', (ab) => this.whoMatches(ab.who, s.cards[other_].owner, e.player) && matchFilter(s, this.reg, e.iid, ab.filter), e.iid);
         }
         s.players[e.player].creaturesThisTurn = (s.players[e.player].creaturesThisTurn ?? 0) + 1;
+        if (e.summoned) s.players[e.player].summonsThisTurn = (s.players[e.player].summonsThisTurn ?? 0) + 1;
         break;
       case 'CREATURE_DESTROYED':
         // シールド・ゴー：墓地から表向きでシールド化する
@@ -2971,6 +2990,7 @@ export class Ctx {
         }
         this.triggerFrom(e.iid, 'onLeave');
         this.triggerOthers(e.iid, 'onOtherLeave', e.player);
+        if (e.to === 'graveyard' && s.cards[e.iid]?.zone === 'graveyard') this.triggerFrom(e.iid, 'onToGraveFromBattle');
         break;
       }
       case 'ATTACK_DECLARED':
@@ -3032,6 +3052,10 @@ export class Ctx {
         break;
       case 'TURN_ENDED':
         for (const iid of battleAll()) this.triggerFrom(iid, 'onTurnEnd', (ab) => this.whoMatches(ab.who, s.cards[iid].owner, e.player));
+        break;
+      case 'BROKE_SHIELDS':
+        this.triggerFrom(e.iid, 'onBreak');
+        this.triggerOthers(e.iid, 'onOtherBreak', e.player);
         break;
       case 'SHIELD_BROKEN':
         s.players[e.player].shieldsBrokenThisTurn = (s.players[e.player].shieldsBrokenThisTurn ?? 0) + 1;
@@ -3147,6 +3171,7 @@ export class Ctx {
     delete inst.keywordsTurn;
     delete inst.keywordsUntil;
     delete inst.powerModUntil;
+    delete inst.powerModLasting;
     delete inst.hyper;
     delete inst.exLifeShield;
     delete inst.exLifeShields;

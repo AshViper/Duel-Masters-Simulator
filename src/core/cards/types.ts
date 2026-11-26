@@ -160,6 +160,8 @@ export type Condition =
   | { type: 'selfIsEvolution' }
   /** このターンにそのプレイヤーが呪文を唱えていた（「そのターン自分が呪文を唱えていれば」） */
   | { type: 'castThisTurn'; who: 'self' | 'opponent' }
+  /** このターン、クリーチャーを召喚していれば */
+  | { type: 'summonedThisTurn'; who: 'self' | 'opponent' }
   /** このターンにそのプレイヤーのシールドが min 個以上ブレイクされた */
   | { type: 'shieldsBrokenThisTurn'; who: 'self' | 'opponent'; min: number }
   /** このクリーチャーが、このターンに出た（「このクリーチャーが出たターン、〜」） */
@@ -285,7 +287,7 @@ export type EffectDef =
    */
   | { type: 'selfAction'; action: 'destroy' | 'tap' | 'untap' | 'toHand' | 'toMana' | Exclude<MoveDest, 'battle' | 'under'>; tapped?: boolean }
   /** ターン終了時まで、パワーを変更する */
-  | { type: 'powerMod'; target: TargetSpec | 'self'; amount: number; untilNextTurn?: boolean }
+  | { type: 'powerMod'; target: TargetSpec | 'self'; amount: number; untilNextTurn?: boolean; untilLeave?: boolean }
   /** ターン終了時まで、キーワード能力を与える */
   /** untilNextTurn: 次の自分のターンのはじめまで（省略時はこのターン） */
   | { type: 'grantKeyword'; target: TargetSpec | 'self'; keywords: Keywords; untilNextTurn?: boolean }
@@ -416,6 +418,12 @@ export const TRIGGER_EVENTS = [
   'onOwnUnderLeft',
   /** カードがシールドゾーンを離れた時（who で誰のシールドゾーンか） */
   'onShieldLeft',
+  /** このクリーチャーがシールドをブレイクした時（1回のブレイクで1度） */
+  'onBreak',
+  /** 他のクリーチャーがシールドをブレイクした時（who・filter で絞る） */
+  'onOtherBreak',
+  /** このクリーチャーがバトルゾーンから墓地に置かれた時（「このカードが墓地に置かれた時、その直前にバトルゾーンにあれば」） */
+  'onToGraveFromBattle',
   /** このクリーチャーが覚醒した時・龍解した時（裏返ってクリーチャー側・コストの大きい側になった時） */
   'onAwaken',
   /** このクリーチャーが相手プレイヤーを攻撃してブロックされなかった時 */
@@ -468,7 +476,7 @@ export interface Applies {
 /** 常在効果（バトルゾーンにある間、または turnStatic でターン終了まで有効） */
 export type StaticAbility = (
   /** perCount: amount を「〜1枚につき」の数だけ掛ける */
-  | { type: 'powerMod'; amount: number; appliesTo: Applies; attackingOnly?: boolean; perCount?: Quantity }
+  | { type: 'powerMod'; amount: number; appliesTo: Applies; attackingOnly?: boolean; perCount?: Quantity; battleOnly?: boolean }
   | { type: 'grantKeyword'; keywords: Keywords; appliesTo: Applies }
   /**
    * 手札のカードのコストを増減する。コストは minCost（既定1）未満にならない。
@@ -519,6 +527,10 @@ export interface ReplacementAbility {
   /** shedTop: かわりに一番上のカードが離れる（スター進化。下のカードがクリーチャーとして残る） */
   instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'toDeckTop' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther' | 'shedTop' | 'unflip';
   optional?: boolean;
+  /** escape：手札に加えるシールドの数（既定1。足りなければ置換しない） */
+  count?: number;
+  /** この条件を満たす時だけ置換する（マナ武装：「自分のマナゾーンに光のカードが5枚以上あれば」） */
+  condition?: Condition;
 }
 
 export interface Keywords {
@@ -561,6 +573,8 @@ export interface Keywords {
   poweredBreaker?: boolean;
   /** チャージャー：唱えた後、墓地のかわりにマナゾーンに置く */
   charger?: boolean;
+  /** 唱えた後、墓地のかわりに手札に戻す（afterSummon：サイクロン。この呪文の直前にクリーチャーを召喚していれば） */
+  spellToHand?: 'always' | 'afterSummon';
   /** 水晶チャージャー：唱えた後、墓地のかわりに裏向きでマナゾーンに置く */
   crystalCharger?: boolean;
   /** 相手に選ばれない */
@@ -637,7 +651,7 @@ export interface TwinSide {
   cost: number;
   civilizations: Civilization[];
   text: string;
-  keywords?: Pick<Keywords, 'shieldTrigger' | 'charger' | 'crystalCharger' | 'manaTapped'>;
+  keywords?: Pick<Keywords, 'shieldTrigger' | 'charger' | 'crystalCharger' | 'manaTapped' | 'spellToHand'>;
   abilities?: TriggeredAbility[];
 }
 

@@ -937,11 +937,13 @@ describe('条件を満たすと能力を得る・能力語つきの本文', () =
     expect(p.statics[0].condition).toEqual({ type: 'compare', left: { who: 'any', zone: 'battle', filter: { hasKeyword: 'waveStriker', excludeSelf: true } }, op: '>=', right: 2 });
   });
 
-  it('知らない能力語でも「能力語：本文」の本文が読めれば使う。補足説明に条件がある行は読まない', () => {
+  it('知らない能力語でも「能力語：本文」の本文が読めれば使う。補足説明の条件は、本文の条件にする', () => {
     const civil = parseAbilityText('シビルカウント３：自分の火のクリーチャーまたは火のタマシードが合計３つ以上あれば、このクリーチャーは「スピードアタッカー」を得る。', 'creature');
     expect(civil.manualLines).toHaveLength(0);
     expect(civil.statics[0]).toMatchObject({ type: 'grantKeyword', keywords: { speedAttacker: true }, condition: { type: 'compare', left: { withPermanents: true } } });
-    expect(parseAbilityText('バラバラエティ３：自分のクリーチャーすべてに「スピードアタッカー」を与える。（コストが異なる自分のエレメントが３つ以上あれば、このクリーチャーにこの能力を与える）', 'creature').manualLines).toHaveLength(1);
+    const bara = parseAbilityText('バラバラエティ３：自分のクリーチャーすべてに「スピードアタッカー」を与える。（コストが異なる自分のエレメントが３つ以上あれば、このクリーチャーにこの能力を与える）', 'creature');
+    expect(bara.manualLines).toHaveLength(0);
+    expect(bara.statics[0]).toMatchObject({ type: 'grantKeyword', keywords: { speedAttacker: true }, condition: { type: 'compare', left: { distinctCost: true, withPermanents: true }, op: '>=', right: 3 } });
   });
 
   it('「カードが自分のシールドゾーンを離れた時」「「EXライフ」シールドが離れた時」', () => {
