@@ -76,14 +76,15 @@ describe('公式カードの変換', () => {
     expect(c.twin).toMatchObject({ name: '裏面の呪文', cost: 2 });
   });
 
-  it('キーワードだけのカードは自動処理、効果のないカードも自動処理', async () => {
+  it('キーワード・定型文の効果は自動処理、読めない能力は手動', async () => {
     const { convertOfficialCard } = await import('../core/cards/officialConvert');
     const face = { name: 'A', packName: '(P 1/1)', imageUrl: '', type: 'クリーチャー', civilization: '光', rarity: 'C', power: '3000', cost: '2', mana: '1', race: '種族', illustrator: '', flavor: '' };
     const blocker = convertOfficialCard({ id: 'p-1', detailUrl: '', faces: [{ ...face, abilities: ['ブロッカー', 'このクリーチャーは相手プレイヤーを攻撃できない。'] }] });
     expect(blocker.keywords).toEqual({ blocker: true, cannotAttackPlayers: true });
     expect(blocker.support).toBe('full');
     const spell = convertOfficialCard({ id: 'p-2', detailUrl: '', faces: [{ ...face, type: '呪文', power: '', abilities: ['S・トリガー', 'カードを2枚引く。'] }] });
-    expect(spell).toMatchObject({ type: 'spell', power: undefined, keywords: { shieldTrigger: true }, support: 'partial' });
+    // 定型文の効果（カードを2枚引く）は自動処理になる
+    expect(spell).toMatchObject({ type: 'spell', power: undefined, keywords: { shieldTrigger: true }, abilities: [{ when: 'onCast', effects: [{ type: 'draw', count: 2 }] }], support: 'full' });
     const odd = convertOfficialCard({ id: 'p-3', detailUrl: '', faces: [{ ...face, type: 'タマシード', power: '', civilization: '火/水', abilities: ['何かの能力'] }] });
     expect(odd).toMatchObject({ type: 'spell', typeLabel: 'タマシード', civilizations: ['fire', 'water'], support: 'manual' });
   });

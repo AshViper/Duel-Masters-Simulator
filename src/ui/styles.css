@@ -152,6 +152,8 @@ input.num { width: 56px; }
 .detail-info h2 { margin-top: 0; }
 .detail-info th { text-align: left; color: var(--muted); padding-right: 12px; font-weight: normal; }
 .detail-text { white-space: pre-wrap; font-family: inherit; background: var(--bg2); padding: 10px; border-radius: 6px; }
+.detail-manual { margin-top: 10px; border-left: 3px solid var(--warn, #d9a400); padding-left: 10px; }
+.detail-manual ul { margin: 6px 0 0; padding-left: 18px; white-space: pre-wrap; font-size: 0.9em; }
 .detail-actions { display: flex; gap: 8px; }
 .result { text-align: center; min-width: 320px; }
 .result h2 { font-size: 32px; margin: 0 0 8px; }

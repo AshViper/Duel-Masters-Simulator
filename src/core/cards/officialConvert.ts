@@ -1,8 +1,9 @@
 // 公式カード検索の詳細（OfficialCardDetail）を、デッキ構築・対戦で使うカード定義に変換する。
-// 能力テキストのうち、確実に読み取れるキーワード能力だけを自動処理にし、
-// それ以外の能力は「手動処理」として残す（誤って自動処理しないため）。
+// 能力テキストは textParser で読み取り、定型文の能力は自動処理にする。
+// 読み取れない能力は「手動処理」として残す（誤って自動処理しないため）。
 import type { OfficialCardDetail, OfficialCardFace } from '../../server/dmOfficial';
-import type { CardDefinition, CardType, Civilization, Keywords, SupportLevel, TwinSide } from './types';
+import { isCreatureType, type CardDefinition, type CardType, type Civilization, type SupportLevel, type TwinSide } from './types';
+import { parseAbilityText, type ParsedAbilities } from './textParser';
 
 export const OFFICIAL_PREFIX = 'dm:';
 export const OFFICIAL_SET_PREFIX = '公式 ';
@@ -38,31 +39,6 @@ function mapType(label: string, hasPower: boolean): CardType {
   return 'spell';
 }
 
-/** 能力1行がキーワード能力なら Keywords に反映して true を返す */
-function applyKeywordLine(line: string, kw: Keywords): boolean {
-  const t = line.normalize('NFKC').replace(/\s+/g, '').replace(/[（(].*[）)]$/, '');
-  if (t === 'ブロッカー') return (kw.blocker = true);
-  if (t === 'S・トリガー' || t === 'S·トリガー') return (kw.shieldTrigger = true);
-  if (t === 'スピードアタッカー') return (kw.speedAttacker = true);
-  if (t === 'スレイヤー') return (kw.slayer = true);
-  if (t === 'W・ブレイカー') return !!(kw.breaker = 2);
-  if (t === 'T・ブレイカー') return !!(kw.breaker = 3);
-  if (t === 'Q・ブレイカー') return !!(kw.breaker = 4);
-  const pa = t.match(/^パワーアタッカー\+(\d+)$/);
-  if (pa) return !!(kw.powerAttacker = Number(pa[1]));
-  if (t === 'このクリーチャーは相手プレイヤーを攻撃できない。') return (kw.cannotAttackPlayers = true);
-  if (t === 'このクリーチャーは攻撃できない。') return (kw.cannotAttack = true);
-  if (t === 'このクリーチャーはブロックされない。') return (kw.unblockable = true);
-  if (t === 'このクリーチャーはアンタップしているクリーチャーを攻撃できる。') return (kw.attackUntapped = true);
-  return false;
-}
-
-function analyzeAbilities(lines: string[]): { keywords: Keywords; rest: string[] } {
-  const keywords: Keywords = {};
-  const rest = lines.filter((l) => !applyKeywordLine(l, keywords));
-  return { keywords, rest };
-}
-
 function faceText(f: OfficialCardFace): string {
   return f.abilities.join('\n');
 }
@@ -73,29 +49,19 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
   const power = parseNumber(main.power);
   const typeLabel = main.type || '不明';
   const type = mapType(typeLabel, power !== undefined);
-  const { keywords, rest } = analyzeAbilities(main.abilities);
   const set = main.packName.match(/\(?\s*([A-Za-z0-9-]+)/)?.[1];
 
-  let twin: TwinSide | undefined;
-  let twinRest: string[] = [];
   const spellFace = d.faces[1];
-  if (spellFace) {
-    const tk = analyzeAbilities(spellFace.abilities);
-    twinRest = tk.rest;
-    twin = {
-      name: spellFace.name,
-      cost: parseNumber(spellFace.cost) ?? 0,
-      civilizations: parseCivs(spellFace.civilization || main.civilization),
-      text: faceText(spellFace),
-      keywords: tk.keywords.shieldTrigger ? { shieldTrigger: true } : undefined,
-    };
-  }
+  const twin: TwinSide | undefined = spellFace
+    ? {
+        name: spellFace.name,
+        cost: parseNumber(spellFace.cost) ?? 0,
+        civilizations: parseCivs(spellFace.civilization || main.civilization),
+        text: faceText(spellFace),
+      }
+    : undefined;
 
-  const manualLines = [...rest, ...twinRest];
-  const hasKeywords = Object.keys(keywords).length > 0;
-  const support: SupportLevel = manualLines.length === 0 ? 'full' : hasKeywords ? 'partial' : 'manual';
-
-  return {
+  return applyParsedEffects({
     id: officialCardId(d.id),
     name: main.name,
     imageRef: officialImageRef(d.id),
@@ -108,7 +74,42 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
     text: faceText(main),
     set: set ? OFFICIAL_SET_PREFIX + set : `${OFFICIAL_SET_PREFIX}その他`,
     rarity: main.rarity || undefined,
-    keywords: hasKeywords ? keywords : undefined,
+    twin,
+    support: 'manual',
+  });
+}
+
+export function faceKind(card: CardDefinition): 'creature' | 'spell' | 'other' {
+  if (isCreatureType(card.type) && card.power !== undefined) return 'creature';
+  if (card.type === 'spell' && (!card.typeLabel || card.typeLabel.includes('呪文'))) return 'spell';
+  return 'other';
+}
+
+/**
+ * 公式カードの能力テキストを読み直して、キーワード・誘発能力・常在効果・対応状況を付け直す。
+ * 保存済みのカードも読み込み時にこれを通すので、読み取りが改良されると自動で反映される。
+ */
+export function applyParsedEffects(card: CardDefinition): CardDefinition {
+  const main = parseAbilityText(card.text, faceKind(card));
+  let twin = card.twin;
+  let twinParsed: ParsedAbilities | undefined;
+  if (twin) {
+    twinParsed = parseAbilityText(twin.text, 'spell');
+    twin = {
+      ...twin,
+      keywords: twinParsed.keywords.shieldTrigger ? { shieldTrigger: true } : undefined,
+      abilities: twinParsed.abilities.length ? twinParsed.abilities : undefined,
+    };
+  }
+  const manual = main.manualLines.length + (twinParsed?.manualLines.length ?? 0);
+  const auto = Object.keys(main.keywords).length + main.parsedLines.length + (twinParsed ? Object.keys(twinParsed.keywords).length + twinParsed.parsedLines.length : 0);
+  const support: SupportLevel = manual === 0 ? 'full' : auto > 0 ? 'partial' : 'manual';
+  return {
+    ...card,
+    keywords: Object.keys(main.keywords).length ? main.keywords : undefined,
+    abilities: main.abilities.length ? main.abilities : undefined,
+    statics: main.statics.length ? main.statics : undefined,
+    evolvesFrom: card.type === 'evolution' ? main.evolvesFrom : card.evolvesFrom,
     twin,
     support,
   };

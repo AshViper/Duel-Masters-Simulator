@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import { buildRegistry, type CardRegistry } from '../core/cards/registry';
 import type { CardDefinition } from '../core/cards/types';
+import { applyParsedEffects, OFFICIAL_PREFIX } from '../core/cards/officialConvert';
+
+/** 保存済みの公式カードは、読み込むたびに能力テキストを読み直す（読み取りの改良を反映するため） */
+function withParsedEffects(cards: CardDefinition[]): CardDefinition[] {
+  return cards.map((c) => (c.id.startsWith(OFFICIAL_PREFIX) ? applyParsedEffects(c) : c));
+}
 import { DEFAULT_FORMAT, type Deck, type DeckFormat } from '../core/deck/rules';
 import { db } from '../db/db';
 
@@ -93,7 +99,7 @@ export const useApp = create<AppState>((set, get) => ({
       db.settings.get('settings'),
       db.settings.get('recentDecks'),
     ]);
-    const cards = custom;
+    const cards = withParsedEffects(custom);
     const deckIds = new Set(decks.map((d) => d.id));
     set({
       cards,
@@ -138,7 +144,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   importCards: async (cards) => {
     await db.customCards.bulkPut(cards);
-    const all = await db.customCards.toArray();
+    const all = withParsedEffects(await db.customCards.toArray());
     set({ cards: all, registry: buildRegistry(all) });
   },
 

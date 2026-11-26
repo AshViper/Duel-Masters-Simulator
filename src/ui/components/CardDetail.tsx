@@ -1,6 +1,14 @@
 import type { ReactNode } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, SUPPORT_LABEL, type CardDefinition } from '../../core/cards/types';
 import { CardView } from './CardView';
+import { faceKind, OFFICIAL_PREFIX } from '../../core/cards/officialConvert';
+import { parseAbilityText } from '../../core/cards/textParser';
+
+/** 公式カードのうち、自動処理できず手動で処理する能力の行 */
+function manualLines(card: CardDefinition): string[] {
+  if (!card.id.startsWith(OFFICIAL_PREFIX) || card.support === 'full') return [];
+  return [...parseAbilityText(card.text, faceKind(card)).manualLines, ...(card.twin ? parseAbilityText(card.twin.text, 'spell').manualLines : [])];
+}
 
 export function Modal({ children, onClose, wide }: { children: ReactNode; onClose: () => void; wide?: boolean }) {
   return (
@@ -16,6 +24,7 @@ export function Modal({ children, onClose, wide }: { children: ReactNode; onClos
 }
 
 export function CardDetail({ card, onClose, actions }: { card: CardDefinition; onClose: () => void; actions?: ReactNode }) {
+  const manual = manualLines(card);
   return (
     <Modal onClose={onClose}>
       <div className="detail">
@@ -40,6 +49,13 @@ export function CardDetail({ card, onClose, actions }: { card: CardDefinition; o
               <h3>呪文側：{card.twin.name}（コスト{card.twin.cost}・{card.twin.civilizations.map((c) => CIV_LABEL[c]).join(' / ')}）</h3>
               <pre className="detail-text">{card.twin.text}</pre>
             </>
+          )}
+          {manual.length > 0 && (
+            <div className="detail-manual">
+              <h3>手動で処理する能力</h3>
+              <p className="muted">次の能力は自動では処理しません。対戦中は右クリックメニューで手動で処理してください（タイミングの分かる能力はその時にログでお知らせします）。</p>
+              <ul>{manual.map((l, i) => <li key={i}>{l}</li>)}</ul>
+            </div>
           )}
           {actions && <div className="detail-actions">{actions}</div>}
         </div>

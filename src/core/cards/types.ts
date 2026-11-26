@@ -118,6 +118,8 @@ export type EffectDef =
   /** 相手のシールドをブレイクする（S・トリガー可） */
   | { type: 'breakShields'; count: number }
   | { type: 'extraTurn' }
+  /** 効果の発生源（このクリーチャー）自身に対する処理 */
+  | { type: 'selfAction'; action: 'destroy' | 'toHand' | 'toMana' | 'tap' | 'untap' }
   /** ターン終了時まで、パワーを変更する */
   | { type: 'powerMod'; target: TargetSpec | 'self'; amount: number }
   /** ターン終了時まで、キーワード能力を与える */

@@ -154,7 +154,8 @@ export class Ctx {
   private manual(player: PlayerId, fn: () => string): void {
     const text = fn();
     this.s.log.push({ turn: this.s.turn, player, text: `［手動］${text}`, manual: true });
-    this.checkStateBased();
+    // 山札切れ・パワー0以下の破壊を確認する（入力待ち中は処理を進めない）
+    this.run();
   }
 
   // ───────────────────────── ターン進行 ─────────────────────────
@@ -323,6 +324,8 @@ export class Ctx {
     }
     this.response = null;
     this.checkStateBased();
+    // パワー0以下で破壊が積まれたら続けて処理する
+    if (!s.pending && s.gameOverReason === null && s.queue.length > 0 && s.queue[0].kind === 'leave') this.run();
   }
 
   private insertFront(...tasks: Task[]): void {
@@ -663,6 +666,18 @@ export class Ctx {
       case 'breakShields':
         this.insertFront({ kind: 'breakShields', breaker: controller, source, defender: opp, count: e.count });
         return false;
+      case 'selfAction': {
+        const inst = s.cards[source];
+        if (inst?.zone !== 'battle') return false;
+        if (e.action === 'tap' || e.action === 'untap') {
+          inst.tapped = e.action === 'tap';
+          this.log(`${this.name(source)} を${e.action === 'tap' ? 'タップ' : 'アンタップ'}`, controller);
+          return false;
+        }
+        const to: ZoneName = e.action === 'toHand' ? 'hand' : e.action === 'toMana' ? 'mana' : 'graveyard';
+        this.insertFront({ kind: 'leave', iid: source, to, cause: e.action === 'destroy' ? 'destroy' : 'effect' });
+        return false;
+      }
       case 'turnStatic':
         s.turnStatics.push({ controller, source, static: e.static });
         this.log(`${this.name(source)} の効果がこのターンの間有効`, controller);
@@ -977,6 +992,11 @@ export class Ctx {
     } else if (out.length === 2) {
       this.gameOver(null, '両者山札切れ（引き分け）');
     }
+    if (s.gameOverReason !== null || s.pending) return;
+    // パワー0以下のクリーチャーは破壊される（入力待ちの間は、中断中のタスクより前に割り込ませない）
+    const queued = new Set(s.queue.flatMap((t) => (t.kind === 'leave' ? [t.iid] : [])));
+    const dead = [...s.players[0].zones.battle, ...s.players[1].zones.battle].filter((iid) => !queued.has(iid) && power(s, this.reg, iid) <= 0);
+    if (dead.length) this.insertFront(...dead.map((iid): Task => ({ kind: 'leave', iid, to: 'graveyard', cause: 'destroy' })));
   }
 
   gameOver(winner: PlayerId | null, reason: string): void {
