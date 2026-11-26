@@ -9,13 +9,25 @@ import { OnlineScreen } from './screens/Online';
 import { DeckListScreen, HistoryScreen, HomeScreen, SettingsScreen } from './screens/Menus';
 import { useBridgeConnected } from './officialBridge';
 import { BridgeImport } from './components/BridgeImport';
+import { AppShell } from './components/AppShell';
 
 export function App() {
   return (
     <>
       <BridgeImport />
-      <CurrentScreen />
+      <Shell />
     </>
+  );
+}
+
+/** 対戦画面は全画面、それ以外は左ナビつきの枠に入れる */
+function Shell() {
+  const screen = useApp((s) => s.screen);
+  if (screen === 'battle') return <CurrentScreen />;
+  return (
+    <AppShell>
+      <CurrentScreen />
+    </AppShell>
   );
 }
 

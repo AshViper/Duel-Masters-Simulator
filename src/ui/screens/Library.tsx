@@ -6,7 +6,7 @@ import { deleteAllOfficialCards } from '../../store/officialCards';
 import { parseCardJson, searchCards, type CardQuery } from '../../core/cards/registry';
 import type { CardDefinition } from '../../core/cards/types';
 import { useApp } from '../../store/appStore';
-import { CardDetail } from '../components/CardDetail';
+import { CardDetail, CardInfoPanel } from '../components/CardDetail';
 import { CardFilter } from '../components/CardFilter';
 import { CardView } from '../components/CardView';
 import { Header } from './Menus';
@@ -20,6 +20,8 @@ export function LibraryScreen() {
   }, [officialCount]);
   const [q, setQ] = useState<CardQuery>({});
   const [detail, setDetail] = useState<CardDefinition | null>(null);
+  const [selected, setSelected] = useState<CardDefinition | null>(null);
+  const [hover, setHover] = useState<CardDefinition | null>(null);
   const [msg, setMsg] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const results = useMemo(() => searchCards(cards, q), [cards, q]);
@@ -81,10 +83,14 @@ export function LibraryScreen() {
   };
 
   return (
-    <div className="screen">
-      <Header title="カード図鑑" />
+    <div className="screen fill">
+      <Header title="カード図鑑" sub={<span className="muted">{cards.length}枚</span>}>
+        <button onClick={() => go('official')}>公式カード検索で追加</button>
+        <button disabled={busy} onClick={() => void onExport()} data-testid="backup-export">バックアップを書き出す</button>
+        <button disabled={busy} onClick={() => backupRef.current?.click()} data-testid="backup-import">読み込む</button>
+      </Header>
       <div className="library">
-        <aside>
+        <aside className="panel library-side">
           <CardFilter q={q} onChange={setQ} cards={cards} full />
           <div className="coverage">
             <h4>収録・対応状況</h4>
@@ -114,10 +120,6 @@ export function LibraryScreen() {
             <h4>バックアップ（別のブラウザへ移す）</h4>
             <p className="muted small">カード・画像・デッキを1つのファイルにまとめます。公式カード検索が使えない版（GitHub Pages など）へは、ローカル版で書き出したファイルを読み込んでください。</p>
             <input ref={backupRef} type="file" accept=".json,application/json" hidden onChange={(e) => e.target.files?.[0] && void onBackupFile(e.target.files[0])} />
-            <div className="row">
-              <button disabled={busy} onClick={() => void onExport()} data-testid="backup-export">書き出す</button>
-              <button disabled={busy} onClick={() => backupRef.current?.click()} data-testid="backup-import">読み込む</button>
-            </div>
           </div>
           <div className="import">
             <h4>カードデータの取り込み</h4>
@@ -127,14 +129,28 @@ export function LibraryScreen() {
             {msg && <p className="small">{msg}</p>}
           </div>
         </aside>
-        <main>
-          <div className="result-count muted">{results.length}件</div>
-          <div className="card-grid lib">
+        <main className="panel library-main">
+          <div className="result-count muted small">{results.length}件　クリックで詳細・右クリックで拡大</div>
+          <div className="pool-grid lib">
             {results.map((c) => (
-              <CardView key={c.id} card={c} size="md" onClick={() => setDetail(c)} testId={`lib-${c.id}`} />
+              <div key={c.id} className="pool-cell">
+                <CardView
+                  card={c}
+                  size="sm"
+                  selected={selected?.id === c.id}
+                  onClick={() => setSelected(c)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setDetail(c);
+                  }}
+                  onHover={(on) => setHover(on ? c : null)}
+                  testId={`lib-${c.id}`}
+                />
+              </div>
             ))}
           </div>
         </main>
+        <CardInfoPanel card={hover ?? selected} />
       </div>
       {detail && <CardDetail card={detail} onClose={() => setDetail(null)} />}
     </div>

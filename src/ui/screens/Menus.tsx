@@ -1,113 +1,11 @@
 import { useEffect, useState } from 'react';
-import { DEFAULT_FORMAT, deckCountLabel, isDeckLegal } from '../../core/deck/rules';
-import { db, type MatchRecord, type SavedGame } from '../../db/db';
+import { DEFAULT_FORMAT } from '../../core/deck/rules';
+import { db, type MatchRecord } from '../../db/db';
 import { useApp } from '../../store/appStore';
-import { useBattle } from '../../store/battleStore';
+import { Header } from '../components/AppShell';
+export { Header };
 
-export function Header({ title }: { title: string }) {
-  const go = useApp((s) => s.go);
-  return (
-    <header className="screen-header">
-      <button className="ghost" onClick={() => go('home')}>← ホーム</button>
-      <h1>{title}</h1>
-    </header>
-  );
-}
-
-export function HomeScreen() {
-  const { go, decks, recentDeckIds, editDeck, cards, registry } = useApp();
-  const loadGame = useBattle((s) => s.loadGame);
-  const [saves, setSaves] = useState<SavedGame[]>([]);
-  useEffect(() => {
-    void db.savedGames.orderBy('savedAt').reverse().limit(3).toArray().then(setSaves);
-  }, []);
-  const recent = recentDeckIds.map((id) => decks.find((d) => d.id === id)).filter(Boolean);
-  return (
-    <div className="home">
-      <div className="home-title">
-        <div className="logo-mark">◆</div>
-        <h1>Card Duel Simulator</h1>
-        <p>デッキ構築と対戦のシミュレーター</p>
-      </div>
-      <nav className="home-menu">
-        <button className="primary big" onClick={() => go('setup')} data-testid="menu-battle">対戦開始</button>
-        <button className="big" onClick={() => void useApp.getState().newDeck()}>デッキ構築</button>
-        <button className="big" onClick={() => go('decks')} data-testid="menu-decks">デッキ一覧</button>
-        <button className="big" onClick={() => go('library')} data-testid="menu-library">カード図鑑</button>
-        <button className="big" onClick={() => go('official')} data-testid="menu-official">公式カード検索</button>
-        <button className="big" onClick={() => go('history')}>対戦履歴</button>
-        <button className="big" onClick={() => go('settings')}>設定</button>
-      </nav>
-      <div className="home-side">
-        {cards.length === 0 && (
-          <section className="getting-started">
-            <h3>はじめに</h3>
-            <p className="small">カードがまだありません。「公式カード検索」で使いたいカードを保存すると、デッキ構築と対戦で使えるようになります。</p>
-            <button className="primary" onClick={() => go('official')}>公式カード検索へ</button>
-          </section>
-        )}
-        <section>
-          <h3>最近使用したデッキ</h3>
-          {recent.length === 0 && <p className="muted">まだありません</p>}
-          {recent.map((d) => (
-            <button key={d!.id} className="list-item" onClick={() => editDeck(d!.id)}>
-              {d!.name} <span className="muted">{deckCountLabel(d!, registry)}</span>
-            </button>
-          ))}
-        </section>
-        {saves.length > 0 && (
-          <section>
-            <h3>中断した対戦</h3>
-            {saves.map((s) => (
-              <button key={s.id} className="list-item" onClick={() => void loadGame(s.id)}>
-                {s.title} <span className="muted">{new Date(s.savedAt).toLocaleString()}</span>
-              </button>
-            ))}
-          </section>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export function DeckListScreen() {
-  const { decks, editDeck, duplicateDeck, deleteDeck, newDeck, registry, settings } = useApp();
-  return (
-    <div className="screen">
-      <Header title="デッキ一覧" />
-      <div className="toolbar">
-        <button className="primary" onClick={() => void newDeck()}>＋ 新しいデッキ</button>
-        <button
-          onClick={async () => {
-            useApp.setState({ pendingTextImport: true });
-            await newDeck();
-          }}
-          data-testid="new-deck-from-text"
-        >
-          ＋ テキストから作成（AIのデッキリストなど）
-        </button>
-      </div>
-      <div className="deck-grid">
-        {decks.map((d) => {
-          const legal = isDeckLegal(d, settings.format, registry);
-          return (
-            <div key={d.id} className="deck-tile">
-              <div className="deck-tile-name">{d.name}</div>
-              <div className="muted">
-                {deckCountLabel(d, registry)} {legal ? <span className="ok">✓ 使用可能</span> : <span className="ng">✗ 構築ルール違反</span>}
-              </div>
-              <div className="deck-tile-actions">
-                <button onClick={() => editDeck(d.id)}>編集</button>
-                <button onClick={() => void duplicateDeck(d.id)}>複製</button>
-                <button className="danger" onClick={() => confirm(`「${d.name}」を削除しますか？`) && void deleteDeck(d.id)}>削除</button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+export { HomeScreen, DeckListScreen } from './Home';
 
 export function SettingsScreen() {
   const { settings, updateSettings, clearCustomCards } = useApp();

@@ -32,9 +32,11 @@ interface Props {
   count: (cardId: string) => number;
   max: (cardId: string) => number;
   onDetail: (cardId: string) => void;
+  /** 保存済みのカードにマウスが乗った時（詳細パネルに出す） */
+  onHover?: (cardId: string | null) => void;
 }
 
-export function OfficialPicker({ onPick, count, max, onDetail }: Props) {
+export function OfficialPicker({ onPick, count, max, onDetail, onHover }: Props) {
   const { query, result, set } = usePicker();
   const registry = useApp((s) => s.registry);
   const [loading, setLoading] = useState(false);
@@ -112,7 +114,7 @@ export function OfficialPicker({ onPick, count, max, onDetail }: Props) {
           </label>
         </div>
       </form>
-      <p className="muted small">クリックでデッキに追加（未保存のカードは追加時にブラウザへ保存）。右クリックで詳細。</p>
+      <p className="muted small">クリックでデッキに追加（未保存のカードは追加時にブラウザへ保存）。右クリックで拡大。</p>
       {error && <p className="ng small">{error}</p>}
       {loading && <p className="muted">公式サイトから取得中…</p>}
       {result && !loading && (
@@ -134,6 +136,8 @@ export function OfficialPicker({ onPick, count, max, onDetail }: Props) {
                     e.preventDefault();
                     if (saved) onDetail(cardId);
                   }}
+                  onMouseEnter={() => saved && onHover?.(cardId)}
+                  onMouseLeave={() => onHover?.(null)}
                   title={saved ? registry[cardId].name : c.id}
                 >
                   <Thumb thumbUrl={c.thumbUrl} imageRef={saved ? registry[cardId].imageRef : undefined} alt={c.id} />
