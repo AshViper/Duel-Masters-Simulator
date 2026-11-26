@@ -572,18 +572,26 @@ function attackTargetsImpl(state: GameState, reg: CardRegistry, player: PlayerId
   if (kw.cannotAttackCreatures) return out;
   for (const t of battleCards(state, reg, other(player))) {
     if (cannotBeAttacked(state, reg, t)) continue;
+    // 「これよりコストが小さいクリーチャーに攻撃されない」
+    if (keywords(state, reg, t).cannotBeAttackedBySmallerCost && def(state, reg, iid).cost < def(state, reg, t).cost) continue;
     if (state.cards[t].tapped || kw.attackUntapped || machOnly) out.push({ kind: 'creature', iid: t });
   }
+  // 「相手のクリーチャーが攻撃するなら、可能ならこのクリーチャーを攻撃する」：攻撃できるなら攻撃先はそれに限られる
+  const lures = out.filter((t) => t.kind === 'creature' && keywords(state, reg, t.iid).attackLure);
+  if (lures.length) return lures;
   return out;
 }
 
 export function blockersFor(state: GameState, reg: CardRegistry, defender: PlayerId, attacker: string): string[] {
-  const unblockable = !!keywords(state, reg, attacker).unblockable;
+  const akw = keywords(state, reg, attacker);
+  const unblockable = !!akw.unblockable;
   const target = state.combat?.target;
   return battleCards(state, reg, defender).filter((b) => {
     if (state.cards[b].tapped) return false;
     const kw = keywords(state, reg, b);
     if (kw.cannotBlock) return false;
+    // 「このクリーチャーよりパワーが小さいクリーチャーにブロックされない」
+    if (akw.unblockableBySmaller && !kw.superGuardman && !kw.guardman && power(state, reg, b) < power(state, reg, attacker)) return false;
     // ガードマンは「ブロック」ではなく攻撃先の変更なので、ブロックされないクリーチャーにも使える
     if (kw.superGuardman) return true;
     if (kw.guardman && target?.kind === 'creature' && target.iid !== b) return true;
@@ -658,6 +666,8 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
     }
     case 'didNot':
       return !state.lastDid;
+    case 'wonBattleThisTurn':
+      return (state.players[c.who === 'self' ? controller : other(controller)].battleWinsThisTurn ?? 0) > 0;
     case 'selfEnteredThisTurn':
       return !!source && state.cards[source]?.zone === 'battle' && state.cards[source].enteredTurn === state.turn;
     case 'subjectEnteredFree':
@@ -668,6 +678,8 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
     }
     case 'opponentTurn':
       return state.activePlayer !== controller;
+    case 'inExtraTurn':
+      return !!state.inExtraTurn;
     case 'shieldsBrokenThisTurn':
       return (state.players[c.who === 'self' ? controller : other(controller)].shieldsBrokenThisTurn ?? 0) >= c.min;
   }

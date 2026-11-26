@@ -80,7 +80,7 @@ export function normalizeText(s: string): string {
     .replace(/することができない/g, 'できない')
     .replace(/_(?=\d)/g, '-')
     .replace(/そのターン、そのクリーチャー/g, 'このターン、そのクリーチャー')
-    .replace(/^このクリーチャーをバトルゾーンに出した時/, 'このクリーチャーが出た時')
+    .replace(/^この(クリーチャー|ドラグハート)をバトルゾーンに出した時/, 'この$1が出た時')
     .replace(/ひとつ/g, '1つ')
     .replace(/ふたつ/g, '2つ')
     .replace(/みっつ/g, '3つ')
@@ -231,6 +231,7 @@ const EVENTS: { re: RegExp; self?: TriggerEvent; other?: TriggerEvent; ownInclud
   { re: /^(?:バトルゾーンを)?離れた時/, self: 'onLeave', other: 'onOtherLeave' },
   { re: /^ブロック(?:した|する)時/, self: 'onBlock' },
   { re: /^進化する時/, self: 'onEvolved' },
+  { re: /^(?:龍解|覚醒)した時/, self: 'onAwaken' },
   { re: /^相手プレイヤーを攻撃してブロックされなかった時/, self: 'onUnblocked' },
   { re: /^EXライフシールドを失った時/, self: 'onExLifeLeft' },
   { re: /^禁断解放した時/, self: 'onUnleash' },
@@ -324,6 +325,12 @@ function parseTrigger(t: string): ParsedTrigger | null {
     const r = parseTrigger(turnOf[2]);
     return r && { ...r, duringTurn: turnOf[1] === '自分' ? 'self' : 'opponent' };
   }
+  // 「自分が、コスト5以上の、クリーチャーではないカードを実行した時、」：使ったカードの条件つき
+  const played = t.match(/^(自分|相手)が、?(.+?)(カード|クリーチャー|呪文)を(?:実行|使用)した時、(.+)$/);
+  if (played && played[2] !== '') {
+    const filter: CardFilter = played[3] === 'カード' ? {} : { cardType: played[3] === '呪文' ? 'spell' : 'creature' };
+    if (parseMods(played[2], filter)) return { when: ['onPlay'], who: played[1] === '自分' ? 'self' : 'opponent', filter, subject: true, rest: played[4] };
+  }
   for (const pe of PLAYER_EVENTS) {
     const pm = t.match(pe.re);
     if (pm) return { when: [pe.when], who: pm[1] === '自分' ? 'self' : 'opponent', ...(pe.filter ? { filter: pe.filter } : {}), subject: true, rest: t.slice(pm[0].length) };
@@ -342,7 +349,7 @@ function parseTrigger(t: string): ParsedTrigger | null {
   for (;;) {
     if (!subject && when.length === 0) {
       // タマシードの「このタマシードが出た時」も同じ
-      const sm = rest.match(/^この(?:クリーチャー|タマシード)が?/);
+      const sm = rest.match(/^この(?:クリーチャー|タマシード|ドラグハート|フィールド|D2フィールド)(?:が|を(?=バトルゾーンに出した時))?/);
       if (sm && SELF_EVENTS.some(([re]) => re.test(rest.slice(sm[0].length)))) {
         rest = rest.slice(sm[0].length);
         subject = true;
@@ -395,6 +402,8 @@ function parseMods(mods: string, filter: CardFilter): boolean {
     [/^(光|水|闇|火|自然)の/, (x) => (filter.civilization = CIV[x[1]])],
     [/^((?:光|水|闇|火|自然)(?:または(?:光|水|闇|火|自然))+)の/, (x) => (filter.civilizations = x[1].split('または').map((c) => CIV[c]))],
     [/^進化(?:クリーチャー)?で(?:は)?ない/, () => (filter.nonEvolution = true)],
+    [/^クリーチャーではない/, () => (filter.not = { cardType: 'creature' })],
+    [/^サイキックではない/, () => undefined],
     // 「闇ではない」「多色ではない」「ドラゴンではない」：その条件に合わないもの
     [/^(光|水|闇|火|自然|無色|多色)ではない/, (x) => (filter.not = x[1] === '多色' ? { multicolor: true } : { civilization: x[1] === '無色' ? 'zero' : CIV[x[1]] })],
     [/^([^、のをにがで「」]+?)ではない/, (x) => (filter.not = { race: x[1].replace(/・?クリーチャー$/, '') })],
@@ -471,7 +480,7 @@ function parseObject(s: string): { target: TargetSpec; noun: string; filter: Car
     text = text.replace(from[0], '');
   }
   const m = text.match(
-    /^(相手の|自分の)?(好きな数の)?(.*?)(クリーチャー|エレメント|カード|シールド|呪文|手札)?を、?(?:(\d+)(?:体|枚|つ)(まで)?|(すべて)|(好きな(?:数|枚数)))(?:選び|選んで)?、?(.+)$/,
+    /^(相手の|自分の)?(好きな数の)?(.*?)(クリーチャー|エレメント|カード|シールド|呪文|手札|ドラグハート)?を、?(?:(\d+)(?:体|枚|つ)(まで)?|(すべて)|(好きな(?:数|枚数)))(?:選び|選んで)?、?(.+)$/,
   );
   if (!m) return null;
   const [, ownerWord, anyPrefix, mods, nounRaw, count, upTo, all, anyCount, verbRaw] = m;
@@ -484,6 +493,8 @@ function parseObject(s: string): { target: TargetSpec; noun: string; filter: Car
     if (!mods || !parseSubject(mods, filter)) return null;
     noun = 'クリーチャー';
   } else if (!parseMods(mods ?? '', filter)) return null;
+  // ドラグハート：カードの種類で絞る（クリーチャーではない）
+  if (noun === 'ドラグハート') filter.typeLabelIncludes = 'ドラグハート';
   if (noun === 'シールド') {
     if (fromZone) return null;
     zone = 'shield';
@@ -558,7 +569,7 @@ const VERBS: VerbRule[] = [
       re: r.re,
       zones: r.from,
       build: (t, m) =>
-        move(r.creatureOnly ? { ...t, filter: { ...(t.filter ?? {}), cardType: 'creature' } } : t, r.to, r.tapped?.test(m[0]) ? { tapped: true } : {}),
+        move(r.creatureOnly && !t.filter?.typeLabelIncludes ? { ...t, filter: { ...(t.filter ?? {}), cardType: 'creature' } } : t, r.to, r.tapped?.test(m[0]) ? { tapped: true } : {}),
     }),
   ),
 ];
@@ -708,6 +719,13 @@ function parseSentence(s: string): EffectDef[] | null {
   const ref = parseRefSentence(s);
   if (ref) return ref;
   if (s === '数字を1つ選ぶ') return [{ type: 'chooseNumber' }];
+  // 覚醒・龍解・解除・ループ覚醒：このカードを裏返す
+  if (/^この(?:クリーチャー|ドラグハート)を、?(?:コスト(?:が|の)大きいほうに|クリーチャー側に)裏返す$/.test(s)) return [{ type: 'flipSelf', to: 'back' }];
+  if (/^このドラグハートを、?クリーチャー側に裏返し、アンタップする$/.test(s)) return [{ type: 'flipSelf', to: 'back', untap: true }];
+  if (/^この(?:クリーチャー|ドラグハート)を、?(?:コスト(?:が|の)小さいほうに|フォートレス側に|ウエポン側に)裏返す$/.test(s)) return [{ type: 'flipSelf', to: 'front' }];
+  if (/^このクリーチャーを、?《[^》]+》のほうに裏返す$/.test(s)) return [{ type: 'flipSelf', to: 'toggle' }];
+  // メテオバーン覚醒：「このクリーチャーの下にあるカードをすべて墓地に置く」
+  if (/^このクリーチャーの下にあるカードをすべて、?(?:自分の)?墓地に置く$/.test(s)) return [{ type: 'discardUnder', count: 0 }];
   // メクレイド：「アビス・メクレイド5する」＝山札の上から3枚を見て、コスト5以下のアビスを1枚（W・メクレイドは2枚まで）、コストを支払わずに使ってもよい。残りは山札の下
   if ((m = s.match(/^(?:自分は)?(.+?)・(W・)?メクレイド(\d+|∞)する$/))) {
     const pickFilter: CardFilter = { race: m[1], ...(m[3] === '∞' ? {} : { maxCost: n(m[3]) }) };
@@ -955,7 +973,15 @@ function parseBody(body: string, options: string[]): Group[] | null {
     .split('。')
     .map((x) => x.trim())
     .filter(Boolean)
-    .flatMap((x) => x.split(/、?(?:その後|そのあと)、/).filter(Boolean));
+    .flatMap((x) => {
+      // 「〜を墓地に置き、その後、〜」：前の部分は言い切りの形に直す
+      const parts = x.split(/、?(?:その後|そのあと)、/).filter(Boolean);
+      return parts.map((p, k) => {
+        if (k === parts.length - 1) return p;
+        const c = CONTINUATIVE.find(([a]) => p.endsWith(a));
+        return c ? p.slice(0, -c[0].length) + c[1] : p;
+      });
+    });
   const groups: Group[] = [];
   const outerChosen = refCtx.chosen;
   for (let i = 0; i < sentences.length; i++) {
@@ -1918,7 +1944,7 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
  * 「V覚醒リンク?バトルゾーンに自分の《A》と《B》がある時、〜」（いつでも）
  */
 function parseAwakenLink(t: string): ParsedAbilities['awakenLink'] | null {
-  const m = t.match(/^[A-Z]?覚醒リンク[-?ー―:：]?(自分のターンのはじめに、)?バトルゾーンに自分の((?:《[^》]+》と?)+)(?:があれば|がある時)、(?:その|それらの)クリーチャーとこのクリーチャーを裏返しリンクさせる。?$/);
+  const m = t.match(/^[A-Z’']{0,3}覚醒リンク[-?ー―:：]?(自分のターンのはじめに、)?(?:または、自分の《[^》]+》が出た時、)?(?:バトルゾーンに)?自分の((?:《[^》]+》と?)+)(?:があれば|がある時)、(?:(?:その|それらの)クリーチャー|それら1体ずつ)とこのクリーチャーを裏返しリンクさせる。?$/);
   if (!m) return null;
   const names = [...m[2].matchAll(/《([^》]+)》/g)].map((x) => x[1]);
   return { names, timing: m[1] ? 'turnStart' : 'always' };
@@ -1960,6 +1986,9 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
   // ウェーブストライカー：「「ウェーブストライカー」を持つクリーチャーが他に2体以上あれば、」
   const wave = body.match(/^「ウェーブストライカー」を持つクリーチャーが他に(\d+)体以上あれば、(.+)$/);
   if (wave) return { body: wave[2], condition: { type: 'compare', left: { who: 'any', zone: 'battle', filter: { hasKeyword: 'waveStriker', excludeSelf: true } }, op: '>=', right: n(wave[1]) } };
+  // 「このターン、自分のクリーチャーがバトルに勝っていれば、」
+  const wonB = body.match(/^(?:この|その)ターン、?(自分|相手)のクリーチャーがバトルに勝っていれば、(.+)$/);
+  if (wonB) return { body: wonB[2], condition: { type: 'wonBattleThisTurn', who: wonB[1] === '自分' ? 'self' : 'opponent' } };
   // 「このクリーチャーが出たターン、各ブレイクの前に、〜」：出たターンだけ
   const enteredTurn = body.match(/^このクリーチャーが(?:バトルゾーンに)?出たターン、(.+)$/);
   if (enteredTurn) return { body: enteredTurn[1], condition: { type: 'selfEnteredThisTurn' } };
@@ -2155,7 +2184,9 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   if (label) return parseLine(label[1], options, kind, out);
   // 知らない能力語でも「能力語：本文」で、本文がふつうの能力としてすべて読めればそれを使う（シビルカウント3：〜、水晶武装4：〜）。
   // カッコの補足説明に条件が書いてある行（バラバラエティなど）は、本文だけでは条件が分からないので読まない
-  const anyLabel = /[(（]/.test(line) ? null : t.match(/^[^、。:：「」]{2,14}?\d*(?:\((?:光|水|闇|火|自然)\))?[:：](.{8,})$/);
+  // （補足説明があっても、条件や「この能力を与える」が書いていなければ読む）
+  const condInReminder = /[(（][^()（）]*(?:あれば|なら、|この能力を与える)[^()（）]*[)）]/.test(line.normalize('NFKC'));
+  const anyLabel = condInReminder ? null : (t.match(/^[^、。:：「」]{2,14}?\d*(?:\((?:光|水|闇|火|自然)\))?[:：](.{8,})$/) ?? t.match(/^[^、。:：「」-]{0,10}覚醒-(.{8,})$/));
   if (anyLabel && !/^(?:進化|NEO進化|G-NEO進化|侵略|革命チェンジ|シンパシー|G・ゼロ|アタック・チャンス|Dスイッチ|ハイパー化|ウルトラ・セイバー)/.test(t)) {
     const tmp: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
     if (parseLine(anyLabel[1], options, kind, tmp) && !tmp.abilities.some((a) => a.effects.some((e) => e.type === 'manual'))) {
@@ -2507,7 +2538,7 @@ function parseReplacement(t: string): ReplacementAbility | null {
     if (!parseMods(seal[2], filter)) return null;
     return { event: seal[3] === '破壊される' ? 'destroyed' : 'leaveBattle', subject: seal[1] ? 'otherOwn' : 'anyOwn', instead: 'seal', ...(Object.keys(filter).length ? { filter } : {}) };
   }
-  const m = t.match(/^このクリーチャーが(破壊される|バトルゾーンを離れる|離れる)時、(?:墓地に置く)?かわりに、?(.+)$/);
+  const m = t.match(/^このクリーチャーが(破壊される|バトルゾーンを離れる|離れる)時、(?:墓地に置く|バトルゾーンを離れる)?かわりに、?(.+)$/);
   if (!m) return null;
   const { text, optional } = stripOptional(m[2].replace(/^(?:自分の|持ち主の)/, ''));
   const INSTEAD: Record<string, ReplacementAbility['instead']> = {
@@ -2520,6 +2551,8 @@ function parseReplacement(t: string): ReplacementAbility | null {
     バトルゾーンにとどまる: 'stay',
     とどまる: 'stay',
     他のクリーチャーを1体破壊する: 'destroyOther',
+    コストが小さいほうに裏返す: 'unflip',
+    フォートレス側に裏返す: 'unflip',
   };
   const instead = INSTEAD[text];
   if (!instead) return null;

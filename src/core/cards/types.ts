@@ -168,8 +168,12 @@ export type Condition =
   | { type: 'subjectEnteredFree'; iid?: string }
   /** このターンに出たクリーチャーの数が min 以上（who: 誰のクリーチャーか） */
   | { type: 'enteredThisTurn'; who: 'self' | 'opponent' | 'any'; min: number }
+  /** このターンに、そのプレイヤーのクリーチャーがバトルに勝っていた */
+  | { type: 'wonBattleThisTurn'; who: 'self' | 'opponent' }
   /** いまが相手のターン（S・トリガーで使った時の追加能力の判定用） */
-  | { type: 'opponentTurn' };
+  | { type: 'opponentTurn' }
+  /** いまが追加ターン（「追加ターン中でなければ」） */
+  | { type: 'inExtraTurn' };
 
 /** 効果でカードを動かす先（deckTop / deckBottom は山札の上 / 下） */
 /** under: 効果の発生源（このクリーチャー）の下に置く */
@@ -257,6 +261,8 @@ export type EffectDef =
   /** self: 自分のシールドをブレイクする（G・ブレイカーの「その攻撃の後、自分のシールドをすべてブレイクする」） */
   | { type: 'breakShields'; count: number; self?: boolean }
   | { type: 'extraTurn' }
+  /** そのプレイヤー（効果の持ち主）がゲームに勝つ */
+  | { type: 'winGame' }
   /**
    * 効果の発生源（このクリーチャー）自身に対する処理。移動先（MoveDest）なら move と同じ移動をする。
    * 'toHand' / 'toMana' は旧形式（'hand' / 'mana' と同じ）。tapped: タップして置く
@@ -297,6 +303,11 @@ export type EffectDef =
   | { type: 'magibomber'; maxCost: number }
   /** 数字を1つ選ぶ（後の文の「その数字と同じコストの」で使う） */
   | { type: 'chooseNumber' }
+  /**
+   * このカードを裏返す（覚醒・龍解・解除・ループ覚醒）。
+   * to: back は裏面（コストの大きいほう・クリーチャー側）、front は表面、toggle はいまと反対の面。untap: 裏返した後アンタップする
+   */
+  | { type: 'flipSelf'; to: 'back' | 'front' | 'toggle'; untap?: boolean }
   /** このクリーチャーの一番上のカードを破壊する（下のカードがクリーチャーとして残る） */
   | { type: 'destroyTopCard' }
   /**
@@ -376,6 +387,8 @@ export const TRIGGER_EVENTS = [
   'onOwnUnderLeft',
   /** カードがシールドゾーンを離れた時（who で誰のシールドゾーンか） */
   'onShieldLeft',
+  /** このクリーチャーが覚醒した時・龍解した時（裏返ってクリーチャー側・コストの大きい側になった時） */
+  'onAwaken',
   /** このクリーチャーが相手プレイヤーを攻撃してブロックされなかった時 */
   'onUnblocked',
   /** このクリーチャーの各ブレイクの前に（攻撃によるブレイクを1つずつに分け、その前に誘発する） */
@@ -459,8 +472,9 @@ export interface ReplacementAbility {
   /** escape: かわりに自分のシールドを1つ手札に加える（エスケープ）。shedUnder: かわりに下のカードすべてが離れる（G-NEO進化） */
   /** seal: かわりにそのクリーチャーに封印を付ける（Dの禁断 ドキンダムエリア） */
   /** destroyOther: かわりに自分の他のクリーチャーを1体破壊する */
+  /** unflip: かわりに表面（コストの小さいほう・フォートレス側）に裏返してとどまる（解除・龍回避） */
   /** shedTop: かわりに一番上のカードが離れる（スター進化。下のカードがクリーチャーとして残る） */
-  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther' | 'shedTop';
+  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'toDeckTop' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther' | 'shedTop' | 'unflip';
   optional?: boolean;
 }
 
@@ -551,6 +565,18 @@ export interface Keywords {
   zRush?: boolean;
   /** 相手のターンに相手のクリーチャーが出て、その能力がトリガーした時、自分もその能力を使ってもよい */
   mimicEnemySummon?: boolean;
+  /** 相手のクリーチャーが攻撃するなら、可能ならこのクリーチャーを攻撃する */
+  attackLure?: boolean;
+  /** このクリーチャーよりパワーが小さいクリーチャーにブロックされない */
+  unblockableBySmaller?: boolean;
+  /** このクリーチャーよりコストが小さいクリーチャーに攻撃されない */
+  cannotBeAttackedBySmallerCost?: boolean;
+  /** バトルゾーンにタップして置かれる */
+  entersTapped?: boolean;
+  /** ブロック中だけパワーに加える（パワード・ブロッカー） */
+  blockPower?: number;
+  /** 条件（種族）に合うクリーチャーとのバトル中だけパワーに加える（「ゼニスとバトル中、パワーを+N」） */
+  battlePowerVs?: { race: string; amount: number };
 }
 
 /** 禁断の鼓動の裏側（禁断クリーチャー） */

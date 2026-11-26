@@ -62,6 +62,8 @@ export interface PlayerState {
   creaturesThisTurn?: number;
   /** このターンに使ったカード（「各ターン、1体目の」の判定用） */
   playedThisTurn?: string[];
+  /** このターンに、このプレイヤーのクリーチャーがバトルに勝った回数 */
+  battleWinsThisTurn?: number;
   /** このターンにブレイクされたこのプレイヤーのシールドの数 */
   shieldsBrokenThisTurn?: number;
 }
@@ -218,6 +220,8 @@ export interface CombatState {
   attacker: string;
   attackingPlayer: PlayerId;
   target: AttackTarget;
+  /** ブロックしたクリーチャー */
+  blocker?: string;
   /** S級侵略：攻撃する時に墓地・マナゾーン・バトルゾーンにあったS級侵略のカード */
   sClassEligible?: string[];
 }
@@ -253,6 +257,8 @@ export interface GameState {
   lastDid?: boolean;
   /** 効果で選んだ数字（「数字を1つ選ぶ」） */
   chosenNumber?: number;
+  /** いまのターンが追加ターン */
+  inExtraTurn?: boolean;
   /** 効果で直前に選んだ（動かした）カード（「それ」「その捨てたカード」で指す） */
   lastChosen?: string[];
   log: LogEntry[];

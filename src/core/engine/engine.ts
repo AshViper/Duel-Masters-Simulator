@@ -106,8 +106,10 @@ const INSTEAD_LABEL: Record<ReplacementAbility['instead'], string> = {
   toMana: 'マナゾーンに置く',
   toShield: 'シールドに加える',
   toDeckBottom: '山札の下に置く',
+  toDeckTop: '山札の上に置く',
   destroySelf: 'このクリーチャーを破壊する',
   shedTop: '一番上のカードだけを離す',
+  unflip: '表面に裏返してとどまる',
   stay: 'バトルゾーンにとどまる',
   escape: '自分のシールドを1つ手札に加える',
   shedUnder: '下のカードすべてを離す',
@@ -349,8 +351,10 @@ export class Ctx {
       p.creaturesThisTurn = 0;
       p.playedThisTurn = [];
       p.shieldsBrokenThisTurn = 0;
+      p.battleWinsThisTurn = 0;
     }
     const P = s.players[s.activePlayer];
+    s.inExtraTurn = P.extraTurns > 0;
     if (P.extraTurns > 0) {
       P.extraTurns -= 1;
       this.log(`${P.name} の追加ターン`, P.id);
@@ -506,9 +510,13 @@ export class Ctx {
     else s.queue.push(...tasks);
   }
 
-  private battleBonus(iid: string): number {
+  private battleBonus(iid: string, opp: string): number {
     const kw = keywords(this.s, this.reg, iid);
     let bonus = kw.battlePower ?? 0;
+    // パワード・ブロッカー：ブロック中だけ
+    if (kw.blockPower && this.s.combat?.blocker === iid) bonus += kw.blockPower;
+    // 「ゼニスとバトル中、パワーを+N」
+    if (kw.battlePowerVs && def(this.s, this.reg, opp).races.some((r) => r.includes(kw.battlePowerVs!.race))) bonus += kw.battlePowerVs.amount;
     if (kw.hunting) {
       const owner = this.s.cards[iid].owner;
       bonus += 1000 * battleCards(this.s, this.reg, owner).filter((b) => def(this.s, this.reg, b).races.some((r) => r.includes('ハンター'))).length;
@@ -842,6 +850,8 @@ export class Ctx {
               }
             }
           }
+          // 「このドラグハートが出た時」「このフィールドが出た時」
+          this.triggerFrom(task.iid, 'onSummon');
           return false;
         }
         // タマシードはクリーチャーではないので、召喚としては扱わない（「このタマシードが出た時」だけ誘発する）
@@ -943,6 +953,7 @@ export class Ctx {
         if (b) {
           s.cards[b].tapped = true;
           s.combat.target = { kind: 'creature', iid: b };
+          s.combat.blocker = b;
           this.log(`${this.name(b)} がブロック`, task.defender);
           this.emit({ type: 'BLOCKED', blocker: b, attacker: task.attacker });
         }
@@ -981,8 +992,8 @@ export class Ctx {
           return false;
         }
         // 「バトル中、パワーを+N」はバトルの時だけ加える
-        const pa = power(s, this.reg, attacker) + this.battleBonus(attacker);
-        const pd = power(s, this.reg, defender) + this.battleBonus(defender);
+        const pa = power(s, this.reg, attacker) + this.battleBonus(attacker, defender);
+        const pd = power(s, this.reg, defender) + this.battleBonus(defender, attacker);
         s.combat = null;
         this.log(`バトル：${this.name(attacker)}(${pa}) vs ${this.name(defender)}(${pd})`, s.cards[attacker].owner);
         const losers: string[] = [];
@@ -1354,6 +1365,15 @@ export class Ctx {
           for (const u of shed) this.emit({ type: 'UNDER_LEFT', iid: task.iid, card: u });
           return false;
         }
+        case 'unflip': {
+          // 解除・龍回避：裏面の時だけ。表面に裏返してバトルゾーンにとどまる
+          if (!inst.flipped) {
+            this.insertFront({ ...task, chosen: undefined, replaced: [...replaced, key] });
+            return false;
+          }
+          inst.flipped = false;
+          return false;
+        }
         case 'shedTop': {
           // スター進化：かわりに一番上のカードが離れ、下のカードがクリーチャーとして残る
           if (!inst.under.length) {
@@ -1546,6 +1566,17 @@ export class Ctx {
         // メテオバーン：下にあるカードを墓地に置く。足りなければ何もしない（続きの「そうしたら」も行わない）
         const inst = s.cards[source];
         const under = inst?.zone === 'battle' ? inst.under : [];
+        // count 0：下にあるカードをすべて（メテオバーン覚醒）
+        if (e.count === 0) {
+          for (const u of [...under]) {
+            s.cards[u].zone = 'battle';
+            this.moveCard(u, 'graveyard');
+            this.emit({ type: 'UNDER_LEFT', iid: source, card: u });
+          }
+          if (inst) inst.under = [];
+          s.lastChosen = [...under];
+          return false;
+        }
         if (under.length < e.count) {
           this.log(`${this.name(source)}：下にあるカードが足りません`, controller);
           s.lastChosen = [];
@@ -1699,6 +1730,10 @@ export class Ctx {
         s.players[controller].extraTurns += 1;
         this.log('このターンの後、もう一度自分のターンを行う', controller);
         return false;
+      case 'winGame':
+        this.log(`${this.name(source)} の効果でゲームに勝利`, controller);
+        this.gameOver(controller, `${this.name(source)} の効果`);
+        return false;
       case 'breakShields':
         this.insertFront({ kind: 'breakShields', breaker: controller, source, defender: e.self ? controller : opp, count: e.count });
         return false;
@@ -1738,6 +1773,24 @@ export class Ctx {
         return this.withTargets(controller, source, e.target, 'コストを支払わずに使う', false, (iid) => {
           this.useFree(controller, iid);
         });
+      case 'flipSelf': {
+        const inst = s.cards[source];
+        const d0 = inst && this.reg[inst.cardId];
+        // 両面のあるカード（サイキック・クリーチャー、ドラグハート）だけ。リンク中は裏返さない
+        if (!inst || inst.zone !== 'battle' || !d0?.psychic || inst.links?.length) return false;
+        const want = e.to === 'toggle' ? !inst.flipped : e.to === 'back';
+        if (!!inst.flipped === want) return false;
+        const before = this.name(source);
+        inst.flipped = want;
+        if (e.untap) inst.tapped = false;
+        this.log(`${before} を裏返した：${this.name(source)}`, controller);
+        if (want) {
+          // 表がクリーチャーでないカード（ドラグハート）は、裏返ってクリーチャーになる。このターンに出たものとして扱う
+          if (!isCreatureType(d0.type)) inst.enteredTurn = s.turn;
+          this.triggerFrom(source, 'onAwaken');
+        }
+        return false;
+      }
       case 'destroyTopCard': {
         const inst = s.cards[source];
         if (inst?.zone !== 'battle') return false;
@@ -2190,6 +2243,11 @@ export class Ctx {
 
   private putIntoBattle(iid: string, controller: PlayerId): Task | void {
     const d = def(this.s, this.reg, iid);
+    // ドラグハート（ウエポン・フォートレス）は、クリーチャーではないがバトルゾーンに出せる
+    if (isNonCreaturePermanent(d.type) && /ドラグハート/.test(d.typeLabel ?? '')) {
+      this.log(`${d.name} をバトルゾーンに出す`, controller);
+      return { kind: 'enterBattle', player: this.s.cards[iid].owner, iid };
+    }
     if (!isCreatureType(d.type) || d.type === 'evolution') {
       this.log(`${d.name} はバトルゾーンに出せない`, controller);
       return;
@@ -2635,6 +2693,10 @@ export class Ctx {
         this.triggerFrom(e.blocker, 'onBlock');
         break;
       case 'BATTLE_WON': {
+        if (s.cards[e.winner]) {
+          const wp = s.players[s.cards[e.winner].owner];
+          wp.battleWinsThisTurn = (wp.battleWinsThisTurn ?? 0) + 1;
+        }
         this.triggerFrom(e.winner, 'onBattleWin');
         // 「自分のクリーチャーがバトルに勝った時」：他のクリーチャーと、「他の」でなければ勝ったクリーチャー自身も
         const wOwner = s.cards[e.winner].owner;
@@ -2665,7 +2727,7 @@ export class Ctx {
       case 'CARD_PLAYED': {
         const P = s.players[e.player];
         P.playedThisTurn = [...(P.playedThisTurn ?? []), e.iid];
-        for (const iid of battleAll()) if (iid !== e.iid) this.triggerFrom(iid, 'onPlay', (ab) => this.whoMatches(ab.who, s.cards[iid].owner, e.player), e.iid);
+        for (const iid of battleAll()) if (iid !== e.iid) this.triggerFrom(iid, 'onPlay', (ab) => this.whoMatches(ab.who, s.cards[iid].owner, e.player) && matchFilter(s, this.reg, e.iid, ab.filter), e.iid);
         break;
       }
       // 「相手が呪文を唱えた時」
@@ -2763,6 +2825,8 @@ export class Ctx {
     delete inst.leaveAtTurnEnd;
     inst.faceUp = to !== 'shield' && to !== 'deck' && to !== 'seal';
     if (to === 'battle') inst.enteredTurn = s.turn;
+    // 「バトルゾーンに置く時、このカードはタップして置く」
+    if (to === 'battle' && def(s, this.reg, iid).keywords?.entersTapped) inst.tapped = true;
     // 多色カードはタップしてマナゾーンに置かれる
     if (to === 'mana' && manaCivilizations(def(s, this.reg, iid)).length > 1) inst.tapped = true;
     // 「マナゾーンに置く時、このカードはタップして置く」

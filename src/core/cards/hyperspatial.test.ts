@@ -1,0 +1,149 @@
+// 超次元まわりのテスト：覚醒・解除・ループ覚醒（サイキック・クリーチャーが裏返る）、ドラグハート（龍解・龍回避）
+import { describe, expect, it } from 'vitest';
+import { Ctx, applyAction } from '../engine/engine';
+import { def, keywords, power } from '../engine/queries';
+import { createGame } from '../engine/setup';
+import type { Action, GameState, PlayerId } from '../engine/types';
+import { SAMPLE_CARDS } from '../testing/fixtureCards';
+import { convertOfficialCard } from './officialConvert';
+import { buildRegistry } from './registry';
+import type { ZoneName } from './types';
+
+const base = { packName: '(T 1/1)', imageUrl: '', rarity: 'C', mana: '1', illustrator: '', flavor: '' };
+type O = { civ?: string; type?: string; power?: string; cost?: string; race?: string };
+const face = (name: string, abilities: string[], o: O = {}) => ({ ...base, name, race: o.race ?? 'テスト', civilization: o.civ ?? '火', type: o.type ?? 'クリーチャー', power: o.power ?? '3000', cost: o.cost ?? '1', abilities });
+const mk = (id: string, abilities: string[], o: O = {}) => convertOfficialCard({ id, detailUrl: '', faces: [face(id, abilities, o)] });
+const two = (id: string, front: ReturnType<typeof face>, back: ReturnType<typeof face>) => convertOfficialCard({ id, detailUrl: '', faces: [front, back] });
+
+const C = {
+  vanilla: mk('h-1', [], { power: '1000' }),
+  // 覚醒：ターンの終わりに、バトルに勝っていれば裏返る。裏面は解除を持つ
+  awaken: two(
+    'h-10',
+    face('表のサイキック', ['覚醒：自分のターンの終わりに、このターン、自分のクリーチャーがバトルに勝っていれば、このクリーチャーをコストが大きいほうに裏返す。'], { type: 'サイキック・クリーチャー', cost: '4', power: '3000' }),
+    face('裏の覚醒者', ['ブロッカー', '解除（このクリーチャーが離れる時、かわりにコストが小さいほうに裏返す）', 'このクリーチャーが覚醒した時、カードを１枚引く。'], { type: 'サイキック・クリーチャー', cost: '8', power: '9000' }),
+  ),
+  loop: two(
+    'h-11',
+    face('ジキル', ['ブロッカー', 'ループ覚醒-このクリーチャーがブロックした時または攻撃された時、自分の山札の上から２枚を墓地に置き、その後、このクリーチャーを《ハイド》のほうに裏返す。（攻撃は中止されない）'], { type: 'サイキック・クリーチャー', cost: '4', power: '1000' }),
+    face('ハイド', [], { type: 'サイキック・クリーチャー', cost: '4', power: '3000' }),
+  ),
+  // ドラグハート・フォートレス：ターンの終わりに墓地が3枚以上なら龍解する。クリーチャー側は龍回避を持つ
+  fortress: two(
+    'h-12',
+    face('要塞', ['このドラグハートをバトルゾーンに出した時、カードを１枚引いてもよい。', '龍解：自分のターンの終わりに、自分の墓地にカードが３枚以上あれば、このドラグハートをクリーチャー側に裏返し、アンタップする。'], { type: 'ドラグハート・フォートレス', cost: '4', power: '' }),
+    face('龍解した龍', ['W・ブレイカー', '龍回避：このクリーチャーがバトルゾーンを離れる時、バトルゾーンを離れるかわりに、フォートレス側に裏返す。'], { type: 'ドラグハート・クリーチャー', cost: '7', power: '9000' }),
+  ),
+  dragner: mk('h-13', ['このクリーチャーが出た時、コスト４以下のドラグハートを１枚、自分の超次元ゾーンからバトルゾーンに出す。']),
+};
+const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
+const filler = Array.from({ length: 40 }, () => 'S01-043');
+function put(s: GameState, player: PlayerId, cardId: string, zone: ZoneName, ready = false): string {
+  const iid = `t${s.nextIid++}`;
+  s.cards[iid] = { iid, cardId, owner: player, zone: 'deck', tapped: false, enteredTurn: 0, powerModTurn: 0, under: [], faceUp: false };
+  s.players[player].zones.deck.unshift(iid);
+  new Ctx(s, reg).moveCard(iid, zone);
+  if (ready) s.cards[iid].enteredTurn = 0;
+  return iid;
+}
+function act(s: GameState, a: Action): GameState {
+  const r = applyAction(s, a, reg);
+  if (r.error) throw new Error(r.error);
+  return r.state;
+}
+const newGame = () => createGame({ players: [{ name: 'A', deck: filler }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, reg);
+function settle(s: GameState): GameState {
+  for (let i = 0; i < 20 && s.pending; i++) {
+    const p = s.pending;
+    if (p.kind === 'selectCards') s = act(s, { type: 'RESPOND', player: p.player, selected: p.candidates.slice(0, p.min) });
+    else if (p.kind === 'chooseMode') s = act(s, { type: 'RESPOND', player: p.player, selected: ['0'] });
+    else s = act(s, { type: 'RESPOND', player: p.player, selected: [], accept: false });
+  }
+  return s;
+}
+
+describe('読み取り', () => {
+  it('すべて自動処理になる', () => {
+    for (const c of Object.values(C)) expect([c.id, c.support]).toEqual([c.id, 'full']);
+  });
+  it('ドラグハートは、表がクリーチャーではない置き物、裏がクリーチャーの両面カード', () => {
+    expect(C.fortress.type).toBe('field');
+    expect(C.fortress.psychic?.back.name).toBe('龍解した龍');
+  });
+});
+
+describe('覚醒・解除', () => {
+  it('バトルに勝ったターンの終わりに覚醒し、「覚醒した時」が誘発する。離れる時はかわりに表に裏返る', () => {
+    let s = newGame();
+    const a = put(s, 0, C.awaken.id, 'battle', true);
+    const d = put(s, 1, C.vanilla.id, 'battle');
+    s.cards[d].tapped = true;
+    s = settle(act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'creature', iid: d } }));
+    expect(s.cards[d].zone).toBe('graveyard');
+    const hand = s.players[0].zones.hand.length;
+    s = act(s, { type: 'END_TURN', player: 0 });
+    expect(s.cards[a].flipped).toBe(true);
+    expect(def(s, reg, a).name).toBe('裏の覚醒者');
+    expect(power(s, reg, a)).toBe(9000);
+    expect(s.players[0].zones.hand.length).toBe(hand + 1);
+    // 解除：破壊されるかわりに表に裏返ってとどまる
+    s.queue.push({ kind: 'leave', iid: a, to: 'graveyard', cause: 'destroy' });
+    new Ctx(s, reg).run();
+    expect(s.cards[a].zone).toBe('battle');
+    expect(s.cards[a].flipped).toBeFalsy();
+    // 表の時に破壊されると、超次元ゾーンに戻る
+    s.queue.push({ kind: 'leave', iid: a, to: 'graveyard', cause: 'destroy' });
+    new Ctx(s, reg).run();
+    expect(s.cards[a].zone).toBe('hyperspatial');
+  });
+
+  it('バトルに勝っていなければ覚醒しない', () => {
+    let s = newGame();
+    const a = put(s, 0, C.awaken.id, 'battle', true);
+    s = act(s, { type: 'END_TURN', player: 0 });
+    expect(s.cards[a].flipped).toBeFalsy();
+  });
+
+  it('ループ覚醒：攻撃された時、山札の上から2枚を墓地に置いて裏返る', () => {
+    let s = newGame();
+    const j = put(s, 1, C.loop.id, 'battle');
+    s.cards[j].tapped = true;
+    const atk = put(s, 0, C.vanilla.id, 'battle', true);
+    const grave = s.players[1].zones.graveyard.length;
+    s = settle(act(s, { type: 'ATTACK', player: 0, attacker: atk, target: { kind: 'creature', iid: j } }));
+    expect(s.players[1].zones.graveyard.length).toBeGreaterThanOrEqual(grave + 2);
+    // 裏返ってパワー3000になったので、パワー1000の攻撃クリーチャーに勝つ
+    expect(s.cards[j].zone).toBe('battle');
+    expect(s.cards[j].flipped).toBe(true);
+    expect(s.cards[atk].zone).toBe('graveyard');
+  });
+});
+
+describe('ドラグハート', () => {
+  it('超次元ゾーンで始まり、効果でバトルゾーンに出せる。出た時の能力が誘発する', () => {
+    let s = createGame({ players: [{ name: 'A', deck: [...filler.slice(0, 39), C.fortress.id] }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, reg);
+    const f = s.players[0].zones.hyperspatial[0];
+    expect(s.cards[f].cardId).toBe(C.fortress.id);
+    const dr = put(s, 0, C.dragner.id, 'hand');
+    put(s, 0, C.vanilla.id, 'mana');
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: dr });
+    expect(s.cards[f].zone).toBe('battle');
+    expect(s.pending).toMatchObject({ kind: 'confirm', player: 0 });
+  });
+
+  it('龍解：条件を満たすとクリーチャー側に裏返る。龍回避：離れる時、かわりにフォートレス側に裏返る', () => {
+    let s = newGame();
+    const f = put(s, 0, C.fortress.id, 'battle');
+    for (let i = 0; i < 3; i++) put(s, 0, C.vanilla.id, 'graveyard');
+    expect(keywords(s, reg, f).breaker).toBeFalsy();
+    s = act(s, { type: 'END_TURN', player: 0 });
+    expect(s.cards[f].flipped).toBe(true);
+    expect(def(s, reg, f).type).toBe('creature');
+    expect(power(s, reg, f)).toBe(9000);
+    s.queue.push({ kind: 'leave', iid: f, to: 'graveyard', cause: 'destroy' });
+    new Ctx(s, reg).run();
+    expect(s.cards[f].zone).toBe('battle');
+    expect(s.cards[f].flipped).toBeFalsy();
+    expect(def(s, reg, f).type).toBe('field');
+  });
+});

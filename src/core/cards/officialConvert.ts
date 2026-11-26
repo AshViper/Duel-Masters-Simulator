@@ -35,6 +35,8 @@ function parseCivs(s: string): Civilization[] {
 function mapType(label: string, hasPower: boolean): CardType {
   // D2フィールドなどのフィールド（禁断フィールドは禁断の鼓動として別に扱う）
   if (label.includes('フィールド') && !isForbiddenLabel(label)) return 'field';
+  // ドラグハート（ウエポン・フォートレス）：クリーチャーではない置き物。裏面のクリーチャー側は龍解した後に使う
+  if (label.includes('ドラグハート') && !label.includes('クリーチャー')) return 'field';
   // タマシード（「タマシード/クリーチャー」はクリーチャーとして扱う）
   if (label.includes('タマシード') && !label.includes('クリーチャー') && !hasPower) return 'tamaseed';
   if (label.includes('進化')) return hasPower ? 'evolution' : 'spell';
@@ -75,7 +77,7 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
       }
     : undefined;
   // サイキック・クリーチャー：2面目は覚醒・覚醒リンクした後のクリーチャー
-  const psychicFace = !hyperFace && !forbiddenFace && /サイキック/.test(typeLabel) && d.faces[1] && /クリーチャー/.test(d.faces[1].type) ? d.faces[1] : undefined;
+  const psychicFace = !hyperFace && !forbiddenFace && /サイキック|ドラグハート/.test(typeLabel) && d.faces[1] && /クリーチャー/.test(d.faces[1].type) ? d.faces[1] : undefined;
   const psychic: PsychicSide | undefined = psychicFace
     ? {
         back: {
@@ -199,7 +201,7 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     : undefined;
   const hyperParsed = card.hyperText !== undefined ? parseAbilityText(card.hyperText, 'creature') : undefined;
   // 以前の版で、サイキック・クリーチャーの裏面をツインパクトの呪文側として保存したカードを直す（パワーは公式から保存し直すと入る）
-  if (card.twin && !card.psychic && /サイキック/.test(card.typeLabel ?? '')) {
+  if (card.twin && !card.psychic && /サイキック|ドラグハート/.test(card.typeLabel ?? '')) {
     const t = card.twin;
     card = { ...card, twin: undefined, psychic: { back: { name: t.name, cost: t.cost, civilizations: t.civilizations, races: [], power: undefined, text: t.text, typeLabel: 'サイキック・スーパー・クリーチャー' } } };
   }
