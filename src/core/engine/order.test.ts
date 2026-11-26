@@ -18,6 +18,9 @@ const C = {
   drawOnDeath: mk('o-2', ['クリーチャーが破壊された時、カードを１枚引く。']),
   manaOnDeath: mk('o-3', ['クリーチャーが破壊された時、自分の山札の上から１枚目をマナゾーンに置く。']),
   selfMana: mk('o-4', ['このクリーチャーが破壊された時、自分の山札の上から１枚目をマナゾーンに置く。']),
+  toMana: mk('o-6', ['このクリーチャーが破壊される時、墓地に置くかわりに自分のマナゾーンに置く。']),
+  saver: mk('o-7', ['自分の他のクリーチャーが破壊される時、かわりにそのクリーチャーに封印を付ける。'.replace('自分の他の', '自分の')]),
+  optHand: mk('o-8', ['このクリーチャーが破壊される時、かわりに手札に戻してもよい。', 'このクリーチャーが破壊される時、かわりに自分の山札の下に置いてもよい。']),
   sacDraw: mk('o-5', ['自分のクリーチャーを１体破壊する。その後、カードを１枚引く。'], '呪文'),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
@@ -90,5 +93,55 @@ describe('効果の処理順', () => {
     expect(s.pending).toBeFalsy();
     // 破壊 → 呪文の続き（引く）→ 破壊された時の能力（マナゾーンに置く）
     expect(order(s, from, 'カードを1枚引く', 'マナゾーンへ').map((x) => x[1])).toEqual(['カードを1枚引く', 'マナゾーンへ']);
+  });
+});
+
+describe('置換効果が2つ以上ある時', () => {
+  it('読み取り', () => {
+    expect(C.toMana.replacements).toHaveLength(1);
+    expect(C.saver.replacements).toHaveLength(1);
+    expect(C.optHand.replacements).toHaveLength(2);
+  });
+
+  it('破壊されるクリーチャーの持ち主が、適用する置換効果を選ぶ', () => {
+    for (const pick of [0, 1]) {
+      let s = newGame();
+      const c = put(s, 1, C.toMana.id, 'battle');
+      put(s, 1, C.saver.id, 'battle');
+      // 相手のターン中でも、選ぶのは破壊されるクリーチャーの持ち主（プレイヤー1）
+      destroy(s, c);
+      expect(s.pending).toMatchObject({ kind: 'chooseMode', player: 1 });
+      expect(s.pending?.kind === 'chooseMode' && s.pending.options).toHaveLength(2);
+      s = act(s, { type: 'RESPOND', player: 1, selected: [String(pick)] });
+      expect(s.pending).toBeFalsy();
+      // 0: 自身の効果でマナゾーンへ／1: 他のクリーチャーの効果で封印が付いてとどまる
+      expect(s.cards[c].zone).toBe(pick === 0 ? 'mana' : 'battle');
+      expect(!!s.cards[c].seals?.length).toBe(pick === 1);
+    }
+  });
+
+  it('置換効果が1つだけなら聞かない', () => {
+    const s = newGame();
+    const c = put(s, 0, C.toMana.id, 'battle');
+    destroy(s, c);
+    expect(s.pending).toBeFalsy();
+    expect(s.cards[c].zone).toBe('mana');
+  });
+
+  it('どれも「〜してもよい」なら、選んだものをそのまま使い、使わないことも選べる', () => {
+    let s = newGame();
+    const c = put(s, 0, C.optHand.id, 'battle');
+    destroy(s, c);
+    expect(s.pending?.kind === 'chooseMode' && s.pending.options).toHaveLength(3);
+    s = act(s, { type: 'RESPOND', player: 0, selected: ['1'] });
+    expect(s.pending).toBeFalsy();
+    expect(s.players[0].zones.deck[0]).toBe(c);
+
+    let s2 = newGame();
+    const c2 = put(s2, 0, C.optHand.id, 'battle');
+    destroy(s2, c2);
+    s2 = act(s2, { type: 'RESPOND', player: 0, selected: ['2'] });
+    expect(s2.pending).toBeFalsy();
+    expect(s2.cards[c2].zone).toBe('graveyard');
   });
 });

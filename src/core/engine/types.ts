@@ -168,8 +168,9 @@ export type Task =
   /** キリフダッシュを使うか聞く（攻撃の終わり、その攻撃でシールドをブレイクしていた時） */
   | { kind: 'kirifudash'; player: PlayerId }
   /** バトルゾーンから離れる（置換効果をここで適用） */
+  /** chosen: 置換効果が2つ以上ある時に、離れるカードの持ち主が選んだもの（'ex' は EXライフ） */
   /** confirmed: 使うと答えた任意の置換効果（続けて対象を選ぶ時に、もう一度聞かない） */
-  | { kind: 'leave'; tapped?: boolean; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[]; confirmed?: string }
+  | { kind: 'leave'; tapped?: boolean; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[]; confirmed?: string; chosen?: string }
   /** 自動フェイズを進める（開始時誘発などを解決してから次へ） */
   | { kind: 'phase'; phase: Phase }
   /** ターン終了時の後片付けと手番の交代（追加ターンを含む） */

@@ -1158,9 +1158,41 @@ export class Ctx {
     const s = this.s;
     const inst = s.cards[task.iid];
     if (!inst || inst.zone !== 'battle') return false;
-    // EXライフ：離れるかわりに、そのシールドを墓地に置く
+    const replaced = task.replaced ?? [];
     const exShields = [inst.exLifeShield, ...(inst.exLifeShields ?? [])].filter((x): x is string => !!x && s.cards[x]?.zone === 'shield');
-    if (exShields.length) {
+    const reps = this.findReplacements(task.iid, task.cause, replaced);
+    // ルール：置換効果が2つ以上ある時は、影響を受けるカードの持ち主がどれを適用するか選ぶ
+    const opts = [
+      ...(exShields.length ? [{ key: 'ex', label: 'EXライフ：かわりにそのシールドを墓地に置く' }] : []),
+      ...reps.map((x) => ({ key: x.key, label: `${this.name(x.source)}：かわりに${INSTEAD_LABEL[x.ability.instead]}${x.ability.optional ? '（使ってもよい）' : ''}` })),
+    ];
+    let chosen = opts.find((o) => o.key === task.chosen)?.key;
+    if (!chosen && opts.length > 1) {
+      // どれも「〜してもよい」なら、使わないことも選べる
+      const allOptional = !exShields.length && reps.every((x) => x.ability.optional);
+      const r = this.takeResponse();
+      if (!r) {
+        s.pending = {
+          kind: 'chooseMode',
+          player: inst.owner,
+          source: task.iid,
+          prompt: `${this.name(task.iid)} が${task.cause === 'destroy' ? '破壊される' : 'バトルゾーンを離れる'}。かわりに行う効果が${opts.length}つあります。適用するものを選んでください`,
+          options: [...opts.map((o) => o.label), ...(allOptional ? ['どれも使わない'] : [])],
+        };
+        return true;
+      }
+      const idx = Number(r.selected?.[0]);
+      if (allOptional && idx === opts.length) {
+        this.insertFront({ ...task, chosen: undefined, replaced: [...replaced, ...reps.map((x) => x.key)] });
+        return false;
+      }
+      chosen = (opts[idx] ?? opts[0]).key;
+      task.chosen = chosen;
+      // 選んだ「〜してもよい」の効果は、使うかどうかをもう一度聞かない
+      if (chosen !== 'ex') task.confirmed = chosen;
+    }
+    // EXライフ：離れるかわりに、そのシールドを墓地に置く
+    if (exShields.length && (!chosen || chosen === 'ex')) {
       const sh = exShields[0];
       inst.exLifeShield = exShields[1];
       inst.exLifeShields = exShields.slice(2);
@@ -1168,8 +1200,7 @@ export class Ctx {
       this.log(`${this.name(task.iid)} はEXライフのシールドを墓地に置いて、バトルゾーンにとどまった`, inst.owner);
       return false;
     }
-    const replaced = task.replaced ?? [];
-    const rep = this.findReplacement(task.iid, task.cause, replaced);
+    const rep = (chosen ? reps.find((x) => x.key === chosen) : reps[0]) ?? null;
     if (rep) {
       const { source, ability, key } = rep;
       const owner = s.cards[source].owner;
@@ -1273,7 +1304,9 @@ export class Ctx {
     return false;
   }
 
-  private findReplacement(iid: string, cause: LeaveCause, used: string[]): { source: string; ability: ReplacementAbility; key: string } | null {
+  /** いま適用できる置換効果すべて（自分自身のもの、次に自分の他のカードのものの順） */
+  private findReplacements(iid: string, cause: LeaveCause, used: string[]): { source: string; ability: ReplacementAbility; key: string }[] {
+    const out: { source: string; ability: ReplacementAbility; key: string }[] = [];
     const s = this.s;
     const owner = s.cards[iid].owner;
     // 自分自身の置換効果を優先し、次に自分の他のクリーチャーのもの
@@ -1288,10 +1321,10 @@ export class Ctx {
         const subjectOk = ab.subject === 'self' ? src === iid : ab.subject === 'otherOwn' ? src !== iid : true;
         if (!subjectOk || !matchFilter(s, this.reg, iid, ab.filter, src)) continue;
         if (ab.instead === 'destroySelf' && src === iid) continue;
-        return { source: src, ability: ab, key };
+        out.push({ source: src, ability: ab, key });
       }
     }
-    return null;
+    return out;
   }
 
   // ───────────────────────── 効果 ─────────────────────────
