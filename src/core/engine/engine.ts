@@ -316,11 +316,14 @@ export class Ctx {
       case 'end':
         this.emit({ type: 'TURN_ENDED', player: pl, turn: s.turn });
         // 手札にある間の誘発：「相手のターンの終わりに、〜していれば、この呪文をコストを支払わずに唱えてもよい」
-        for (const h of [...s.players[other(pl)].zones.hand]) {
-          const hd = def(s, this.reg, h);
-          for (const ht of hd.handTriggers ?? []) {
-            if (ht.when !== 'opponentTurnEnd' || (ht.condition && !evalCondition(s, this.reg, other(pl), ht.condition, false, h))) continue;
-            this.addTrigger(other(pl), h, this.effectTasks(other(pl), h, [{ type: 'playRevealed', iid: h, as: isCreatureType(hd.type) ? 'creature' : 'spell' }]));
+        for (const hp of [pl, other(pl)]) {
+          for (const h of [...s.players[hp].zones.hand]) {
+            const hd = def(s, this.reg, h);
+            for (const ht of hd.handTriggers ?? []) {
+              const timing = ht.when === 'anyTurnEnd' || (ht.when === 'opponentTurnEnd' && hp !== pl) || (ht.when === 'ownTurnEnd' && hp === pl);
+              if (!timing || (ht.condition && !evalCondition(s, this.reg, hp, ht.condition, false, h))) continue;
+              this.addTrigger(hp, h, this.effectTasks(hp, h, [{ type: 'playRevealed', iid: h, as: isCreatureType(hd.type) ? 'creature' : 'spell' }]));
+            }
           }
         }
         // 「このターンの終わりに破壊する／山札の下に置く」（B・A・D・J・O・E・アビスラッシュ）
@@ -353,6 +356,8 @@ export class Ctx {
       p.playedThisTurn = [];
       p.shieldsBrokenThisTurn = 0;
       p.battleWinsThisTurn = 0;
+      p.freeEntriesThisTurn = 0;
+      p.attacksThisTurn = 0;
     }
     const P = s.players[s.activePlayer];
     s.inExtraTurn = P.extraTurns > 0;
@@ -536,6 +541,7 @@ export class Ctx {
     }
     s.cards[attacker].tapped = true;
     s.cards[attacker].attackedTurn = s.turn;
+    s.players[player].attacksThisTurn = (s.players[player].attacksThisTurn ?? 0) + 1;
     this.emit({ type: 'CREATURE_TAPPED', iid: attacker });
     const sClass = sClassCards(s, this.reg, player);
     s.combat = { attacker, attackingPlayer: player, target, ...(sClass.length ? { sClassEligible: sClass } : {}) };
@@ -817,6 +823,7 @@ export class Ctx {
         if (task.tapped) inst.tapped = true;
         if (task.endOfTurn) inst.leaveAtTurnEnd = { turn: s.turn, how: task.endOfTurn };
         inst.enteredFree = !task.paid;
+        if (!task.paid && isCreatureType(def(s, this.reg, task.iid).type)) s.players[inst.owner].freeEntriesThisTurn = (s.players[inst.owner].freeEntriesThisTurn ?? 0) + 1;
         // 出したクリーチャーに能力を与える
         if (task.grant) {
           if (task.grant.untilNextTurn) inst.keywordsUntil = { keywords: { ...(inst.keywordsUntil?.keywords ?? {}), ...task.grant.keywords }, player: task.grant.by };
@@ -1872,6 +1879,14 @@ export class Ctx {
         this.insertFront(...(d.twin.abilities ?? []).filter((ab) => ab.when === 'onCast').flatMap((ab) => this.abilityTasks(ab, controller, source)));
         return false;
       }
+      case 'afterAttack': {
+        // 「その攻撃の後、〜」：攻撃の終わりの処理の直後に行う。攻撃中でなければすぐ行う
+        const k = s.queue.findIndex((t) => t.kind === 'attackEnd');
+        const tasks = this.effectTasks(controller, source, e.effects);
+        if (k >= 0) s.queue.splice(k + 1, 0, ...tasks);
+        else this.insertFront(...tasks);
+        return false;
+      }
       case 'chooseNumber': {
         const r = this.takeResponse();
         if (!r) {
@@ -2680,6 +2695,14 @@ export class Ctx {
         }
         this.triggerFrom(e.iid, 'onDestroyed');
         this.triggerOthers(e.iid, 'onOtherDestroyed', e.player);
+        // 手札にある間の誘発：「自分のエグザイル・クリーチャーが破壊された時、このクリーチャーを自分の手札から出してもよい」
+        for (const h of [...s.players[e.player].zones.hand]) {
+          for (const ht of def(s, this.reg, h).handTriggers ?? []) {
+            if (ht.when !== 'ownDestroyed' || !s.cards[e.iid] || !matchFilter(s, this.reg, e.iid, ht.filter)) continue;
+            if (ht.condition && !evalCondition(s, this.reg, e.player, ht.condition, false, h)) continue;
+            this.addTrigger(e.player, h, this.effectTasks(e.player, h, [{ type: 'playRevealed', iid: h, as: 'creature' }]));
+          }
+        }
         break;
       case 'CREATURE_LEFT': {
         // メガ・ラスト・バースト：呪文側をコストを支払わずに唱えてもよい
@@ -2692,7 +2715,8 @@ export class Ctx {
         break;
       }
       case 'ATTACK_DECLARED':
-        this.triggerFrom(e.attacker, 'onAttack');
+        // 「自分のドラゴンが攻撃する時」は、条件に合えばこのクリーチャー自身の攻撃でも誘発する
+        this.triggerFrom(e.attacker, 'onAttack', (ab) => !ab.filter || matchFilter(s, this.reg, e.attacker, ab.filter, e.attacker));
         this.triggerOthers(e.attacker, 'onOtherAttack', e.player);
         if (e.target.kind === 'creature') this.triggerFrom(e.target.iid, 'onAttacked');
         break;

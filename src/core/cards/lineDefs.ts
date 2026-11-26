@@ -2,7 +2,7 @@
 // 能力テキストの読み取り（textParser）が読めない文に、エンジンの部品（EffectDef など）で書いた定義を持たせる。
 // キーはカードに書かれた能力の文（1つの能力。選択肢は「▶」でつなぐ）。全角・半角、空白、カッコの補足説明の違いは無視して照合する。
 // 同じ文を持つカードすべてに効く。読み取りより優先するので、読み取りが間違う文の直しにも使える。
-import { TRIGGER_EVENTS, type AltPlay, type Condition, type Keywords, type ReplacementAbility, type StaticAbility, type TriggeredAbility } from './types';
+import { TRIGGER_EVENTS, type HandTrigger, type AltPlay, type Condition, type Keywords, type ReplacementAbility, type StaticAbility, type TriggeredAbility } from './types';
 
 export interface LineDef {
   keywords?: Keywords;
@@ -12,7 +12,7 @@ export interface LineDef {
   replacements?: ReplacementAbility[];
   altPlays?: AltPlay[];
   /** 手札にある間の誘発（相手のターンの終わりに、条件を満たしていればコストを支払わずに使う） */
-  handTriggers?: { when: 'opponentTurnEnd'; condition?: Condition }[];
+  handTriggers?: HandTrigger[];
   /** メモ（どのカードの文か、など。処理には使わない） */
   note?: string;
 }

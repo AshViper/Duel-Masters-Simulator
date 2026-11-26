@@ -66,6 +66,10 @@ export interface PlayerState {
   creaturesThisTurn?: number;
   /** このターンに使ったカード（「各ターン、1体目の」の判定用） */
   playedThisTurn?: string[];
+  /** このターンに、このプレイヤーのクリーチャーがコストを支払わずに出た数 */
+  freeEntriesThisTurn?: number;
+  /** このターンに、このプレイヤーのクリーチャーが攻撃した回数 */
+  attacksThisTurn?: number;
   /** このターンに、このプレイヤーのクリーチャーがバトルに勝った回数 */
   battleWinsThisTurn?: number;
   /** このターンにブレイクされたこのプレイヤーのシールドの数 */

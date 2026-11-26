@@ -168,6 +168,12 @@ export type Condition =
   | { type: 'subjectEnteredFree'; iid?: string }
   /** このターンに出たクリーチャーの数が min 以上（who: 誰のクリーチャーか） */
   | { type: 'enteredThisTurn'; who: 'self' | 'opponent' | 'any'; min: number }
+  /** このターンに、そのプレイヤーのクリーチャーがコストを支払わずに出ていた */
+  | { type: 'enteredFreeThisTurn'; who: 'self' | 'opponent' }
+  /** いまの攻撃が、このターン最初の攻撃（ターンプレイヤーのクリーチャーによる攻撃の1回目） */
+  | { type: 'firstAttackThisTurn' }
+  /** このクリーチャーがタップしている */
+  | { type: 'selfTapped' }
   /** このターンに、そのプレイヤーのクリーチャーがバトルに勝っていた */
   | { type: 'wonBattleThisTurn'; who: 'self' | 'opponent' }
   /** いまが相手のターン（S・トリガーで使った時の追加能力の判定用） */
@@ -301,6 +307,8 @@ export type EffectDef =
   | { type: 'ifChosen'; then: EffectDef[]; n?: number }
   /** マジボンバーN：山札の上から1枚目を見て、コストN以下のクリーチャーを1体、手札または山札の上から出してもよい */
   | { type: 'magibomber'; maxCost: number }
+  /** 「その攻撃の後、〜」：いまの攻撃が終わった後に行う */
+  | { type: 'afterAttack'; effects: EffectDef[] }
   /** 数字を1つ選ぶ（後の文の「その数字と同じコストの」で使う） */
   | { type: 'chooseNumber' }
   /**
@@ -645,6 +653,17 @@ export interface AltPlay {
 }
 
 /**
+ * 手札にある間の誘発：その時に条件を満たしていれば、このカードをコストを支払わずに使ってもよい。
+ * when: opponentTurnEnd 相手のターンの終わり／ownTurnEnd 自分のターンの終わり／anyTurnEnd 各ターンの終わり／
+ *       ownDestroyed 自分のクリーチャー（filter に合うもの）が破壊された時
+ */
+export interface HandTrigger {
+  when: 'opponentTurnEnd' | 'ownTurnEnd' | 'anyTurnEnd' | 'ownDestroyed';
+  condition?: Condition;
+  filter?: CardFilter;
+}
+
+/**
  * 進化元の指定（マナ進化・墓地進化・手札進化・シールド進化・デッキ進化・進化V/GV・究極進化・スター進化・超無限進化 など）。
  * 「どのゾーンの・どんなカードを・何枚」を1つの形で表す。新しい進化の種類は、読み取りでこの形にするだけでよい
  */
@@ -722,7 +741,7 @@ export interface CardDefinition {
   /** 別のコストでの使い方 */
   altPlays?: AltPlay[];
   /** 手札にある間の誘発：相手のターンの終わりに、条件を満たしていれば、コストを支払わずに使ってもよい */
-  handTriggers?: { when: 'opponentTurnEnd'; condition?: Condition }[];
+  handTriggers?: HandTrigger[];
   /** 自分のターンのはじめに、表向きで自分のシールドゾーンにあれば、コストを支払ったものとして召喚する（ギャラクシールド） */
   galaxyReturn?: boolean;
   /** サバイバー：自分の他のサバイバーすべてにも与える能力（{S} の付いた能力） */

@@ -668,6 +668,12 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
     }
     case 'didNot':
       return !state.lastDid;
+    case 'enteredFreeThisTurn':
+      return (state.players[c.who === 'self' ? controller : other(controller)].freeEntriesThisTurn ?? 0) > 0;
+    case 'firstAttackThisTurn':
+      return (state.players[state.activePlayer].attacksThisTurn ?? 0) === 1;
+    case 'selfTapped':
+      return !!source && state.cards[source]?.zone === 'battle' && state.cards[source].tapped;
     case 'wonBattleThisTurn':
       return (state.players[c.who === 'self' ? controller : other(controller)].battleWinsThisTurn ?? 0) > 0;
     case 'selfEnteredThisTurn':

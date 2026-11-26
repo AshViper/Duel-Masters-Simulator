@@ -194,3 +194,97 @@ describe('ドラグハート・ウエポンの装備', () => {
     expect(power(s, reg, dr)).toBe(3000);
   });
 });
+
+describe('手札にある間の誘発・攻撃まわりの条件', () => {
+  const revenge = mk('h-20', ['リベンジ・チャンス：各ターンの終わりに、相手の、コスト９以上またはパワー15000以上のクリーチャーがあれば、このクリーチャーをコストを支払わずに召喚してもよい。'], { cost: '7' });
+  const big = mk('h-21', [], { cost: '9', power: '2000' });
+  const climax = mk('h-22', ['クライマックス・ドロン・ゴー：自分のエグザイル・クリーチャーが破壊された時、このクリーチャーを自分の手札からバトルゾーンに出してもよい。'], { cost: '8' });
+  const exile = mk('h-23', [], { race: 'エグザイル・クリーチャー' });
+  const zero = mk('h-24', ['侵略ZERO：相手のターンの終わりに、そのターン、相手のクリーチャーがコストを支払わずに出ていたら、この呪文を自分の手札からコストを支払わずに唱えてもよい。', 'カードを２枚引く。'], { type: '呪文', power: '' });
+  const untapAfter = mk('h-25', ['各ターン、このクリーチャーがはじめて攻撃する時、その攻撃の後、このクリーチャーをアンタップする。']);
+  const firstAtk = mk('h-26', ['自分のクリーチャーが攻撃する時、それがこのターン最初の攻撃なら、カードを１枚引く。']);
+  const r2 = buildRegistry([...SAMPLE_CARDS, ...Object.values(C), revenge, big, climax, exile, zero, untapAfter, firstAtk]);
+  const game = () => createGame({ players: [{ name: 'A', deck: filler }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, r2);
+  const add = (s: GameState, p: PlayerId, cardId: string, zone: ZoneName) => {
+    const iid = `t${s.nextIid++}`;
+    s.cards[iid] = { iid, cardId, owner: p, zone: 'deck', tapped: false, enteredTurn: 0, powerModTurn: 0, under: [], faceUp: false };
+    s.players[p].zones.deck.unshift(iid);
+    new Ctx(s, r2).moveCard(iid, zone);
+    s.cards[iid].enteredTurn = 0;
+    return iid;
+  };
+  const step = (s: GameState, a: Action) => {
+    const r = applyAction(s, a, r2);
+    if (r.error) throw new Error(r.error);
+    return r.state;
+  };
+  const settle2 = (s: GameState) => {
+    for (let i = 0; i < 20 && s.pending; i++) {
+      const p = s.pending;
+      s = step(s, p.kind === 'selectCards' ? { type: 'RESPOND', player: p.player, selected: p.candidates.slice(0, p.min) } : { type: 'RESPOND', player: p.player, selected: [], accept: false });
+    }
+    return s;
+  };
+
+  it('読み取り：すべて自動になる', () => {
+    for (const c of [revenge, climax, zero, untapAfter, firstAtk]) expect([c.id, c.support]).toEqual([c.id, 'full']);
+    expect(revenge.handTriggers?.[0].when).toBe('anyTurnEnd');
+    expect(climax.handTriggers).toEqual([{ when: 'ownDestroyed', filter: { race: 'エグザイル' } }]);
+    expect(zero.handTriggers?.[0]).toMatchObject({ when: 'opponentTurnEnd', condition: { type: 'enteredFreeThisTurn', who: 'opponent' } });
+  });
+
+  it('リベンジ・チャンス：ターンの終わりに、相手にコスト9以上のクリーチャーがいれば召喚できる', () => {
+    let s = game();
+    const rv = add(s, 0, revenge.id, 'hand');
+    add(s, 1, big.id, 'battle');
+    s = step(s, { type: 'END_TURN', player: 0 });
+    expect(s.pending).toMatchObject({ kind: 'confirm', player: 0 });
+    s = step(s, { type: 'RESPOND', player: 0, accept: true });
+    expect(s.cards[rv].zone).toBe('battle');
+  });
+
+  it('クライマックス・ドロン・ゴー：自分のエグザイル・クリーチャーが破壊された時、手札から出せる', () => {
+    let s = game();
+    const cl = add(s, 0, climax.id, 'hand');
+    const ex = add(s, 0, exile.id, 'battle');
+    s.queue.push({ kind: 'leave', iid: ex, to: 'graveyard', cause: 'destroy' });
+    new Ctx(s, r2).run();
+    expect(s.pending).toMatchObject({ kind: 'confirm', player: 0 });
+    s = step(s, { type: 'RESPOND', player: 0, accept: true });
+    expect(s.cards[cl].zone).toBe('battle');
+  });
+
+  it('侵略ZERO：相手のクリーチャーがコストを支払わずに出たターンの終わりに唱えられる', () => {
+    let s = game();
+    const z = add(s, 1, zero.id, 'hand');
+    const free = add(s, 0, exile.id, 'hand');
+    s.queue.push({ kind: 'enterBattle', player: 0, iid: free });
+    new Ctx(s, r2).run();
+    s = step(s, { type: 'END_TURN', player: 0 });
+    expect(s.pending).toMatchObject({ kind: 'confirm', player: 1 });
+    s = step(s, { type: 'RESPOND', player: 1, accept: true });
+    expect(s.cards[z].zone).toBe('graveyard');
+  });
+
+  it('「その攻撃の後、アンタップする」：攻撃が終わってからアンタップし、各ターン1回だけ', () => {
+    let s = game();
+    const a = add(s, 0, untapAfter.id, 'battle');
+    s = settle2(step(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'player' } }));
+    expect(s.cards[a].tapped).toBe(false);
+    s = settle2(step(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'player' } }));
+    expect(s.cards[a].tapped).toBe(true);
+  });
+
+  it('「それがこのターン最初の攻撃なら」：1回目の攻撃だけ。自分自身の攻撃でも誘発する', () => {
+    let s = game();
+    const a = add(s, 0, firstAtk.id, 'battle');
+    const b = add(s, 0, exile.id, 'battle');
+    const hand = s.players[0].zones.hand.length;
+    s = settle2(step(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'player' } }));
+    const afterFirst = s.players[0].zones.hand.length;
+    expect(afterFirst).toBeGreaterThanOrEqual(hand + 1);
+    s = settle2(step(s, { type: 'ATTACK', player: 0, attacker: b, target: { kind: 'player' } }));
+    // 2回目の攻撃では引かない（ブレイクしたシールドが相手の手札に入るだけ）
+    expect(s.players[0].zones.hand.length).toBe(afterFirst);
+  });
+});

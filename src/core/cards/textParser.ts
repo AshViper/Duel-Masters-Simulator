@@ -4,6 +4,7 @@
 // 誘発のタイミングだけ分かる能力は、その時にログで手動処理を促す（manual 効果）。
 import type {
   AltPlay,
+  HandTrigger,
   EvolveSpec,
   Applies,
   AttackSwap,
@@ -60,7 +61,7 @@ export interface ParsedAbilities {
   /** NEO進化クリーチャーとして召喚する時のコスト軽減 */
   neoCostReduce?: number;
   /** 手札にある間の誘発 */
-  handTriggers?: { when: 'opponentTurnEnd'; condition?: Condition }[];
+  handTriggers?: HandTrigger[];
   /** 覚醒リンクの条件 */
   awakenLink?: { names: string[]; timing: 'turnStart' | 'always' };
   /** 自動処理できなかった能力の行 */
@@ -249,7 +250,7 @@ export function applyKeywordLine(line: string, kw: Keywords): boolean {
  */
 const EVENTS: { re: RegExp; self?: TriggerEvent; other?: TriggerEvent; ownIncludesSelf?: boolean }[] = [
   { re: /^(?:召喚によって)?(?:バトルゾーンに)?出た時/, self: 'onSummon', other: 'onOtherSummon', ownIncludesSelf: true },
-  { re: /^攻撃する時/, self: 'onAttack', other: 'onOtherAttack' },
+  { re: /^攻撃する時/, self: 'onAttack', other: 'onOtherAttack', ownIncludesSelf: true },
   { re: /^破壊された時/, self: 'onDestroyed', other: 'onOtherDestroyed' },
   { re: /^(?:バトルゾーンを)?離れた時/, self: 'onLeave', other: 'onOtherLeave' },
   { re: /^ブロック(?:した|する)時/, self: 'onBlock' },
@@ -752,6 +753,11 @@ function parseSentence(s: string): EffectDef[] | null {
   const ref = parseRefSentence(s);
   if (ref) return ref;
   if (s === '数字を1つ選ぶ') return [{ type: 'chooseNumber' }];
+  // 「その攻撃の後、このクリーチャーをアンタップする」
+  if ((m = s.match(/^その攻撃の後、(.+)$/))) {
+    const inner = parseSentence(m[1]);
+    return inner && [{ type: 'afterAttack', effects: inner }];
+  }
   // 覚醒・龍解・解除・ループ覚醒：このカードを裏返す
   if (/^この(?:クリーチャー|ドラグハート)を、?(?:コスト(?:が|の)大きいほうに|クリーチャー側に)裏返す$/.test(s)) return [{ type: 'flipSelf', to: 'back' }];
   if (/^このドラグハートを、?クリーチャー側に裏返し、アンタップする$/.test(s)) return [{ type: 'flipSelf', to: 'back', untap: true }];
@@ -2026,6 +2032,25 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
   // ウェーブストライカー：「「ウェーブストライカー」を持つクリーチャーが他に2体以上あれば、」
   const wave = body.match(/^「ウェーブストライカー」を持つクリーチャーが他に(\d+)体以上あれば、(.+)$/);
   if (wave) return { body: wave[2], condition: { type: 'compare', left: { who: 'any', zone: 'battle', filter: { hasKeyword: 'waveStriker', excludeSelf: true } }, op: '>=', right: n(wave[1]) } };
+  // 「そのターン、相手のクリーチャーがコストを支払わずに出ていたら、」
+  const freeIn = body.match(/^(?:その|この)ターン、?(自分|相手)のクリーチャーがコストを支払わずに(?:バトルゾーンに)?出ていたら、(.+)$/);
+  if (freeIn) return { body: freeIn[2], condition: { type: 'enteredFreeThisTurn', who: freeIn[1] === '自分' ? 'self' : 'opponent' } };
+  // 「それがこのターン最初の攻撃なら、」「それがそのターン最初のクリーチャーによる攻撃でなければ、」
+  const firstAtk = body.match(/^それが(?:この|その)ターン最初の(?:クリーチャーによる)?攻撃(なら|であれば|でなければ)、(.+)$/);
+  if (firstAtk) return { body: firstAtk[2], condition: firstAtk[1] === 'でなければ' ? { type: 'not', condition: { type: 'firstAttackThisTurn' } } : { type: 'firstAttackThisTurn' } };
+  // 「このクリーチャーがタップしていれば、」
+  const tappedC = body.match(/^このクリーチャーがタップ(?:して|されて)い(れば|なければ)、(.+)$/);
+  if (tappedC) return { body: tappedC[2], condition: tappedC[1] === 'なければ' ? { type: 'not', condition: { type: 'selfTapped' } } : { type: 'selfTapped' } };
+  // 「相手の、コスト9以上またはパワー15000以上のクリーチャーがあれば、」：どちらかに合うクリーチャー
+  const either = body.match(/^(自分|相手)の、?(.+?)または(.+?)のクリーチャーが(あれば|なければ)、(.+)$/);
+  if (either) {
+    const fa: CardFilter = {};
+    const fb: CardFilter = {};
+    if (parseMods(`${either[2]}の`, fa) && parseMods(`${either[3]}の`, fb)) {
+      const cond: Condition = { type: 'compare', left: { who: who(either[1]), zone: 'battle', filter: { anyOf: [fa, fb] } }, op: '>=', right: 1 };
+      return { body: either[5], condition: either[4] === 'なければ' ? { type: 'not', condition: cond } : cond };
+    }
+  }
   // 「このターン、自分のクリーチャーがバトルに勝っていれば、」
   const wonB = body.match(/^(?:この|その)ターン、?(自分|相手)のクリーチャーがバトルに勝っていれば、(.+)$/);
   if (wonB) return { body: wonB[2], condition: { type: 'wonBattleThisTurn', who: wonB[1] === '自分' ? 'self' : 'opponent' } };
@@ -2181,15 +2206,24 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     return true;
   }
   // 手札にある間の誘発：「相手のターンの終わりに、そのターン、クリーチャーが3体以上出ていれば、この呪文をコストを支払わずに唱えてもよい」
-  const ht = t.match(/^相手のターンの終わりに、(?:(.+)、)?この(?:呪文|クリーチャー|カード)をコストを支払わずに(?:唱え|召喚し|使っ|実行し)てもよい。?$/);
+  // 「各ターンの終わりに、〜があれば、このクリーチャーをコストを支払わずに召喚してもよい」（リベンジ・チャンス・侵略ZERO）
+  const ht = t.match(/^(相手|自分|各)のターンの終わりに、(?:(.+)、)?この(?:呪文|クリーチャー|カード)を(?:自分の手札から)?コストを支払わずに(?:唱え|召喚し|使っ|実行し)てもよい。?$/) ?? t.match(/^(各)ターンの終わりに、(?:(.+)、)?この(?:呪文|クリーチャー|カード)を(?:自分の手札から)?コストを支払わずに(?:唱え|召喚し|使っ|実行し)てもよい。?$/);
   if (ht) {
     let condition: Condition | undefined;
-    if (ht[1]) {
-      const c = splitCondition(`${ht[1]}、x`);
+    if (ht[2]) {
+      const c = splitCondition(`${ht[2]}、x`);
       if (!c.condition || c.body !== 'x') return false;
       condition = c.condition;
     }
-    (out.handTriggers ??= []).push({ when: 'opponentTurnEnd', ...(condition ? { condition } : {}) });
+    (out.handTriggers ??= []).push({ when: ht[1] === '相手' ? 'opponentTurnEnd' : ht[1] === '自分' ? 'ownTurnEnd' : 'anyTurnEnd', ...(condition ? { condition } : {}) });
+    return true;
+  }
+  // 「自分のエグザイル・クリーチャーが破壊された時、このクリーチャーを自分の手札からバトルゾーンに出してもよい」（ドロン・ゴーの仲間）
+  const hd = t.match(/^自分の(.+?)が破壊された時、このクリーチャーを自分の手札から(?:バトルゾーンに)?出してもよい。?$/);
+  if (hd && kind === 'creature') {
+    const filter: CardFilter = {};
+    if (!parseSubject(hd[1], filter)) return false;
+    (out.handTriggers ??= []).push({ when: 'ownDestroyed', ...(Object.keys(filter).length ? { filter } : {}) });
     return true;
   }
   // 別のコストでの使い方（リサイクル・キリフダッシュ・ギャラクシールド・フシギバース・B・A・D など）
@@ -2254,7 +2288,7 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   // （補足説明があっても、条件や「この能力を与える」が書いていなければ読む）
   const condInReminder = /[(（][^()（）]*(?:あれば|なら、|この能力を与える)[^()（）]*[)）]/.test(line.normalize('NFKC'));
   const anyLabel = condInReminder ? null : (t.match(/^[^、。:：「」]{2,14}?\d*(?:\((?:光|水|闇|火|自然)\))?[:：](.{8,})$/) ?? t.match(/^[^、。:：「」-]{0,10}覚醒-(.{8,})$/));
-  if (anyLabel && !/^(?:進化|NEO進化|G-NEO進化|侵略|革命チェンジ|シンパシー|G・ゼロ|アタック・チャンス|Dスイッチ|ハイパー化|ウルトラ・セイバー)/.test(t)) {
+  if (anyLabel && !/^(?:進化|NEO進化|G-NEO進化|侵略|革命チェンジ|シンパシー|G・ゼロ|アタック・チャンス|Dスイッチ|ハイパー化|ウルトラ・セイバー)[:：-]/.test(t)) {
     const tmp: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
     if (parseLine(anyLabel[1], options, kind, tmp) && !tmp.abilities.some((a) => a.effects.some((e) => e.type === 'manual'))) {
       mergeParsed(out, tmp);
@@ -2416,6 +2450,17 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     return !!groups;
   }
   if (unsafe) return false;
+  // 「〜が合計5つ以上あれば、このクリーチャーが攻撃する時、〜」：条件が誘発より前に書いてある形
+  if (kind === 'creature' && !trig) {
+    const c0 = splitCondition(t.replace(/。$/, ''));
+    if (c0.condition && c0.body && parseTrigger(c0.body)) {
+      const tmp: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
+      if (parseLine(c0.body, options, kind, tmp) && tmp.abilities.length && !tmp.abilities.some((a) => a.effects.some((e) => e.type === 'manual'))) {
+        for (const ab of tmp.abilities) out.abilities.push({ ...ab, condition: ab.condition ? { type: 'and', conditions: [c0.condition, ab.condition] } : c0.condition });
+        return true;
+      }
+    }
+  }
   const st = parseStatic(t.replace(/。$/, ''));
   if (st) {
     out.statics.push(...st);
