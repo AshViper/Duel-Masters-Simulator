@@ -2,7 +2,7 @@
 // 能力テキストは textParser で読み取り、定型文の能力は自動処理にする。
 // 読み取れない能力は「手動処理」として残す（誤って自動処理しないため）。
 import type { OfficialCardDetail, OfficialCardFace } from '../../server/dmOfficial';
-import { isCreatureType, type CardDefinition, type CardType, type Civilization, type ForbiddenSide, type SupportLevel, type TwinSide } from './types';
+import { isCreatureType, type CardDefinition, type CardType, type Civilization, type ForbiddenSide, type PsychicSide, type SupportLevel, type TwinSide } from './types';
 import { parseAbilityText, type ParsedAbilities } from './textParser';
 
 export const OFFICIAL_PREFIX = 'dm:';
@@ -70,7 +70,22 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
         },
       }
     : undefined;
-  const spellFace = hyperFace || forbiddenFace ? undefined : d.faces[1];
+  // サイキック・クリーチャー：2面目は覚醒・覚醒リンクした後のクリーチャー
+  const psychicFace = !hyperFace && !forbiddenFace && /サイキック/.test(typeLabel) && d.faces[1] && /クリーチャー/.test(d.faces[1].type) ? d.faces[1] : undefined;
+  const psychic: PsychicSide | undefined = psychicFace
+    ? {
+        back: {
+          name: psychicFace.name,
+          cost: parseNumber(psychicFace.cost) ?? 0,
+          civilizations: parseCivs(psychicFace.civilization || main.civilization),
+          races: psychicFace.race ? psychicFace.race.split(/[/／]/).map((r) => r.trim()).filter(Boolean) : [],
+          power: parseNumber(psychicFace.power) ?? 0,
+          text: faceText(psychicFace),
+          typeLabel: psychicFace.type || 'サイキック・スーパー・クリーチャー',
+        },
+      }
+    : undefined;
+  const spellFace = hyperFace || forbiddenFace || psychicFace ? undefined : d.faces[1];
   const twin: TwinSide | undefined = spellFace
     ? {
         name: spellFace.name,
@@ -96,6 +111,7 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
     twin,
     ...(hyperText !== undefined ? { hyperText } : {}),
     ...(forbidden ? { forbidden } : {}),
+    ...(psychic ? { psychic } : {}),
     support: 'manual',
   });
 }
@@ -162,6 +178,24 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
       }
     : undefined;
   const hyperParsed = card.hyperText !== undefined ? parseAbilityText(card.hyperText, 'creature') : undefined;
+  // 以前の版で、サイキック・クリーチャーの裏面をツインパクトの呪文側として保存したカードを直す（パワーは公式から保存し直すと入る）
+  if (card.twin && !card.psychic && /サイキック/.test(card.typeLabel ?? '')) {
+    const t = card.twin;
+    card = { ...card, twin: undefined, psychic: { back: { name: t.name, cost: t.cost, civilizations: t.civilizations, races: [], power: undefined, text: t.text, typeLabel: 'サイキック・スーパー・クリーチャー' } } };
+  }
+  const pParsed = card.psychic ? parseAbilityText(card.psychic.back.text, 'creature') : undefined;
+  const psychic: PsychicSide | undefined = card.psychic
+    ? {
+        back: {
+          ...card.psychic.back,
+          keywords: Object.keys(pParsed!.keywords).length ? pParsed!.keywords : undefined,
+          abilities: pParsed!.abilities.length ? pParsed!.abilities : undefined,
+          statics: pParsed!.statics.length ? pParsed!.statics : undefined,
+          replacements: pParsed!.replacements.length ? pParsed!.replacements : undefined,
+        },
+        ...(main.awakenLink ? { link: main.awakenLink } : {}),
+      }
+    : undefined;
   let twin = card.twin;
   let twinParsed: ParsedAbilities | undefined;
   if (twin) {
@@ -172,14 +206,15 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
       abilities: twinParsed.abilities.length ? twinParsed.abilities : undefined,
     };
   }
-  const manual = main.manualLines.length + (twinParsed?.manualLines.length ?? 0) + (hyperParsed?.manualLines.length ?? 0) + (fParsed?.manualLines.length ?? 0);
+  const manual = main.manualLines.length + (twinParsed?.manualLines.length ?? 0) + (hyperParsed?.manualLines.length ?? 0) + (fParsed?.manualLines.length ?? 0) + (pParsed?.manualLines.length ?? 0);
   const auto =
     (isForbidden ? 1 : 0) +
     (fParsed ? Object.keys(fParsed.keywords).length + fParsed.parsedLines.length : 0) +
     Object.keys(main.keywords).length +
     main.parsedLines.length +
     (twinParsed ? Object.keys(twinParsed.keywords).length + twinParsed.parsedLines.length : 0) +
-    (hyperParsed ? Object.keys(hyperParsed.keywords).length + hyperParsed.parsedLines.length : 0);
+    (hyperParsed ? Object.keys(hyperParsed.keywords).length + hyperParsed.parsedLines.length : 0) +
+    (pParsed ? Object.keys(pParsed.keywords).length + pParsed.parsedLines.length : 0);
   const support: SupportLevel = manual === 0 ? 'full' : auto > 0 ? 'partial' : 'manual';
   return {
     ...card,
@@ -203,7 +238,23 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
       : undefined,
     twin,
     forbidden,
+    psychic,
+    soul: main.soul && hasAny(main.soul) ? compact(main.soul) : undefined,
     support,
+  };
+}
+
+type AbilitySet = NonNullable<ParsedAbilities['soul']>;
+function hasAny(a: AbilitySet): boolean {
+  return Object.keys(a.keywords).length > 0 || a.abilities.length > 0 || a.statics.length > 0 || a.replacements.length > 0;
+}
+/** 空の項目を省いた能力のまとまり */
+function compact(a: AbilitySet): NonNullable<CardDefinition['soul']> {
+  return {
+    keywords: Object.keys(a.keywords).length ? a.keywords : undefined,
+    abilities: a.abilities.length ? a.abilities : undefined,
+    statics: a.statics.length ? a.statics : undefined,
+    replacements: a.replacements.length ? a.replacements : undefined,
   };
 }
 

@@ -15,8 +15,8 @@ export function isOfficialSaved(id: string): boolean {
 export async function saveOfficialCard(id: string): Promise<'saved' | 'skipped'> {
   const cardId = officialCardId(id);
   const existing = useApp.getState().registry[cardId];
-  // 古い版で保存した禁断の鼓動（裏側のパワーが分からない）は保存し直す
-  const stale = !!existing?.forbidden && existing.forbidden.creature.power === undefined;
+  // 古い版で保存した禁断の鼓動・サイキック・クリーチャー（裏側のパワーが分からない）は保存し直す
+  const stale = (!!existing?.forbidden && existing.forbidden.creature.power === undefined) || (!!existing?.psychic && existing.psychic.back.power === undefined) || (!!existing?.twin && /サイキック/.test(existing.typeLabel ?? ''));
   if (!stale && existing?.imageRef && (await hasImage(existing.imageRef))) return 'skipped';
 
   const res = await apiFetch(`/dm-api/detail?id=${encodeURIComponent(id)}`);
@@ -32,8 +32,8 @@ export async function saveOfficialCard(id: string): Promise<'saved' | 'skipped'>
     if (!img.ok) throw new Error(`画像の取得に失敗しました（${img.status}）`);
     await saveImage(card.imageRef, await img.blob(), imageUrl);
   }
-  // 禁断の鼓動は、禁断解放した後の面（禁断クリーチャー）の画像も保存する
-  const backUrl = card.forbidden ? detail.faces[1]?.imageUrl : undefined;
+  // 禁断の鼓動・サイキック・クリーチャーは、裏返った後の面の画像も保存する
+  const backUrl = card.forbidden || card.psychic ? detail.faces[1]?.imageUrl : undefined;
   if (backUrl && card.imageRef) {
     const img = await apiFetch(`/dm-api/image?path=${encodeURIComponent(new URL(backUrl).pathname)}`);
     if (img.ok) await saveImage(`${card.imageRef}:b`, await img.blob(), backUrl);

@@ -75,9 +75,11 @@ export interface CardFilter {
 /** 効果の対象指定 */
 export interface TargetSpec {
   owner: 'self' | 'opponent' | 'any';
-  zone: 'battle' | 'mana' | 'shield' | 'graveyard' | 'hand' | 'deck';
+  zone: 'battle' | 'mana' | 'shield' | 'graveyard' | 'hand' | 'deck' | 'hyperspatial';
   /** 'all' は条件に合うものすべて（選択なし） */
   count: number | 'all';
+  /** 選んだカードのコストの合計の上限（「コストの合計がN以下になるように」） */
+  maxTotalCost?: number;
   /** true なら 0〜count 枚の範囲で選べる（「〜まで」） */
   upTo?: boolean;
   filter?: CardFilter;
@@ -147,6 +149,10 @@ export type EffectDef =
   | { type: 'revealTopCard'; ifCreature?: 'battle'; ifSpell?: 'cast'; otherwise?: 'mana' }
   /** 相手に自分のシールドを1つ選ばせて見る。呪文ならコストを支払わずに唱えてもよい（ラッキー・ダーツ） */
   | { type: 'shieldGamble' }
+  /** 超魂レイド：山札の上から3枚を表向きにし、このクリーチャーの進化元になれるカードを1枚この下に置いてもよい。残りは山札の下へ */
+  | { type: 'soulRaid' }
+  /** 覚醒リンク：条件のクリーチャーがそろっていれば、このクリーチャーと裏返してリンクする */
+  | { type: 'awakenLink' }
   /** 手札から条件に合うカードを1枚、コストを支払わずに使ってもよい（maxCostHandSize: コストが手札の枚数以下） */
   | { type: 'playFromHandFree'; filter?: CardFilter; maxCostHandSize?: boolean }
   /** エンジン内部用：公開したカードを出す／唱える（てもよい）。しなければそのまま */
@@ -272,6 +278,12 @@ export interface Keywords {
   slayer?: boolean;
   /** バトルに勝ったら破壊される */
   suicideOnWin?: boolean;
+  /** すべてのバトルに勝つ */
+  winsAllBattles?: boolean;
+  /** バトル中だけパワーに加える */
+  battlePower?: number;
+  /** ハンティング：バトル中、自分のハンター1体につきパワー+1000 */
+  hunting?: boolean;
   /** ブロックされない */
   unblockable?: boolean;
   /** アンタップされているクリーチャーも攻撃できる */
@@ -332,6 +344,16 @@ export interface TwinSide {
   abilities?: TriggeredAbility[];
 }
 
+/** 侵略・革命チェンジ・アタック・チャンス（攻撃する時に使う） */
+export interface AttackSwap {
+  kind: 'invasion' | 'revolution' | 'attackChance';
+  filter: CardFilter;
+  /** S級侵略：手札のほかに使えるゾーン（[不死]は墓地、[原始]はマナゾーン、[宇宙]・[轟速]はバトルゾーンなど） */
+  zones?: Array<'graveyard' | 'mana' | 'battle'>;
+  /** S級侵略：バトルゾーンから重ねる時、このカードだけを移す（[宇宙]。指定がなければ下のカードごと移す） */
+  battleCardOnly?: boolean;
+}
+
 export interface CardDefinition {
   id: string;
   name: string;
@@ -359,7 +381,7 @@ export interface CardDefinition {
   /** 進化元の条件（種族名 or 文明） */
   evolvesFrom?: { race?: string; civilization?: Civilization };
   /** 侵略（invasion）・革命チェンジ（revolution）：攻撃中の自分のクリーチャーが filter に合えば、手札から使える */
-  attackSwap?: { kind: 'invasion' | 'revolution' | 'attackChance'; filter: CardFilter };
+  attackSwap?: AttackSwap;
   /** G・ゼロ：条件を満たしていればコストを支払わずに使える */
   gZero?: Condition;
   /** このカード自身の召喚コストを「〜1枚につきN」少なくする。コストは min 未満にならない */
@@ -374,7 +396,18 @@ export interface CardDefinition {
   neoEvolution?: CardFilter;
   /** 禁断の鼓動：ゲーム開始時に封印を付けてバトルゾーンに置き、封印がすべてなくなったら creature 側に裏返す（禁断解放） */
   forbidden?: ForbiddenSide;
+  /** 超魂X：これがクリーチャーの下にあれば、そのクリーチャーにも与える能力 */
+  soul?: Pick<CardDefinition, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
+  /** サイキック・クリーチャー：裏面（覚醒・覚醒リンクした後のクリーチャー）と覚醒リンクの条件 */
+  psychic?: PsychicSide;
   support: SupportLevel;
+}
+
+/** サイキック・クリーチャーの裏面 */
+export interface PsychicSide {
+  back: ForbiddenSide['creature'];
+  /** 覚醒リンク：バトルゾーンに自分のこれらの名前のクリーチャーがあれば、このクリーチャーと裏返してリンクする */
+  link?: { names: string[]; timing: 'turnStart' | 'always' };
 }
 
 export function isCreatureType(t: CardType): boolean {

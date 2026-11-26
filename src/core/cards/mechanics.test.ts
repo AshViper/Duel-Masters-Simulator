@@ -1,7 +1,7 @@
 // 侵略・革命チェンジ・NEO進化など、能力テキストから読み取った特殊な処理がエンジンで動くことのテスト
 import { describe, expect, it } from 'vitest';
 import { Ctx, applyAction } from '../engine/engine';
-import { blockersFor, breakerCount, canAttackWith, hyperizeCandidates, keywords } from '../engine/queries';
+import { attackSwapCandidates, blockersFor, breakerCount, canAttackWith, hyperizeCandidates, keywords } from '../engine/queries';
 import { createGame } from '../engine/setup';
 import type { Action, GameState, PlayerId } from '../engine/types';
 import { SAMPLE_CARDS } from '../testing/fixtureCards';
@@ -34,6 +34,11 @@ const C = {
       { ...base, name: 'ハイパー犬', type: 'クリーチャー', power: '3000', race: 'テスト', abilities: ['ハイパー化：自分の他のクリーチャーを１体タップする。（…）', 'スピードアタッカー', 'W・ブレイカー'] },
     ],
   }),
+  cmd: mk('m-14', '火の指揮官', [], { race: 'ソニック・コマンド', cost: '3' }),
+  sDead: mk('m-15', 'S級不死', ['S級侵略[不死]：火のコマンド（自分の火のコマンドが攻撃する時、自分の手札または墓地にあるこのクリーチャーをその上に重ねてもよい）'], { type: '進化クリーチャー', race: 'ソニック・コマンド/S級侵略者', power: '9000' }),
+  sSpace: mk('m-16', 'S級宇宙', ['S級侵略［宇宙］：火のコマンド（自分の火のコマンドが攻撃する時、バトルゾーンまたは自分の手札にあるこのカードをその上に重ねてもよい）'], { type: '進化クリーチャー', race: 'S級侵略者', power: '9000' }),
+  sSpeed: mk('m-17', 'S級轟速', ['S級侵略[轟速]：火のコマンド'], { type: '進化クリーチャー', race: 'S級侵略者', power: '9000' }),
+  sPrimal: mk('m-18', 'S級原始', ['S級侵略[原始]：火のコスト3のクリーチャー（自分の火のコスト3のクリーチャーが攻撃する時、自分の手札またはマナゾーンにあるこのクリーチャーをその上に重ねてもよい）'], { type: '進化クリーチャー', race: 'S級侵略者', power: '9000' }),
   peeker: mk('m-13', '覗き見', ['相手がそのターン２枚目以降のカードを引いた時、相手は自身の手札を１枚選び、捨てる。', '相手はカードをマナゾーンに置く時、タップして置く。']),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
@@ -63,6 +68,16 @@ describe('特殊な処理の読み取り', () => {
     expect(C.rev.attackSwap).toEqual({ kind: 'revolution', filter: { civilization: 'fire', minCost: 5, race: 'ドラゴン' } });
     expect(C.inv.attackSwap).toEqual({ kind: 'invasion', filter: { civilization: 'fire' } });
     expect(C.neo.neoEvolution).toEqual({ civilization: 'fire' });
+  });
+
+  it('S級侵略：補足説明（なければ種類名）から使えるゾーンを読む', () => {
+    expect(C.sDead.attackSwap).toMatchObject({ kind: 'invasion', zones: ['graveyard'], filter: { civilization: 'fire', race: 'コマンド' } });
+    expect(C.sSpace.attackSwap).toMatchObject({ zones: ['battle'], battleCardOnly: true });
+    expect(C.sSpeed.attackSwap).toMatchObject({ zones: ['graveyard', 'battle'] });
+    expect(C.sSpeed.attackSwap?.battleCardOnly).toBeUndefined();
+    expect(C.sPrimal.attackSwap).toMatchObject({ zones: ['mana'], filter: { civilization: 'fire', minCost: 3, maxCost: 3 } });
+    // 種類が分からず補足説明もなければ手動
+    expect(parseAbilityText('S級侵略[謎]：火のコマンド', 'creature').manualLines).toHaveLength(1);
   });
 
   it('いろいろな書き方', () => {
@@ -114,6 +129,69 @@ describe('特殊な処理がエンジンで動く', () => {
     s = act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'player' } });
     s = act(s, { type: 'RESPOND', player: 0, selected: [inv] });
     expect(s.cards[inv]).toMatchObject({ zone: 'battle', tapped: true, under: [a] });
+  });
+
+  it('S級侵略[不死]：墓地から攻撃中のクリーチャーの上に重ねる', () => {
+    let s = newGame();
+    const a = put(s, 0, 'dm:m-14', 'battle', true);
+    const dead = put(s, 0, 'dm:m-15', 'graveyard');
+    s = act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'player' } });
+    expect(s.pending).toMatchObject({ kind: 'selectCards', candidates: [dead] });
+    s = act(s, { type: 'RESPOND', player: 0, selected: [dead] });
+    expect(s.cards[dead]).toMatchObject({ zone: 'battle', tapped: true, under: [a] });
+    expect(s.players[0].zones.battle).toEqual([dead]);
+  });
+
+  it('S級侵略[原始]：マナゾーンから重ねる', () => {
+    let s = newGame();
+    const a = put(s, 0, 'dm:m-14', 'battle', true);
+    const primal = put(s, 0, 'dm:m-18', 'mana');
+    s = act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'player' } });
+    s = act(s, { type: 'RESPOND', player: 0, selected: [primal] });
+    expect(s.cards[primal]).toMatchObject({ zone: 'battle', under: [a] });
+    expect(s.players[0].zones.mana).not.toContain(primal);
+  });
+
+  it('S級侵略[宇宙]：バトルゾーンからこのカードだけ移す（下のカードは残る）', () => {
+    let s = newGame();
+    const a = put(s, 0, 'dm:m-14', 'battle', true);
+    const u = put(s, 0, 'S01-031', 'battle', true);
+    const space = put(s, 0, 'dm:m-16', 'battle', true);
+    const bz = s.players[0].zones.battle;
+    bz.splice(bz.indexOf(u), 1);
+    s.cards[space].under = [u];
+    s = act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'player' } });
+    expect(s.pending).toMatchObject({ candidates: [space] });
+    s = act(s, { type: 'RESPOND', player: 0, selected: [space] });
+    expect(s.cards[space]).toMatchObject({ zone: 'battle', tapped: true, under: [a] });
+    expect([...s.players[0].zones.battle].sort()).toEqual([space, u].sort());
+    expect(s.cards[u].under).toEqual([]);
+  });
+
+  it('S級侵略[轟速]：バトルゾーンから下のカードごと移す', () => {
+    let s = newGame();
+    const a = put(s, 0, 'dm:m-14', 'battle', true);
+    const u = put(s, 0, 'S01-031', 'battle', true);
+    const speed = put(s, 0, 'dm:m-17', 'battle', true);
+    const bz = s.players[0].zones.battle;
+    bz.splice(bz.indexOf(u), 1);
+    s.cards[speed].under = [u];
+    s = act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'player' } });
+    s = act(s, { type: 'RESPOND', player: 0, selected: [speed] });
+    expect(s.cards[speed]).toMatchObject({ zone: 'battle', tapped: true, under: [u, a] });
+    expect(s.players[0].zones.battle).toEqual([speed]);
+  });
+
+  it('S級侵略：攻撃する時に墓地になかったカードは使えない。条件に合わない攻撃では使えない', () => {
+    const s = newGame();
+    const a = put(s, 0, 'dm:m-14', 'battle', true);
+    const dead = put(s, 0, 'dm:m-15', 'graveyard');
+    s.combat = { attacker: a, attackingPlayer: 0, target: { kind: 'player' }, sClassEligible: [] };
+    expect(attackSwapCandidates(s, reg, 0, a)).toEqual([]);
+    s.combat.sClassEligible = [dead];
+    expect(attackSwapCandidates(s, reg, 0, a)).toEqual([dead]);
+    const plain = put(s, 0, 'S01-031', 'battle', true);
+    expect(attackSwapCandidates(s, reg, 0, plain)).toEqual([]);
   });
 
   it('使わないことも選べる', () => {

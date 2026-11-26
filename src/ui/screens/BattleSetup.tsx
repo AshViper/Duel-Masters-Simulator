@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DIFFICULTY_LABEL, type Difficulty } from '../../core/ai/cpu';
-import { deckCount, isDeckLegal } from '../../core/deck/rules';
+import { deckCountLabel, isDeckLegal } from '../../core/deck/rules';
 import type { PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { useBattle, type BattleMode } from '../../store/battleStore';
@@ -26,7 +26,7 @@ export function BattleSetupScreen() {
     <select value={value} onChange={(e) => onChange(e.target.value)} data-testid={testId}>
       {decks.map((d) => (
         <option key={d.id} value={d.id}>
-          {d.name}（{deckCount(d)}枚{isDeckLegal(d, settings.format, registry) ? '' : '・ルール違反'}）
+          {d.name}（{deckCountLabel(d, registry)}{isDeckLegal(d, settings.format, registry) ? '' : '・ルール違反'}）
         </option>
       ))}
     </select>

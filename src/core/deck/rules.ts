@@ -31,6 +31,20 @@ export interface Deck {
   updatedAt: number;
 }
 
+/** 超次元ゾーンに入れられるカードの枚数 */
+export const HYPERSPATIAL_MAX = 8;
+
+/** 超次元ゾーンに入れるカード（サイキック・クリーチャー）の枚数 */
+export function hyperspatialCount(deck: Pick<Deck, 'cards'>, registry: CardRegistry): number {
+  return Object.entries(deck.cards).reduce((a, [id, n]) => a + (registry[id]?.psychic ? n : 0), 0);
+}
+
+/** 一覧に出す枚数の表記（「40枚」「40枚＋超次元3枚」） */
+export function deckCountLabel(deck: Pick<Deck, 'cards'>, registry: CardRegistry): string {
+  const hyper = hyperspatialCount(deck, registry);
+  return `${deckCount(deck) - hyper}枚${hyper ? `＋超次元${hyper}枚` : ''}`;
+}
+
 export function deckCount(deck: Pick<Deck, 'cards'>): number {
   return Object.values(deck.cards).reduce((a, b) => a + b, 0);
 }
@@ -42,8 +56,11 @@ export interface DeckIssue {
 
 export function validateDeck(deck: Pick<Deck, 'cards'>, format: DeckFormat, registry: CardRegistry): DeckIssue[] {
   const issues: DeckIssue[] = [];
-  const total = deckCount(deck);
-  if (total !== format.deckSize) issues.push({ level: 'error', message: `デッキは${format.deckSize}枚にしてください（現在${total}枚）` });
+  // サイキック・クリーチャーは山札ではなく超次元ゾーンに入れる（8枚まで）
+  const hyper = hyperspatialCount(deck, registry);
+  const total = deckCount(deck) - hyper;
+  if (total !== format.deckSize) issues.push({ level: 'error', message: `デッキは${format.deckSize}枚にしてください（現在${total}枚${hyper ? `・超次元ゾーン${hyper}枚は別` : ''}）` });
+  if (hyper > HYPERSPATIAL_MAX) issues.push({ level: 'error', message: `超次元ゾーンのカードは${HYPERSPATIAL_MAX}枚までです（現在${hyper}枚）` });
   for (const [id, n] of Object.entries(deck.cards)) {
     const card = registry[id];
     const label = card?.name ?? id;
@@ -53,7 +70,11 @@ export function validateDeck(deck: Pick<Deck, 'cards'>, format: DeckFormat, regi
       const kind = limit === 0 ? 'プレミアム殿堂' : limit === 1 ? '殿堂' : '枚数制限';
       issues.push({ level: 'error', message: `${label} は${kind}のため${limit}枚までです（${n}枚）` });
     }
-    if (card?.support === 'manual') issues.push({ level: 'warning', message: `${label} の効果は手動処理です` });
+    // カードの「手」マーク（support !== 'full'）と同じ基準で数える
+    if (card && card.support !== 'full') {
+      const detail = card.support === 'manual' ? '効果は手動処理です' : '一部の効果が手動処理です';
+      issues.push({ level: 'warning', message: `${label} の${detail}` });
+    }
   }
   for (const pair of format.restrictedPairs) {
     const used = pair.filter((id) => (deck.cards[id] ?? 0) > 0);

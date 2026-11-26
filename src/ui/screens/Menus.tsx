@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DEFAULT_FORMAT, deckCount, isDeckLegal } from '../../core/deck/rules';
+import { DEFAULT_FORMAT, deckCountLabel, isDeckLegal } from '../../core/deck/rules';
 import { db, type MatchRecord, type SavedGame } from '../../db/db';
 import { useApp } from '../../store/appStore';
 import { useBattle } from '../../store/battleStore';
@@ -15,7 +15,7 @@ export function Header({ title }: { title: string }) {
 }
 
 export function HomeScreen() {
-  const { go, decks, recentDeckIds, editDeck, cards } = useApp();
+  const { go, decks, recentDeckIds, editDeck, cards, registry } = useApp();
   const loadGame = useBattle((s) => s.loadGame);
   const [saves, setSaves] = useState<SavedGame[]>([]);
   useEffect(() => {
@@ -51,7 +51,7 @@ export function HomeScreen() {
           {recent.length === 0 && <p className="muted">まだありません</p>}
           {recent.map((d) => (
             <button key={d!.id} className="list-item" onClick={() => editDeck(d!.id)}>
-              {d!.name} <span className="muted">{deckCount(d!)}枚</span>
+              {d!.name} <span className="muted">{deckCountLabel(d!, registry)}</span>
             </button>
           ))}
         </section>
@@ -94,7 +94,7 @@ export function DeckListScreen() {
             <div key={d.id} className="deck-tile">
               <div className="deck-tile-name">{d.name}</div>
               <div className="muted">
-                {deckCount(d)}枚 {legal ? <span className="ok">✓ 使用可能</span> : <span className="ng">✗ 構築ルール違反</span>}
+                {deckCountLabel(d, registry)} {legal ? <span className="ok">✓ 使用可能</span> : <span className="ng">✗ 構築ルール違反</span>}
               </div>
               <div className="deck-tile-actions">
                 <button onClick={() => editDeck(d.id)}>編集</button>

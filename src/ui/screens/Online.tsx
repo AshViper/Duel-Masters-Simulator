@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { deckCount, isDeckLegal } from '../../core/deck/rules';
+import { deckCountLabel, isDeckLegal } from '../../core/deck/rules';
 import { useApp } from '../../store/appStore';
 import { useOnline } from '../../store/onlineStore';
 import { Header } from './Menus';
@@ -44,7 +44,7 @@ export function OnlineScreen() {
           <select value={deckId} onChange={(e) => setDeckId(e.target.value)} disabled={busy} data-testid="online-deck">
             {decks.map((d) => (
               <option key={d.id} value={d.id}>
-                {d.name}（{deckCount(d)}枚{isDeckLegal(d, settings.format, registry) ? '' : '・ルール違反'}）
+                {d.name}（{deckCountLabel(d, registry)}{isDeckLegal(d, settings.format, registry) ? '' : '・ルール違反'}）
               </option>
             ))}
           </select>

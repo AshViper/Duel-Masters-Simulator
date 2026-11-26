@@ -278,6 +278,9 @@ export function BattleScreen() {
     const untapped = untappedManaCount(g, p);
     const manaCivs = CIV_ORDER.map((c) => ({ c, n: P.zones.mana.filter((m) => !g.cards[m].tapped && manaCivilizations(def(m)).includes(c)).length })).filter((x) => x.n > 0);
     const graveTop = P.zones.graveyard[P.zones.graveyard.length - 1];
+    const hyperTop = P.zones.hyperspatial[P.zones.hyperspatial.length - 1];
+    // 超次元ゾーンを使うプレイヤー（サイキック・クリーチャーを持っている）だけ置き場を出す。空になっても消さない
+    const usesHyper = !!hyperTop || Object.values(g.cards).some((c) => c.owner === p && !!registry[c.cardId]?.psychic);
 
     const plate = (
       <div
@@ -329,7 +332,7 @@ export function BattleScreen() {
       </div>
     );
     const piles = (
-      <div className="piles">
+      <div className={'piles' + (usesHyper ? ' has-hyper' : '')}>
         <button className="pile deck-pile" onClick={() => setZoneView({ player: p, zone: 'deck' })} onContextMenu={(e) => { e.preventDefault(); setZoneView({ player: p, zone: 'deck' }); }} {...dropProps(p, 'deck')} data-testid={`pile-${p}-deck`} title="山札">
           <span className="pile-stack" />
           <span className="pile-count">{P.zones.deck.length}</span>
@@ -340,6 +343,14 @@ export function BattleScreen() {
           <span className="pile-count">{P.zones.graveyard.length}</span>
           <span className="pile-label">墓地</span>
         </button>
+        {/* 超次元ゾーン：サイキック・クリーチャーなどを入れている時だけ出す（公開ゾーン） */}
+        {usesHyper && (
+          <button className="pile hyper-pile" onClick={() => setZoneView({ player: p, zone: 'hyperspatial' })} onContextMenu={(e) => { e.preventDefault(); setZoneView({ player: p, zone: 'hyperspatial' }); }} data-testid={`pile-${p}-hyperspatial`} title="超次元ゾーン">
+            {hyperTop ? <span className="pile-top">{renderCard(hyperTop, 'xs')}</span> : <span className="pile-stack empty" />}
+            <span className="pile-count">{P.zones.hyperspatial.length}</span>
+            <span className="pile-label">超次元</span>
+          </button>
+        )}
       </div>
     );
     const field = (
@@ -495,17 +506,7 @@ export function BattleScreen() {
         </div>
       )}
 
-      {inspect && g.cards[inspect] && (
-        <Inspector
-          g={g}
-          iid={inspect}
-          onClose={() => setInspect(null)}
-          act={(a) => { setInspect(null); return act(a); }}
-          play={(iid) => { setInspect(null); play(iid); }}
-          canControl={canControl}
-        />
-      )}
-      {drag && <DragLayer g={g} drag={drag} result={drag.over ? dropResultOf(drag.over) : null} attackMode={g.cards[drag.iid]?.zone === 'battle' && attackTargetsOf(drag.iid).length > 0} />}
+      {drag &&<DragLayer g={g} drag={drag} result={drag.over ? dropResultOf(drag.over) : null} attackMode={g.cards[drag.iid]?.zone === 'battle' && attackTargetsOf(drag.iid).length > 0} />}
       {detail && <CardDetail card={detail} onClose={() => setDetail(null)} />}
       {zoneView && (
         <ZoneViewer
@@ -515,6 +516,17 @@ export function BattleScreen() {
           renderCard={renderCard}
           canControl={canControl}
           act={act}
+        />
+      )}
+      {/* 右クリックの詳細は、山札・墓地・超次元ゾーンの一覧から開くこともあるので、一覧より手前に出す */}
+      {inspect && g.cards[inspect] && (
+        <Inspector
+          g={g}
+          iid={inspect}
+          onClose={() => setInspect(null)}
+          act={(a) => { setInspect(null); return act(a); }}
+          play={(iid) => { setInspect(null); play(iid); }}
+          canControl={canControl}
         />
       )}
       {evolve && (

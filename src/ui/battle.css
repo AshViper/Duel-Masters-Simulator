@@ -203,6 +203,14 @@
 }
 .pile-stack.empty { background: none; border: 1px dashed rgba(165, 179, 197, 0.3); box-shadow: none; }
 .grave-pile { box-shadow: inset 0 0 18px rgba(155, 107, 214, 0.18); }
+/* 超次元ゾーン（あるプレイヤーだけ3列にする） */
+.piles.has-hyper { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.piles.has-hyper .pile-stack, .piles.has-hyper .pile-top .card { --w: min(calc(var(--c-zone) * 0.88), 46px); width: min(calc(var(--c-zone) * 0.88), 46px); }
+.piles.has-hyper .pile-label { letter-spacing: 0.05em; }
+/* 山札・墓地の列（styles.css の .side-row）を、超次元の分だけ広げる */
+.side-row:has(.piles.has-hyper) { grid-template-columns: minmax(140px, 180px) minmax(140px, 1fr) minmax(0, 1.3fr) minmax(144px, 186px); }
+.hyper-pile { box-shadow: inset 0 0 18px rgba(93, 217, 245, 0.2); }
+.hyper-pile .pile-top .card { box-shadow: 0 0 12px rgba(93, 217, 245, 0.45); }
 .pile-top { pointer-events: none; }
 .pile-top .card { --w: calc(var(--c-zone) * 0.88); box-shadow: 0 0 12px rgba(155, 107, 214, 0.45); }
 .pile-count { position: absolute; top: 4px; right: 5px; padding: 0 7px; border-radius: 9px; font-size: 14px; font-weight: 800; background: rgba(8, 13, 23, 0.9); border: 1px solid var(--border-main); }

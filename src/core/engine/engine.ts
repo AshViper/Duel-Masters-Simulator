@@ -30,6 +30,8 @@ import {
   hyperizeCandidates,
   activeStatics,
   attackSwapCandidates,
+  canBeEvolutionSource,
+  sClassCards,
   battleCards,
   isIgnored,
   keywords,
@@ -123,8 +125,11 @@ export class Ctx {
         return this.manual(a.player, () => {
           const from = s.cards[a.iid]?.zone;
           if (!from) throw new IllegalAction('カードがありません');
+          // 名前は動かす前に取る（リンクしたサイキックは裏返った名前）。移動先は実際の行き先（サイキックは超次元ゾーンに戻る）
+          const name = this.name(a.iid);
           this.moveCard(a.iid, a.to, { toTop: a.toTop ?? true });
-          return `${this.name(a.iid)} を ${ZONE_LABEL[from]} → ${ZONE_LABEL[a.to]} に移動`;
+          const to = s.cards[a.iid].zone;
+          return `${name} を ${ZONE_LABEL[from]} → ${ZONE_LABEL[to]} に移動${to !== a.to ? `（${ZONE_LABEL[a.to]}のかわりに）` : ''}`;
         });
       case 'MANUAL_TAP':
         return this.manual(a.player, () => {
@@ -296,6 +301,17 @@ export class Ctx {
     this.run();
   }
 
+  /** バトル中だけ加わるパワー（「バトル中、パワーを+N」・ハンティング） */
+  private battleBonus(iid: string): number {
+    const kw = keywords(this.s, this.reg, iid);
+    let bonus = kw.battlePower ?? 0;
+    if (kw.hunting) {
+      const owner = this.s.cards[iid].owner;
+      bonus += 1000 * battleCards(this.s, this.reg, owner).filter((b) => def(this.s, this.reg, b).races.some((r) => r.includes('ハンター'))).length;
+    }
+    return bonus;
+  }
+
   private attack(player: PlayerId, attacker: string, target: AttackTarget): void {
     const s = this.s;
     const legal = attackTargets(s, this.reg, player, attacker);
@@ -306,7 +322,8 @@ export class Ctx {
       this.emit({ type: 'PHASE_CHANGED', phase: 'attack' });
     }
     s.cards[attacker].tapped = true;
-    s.combat = { attacker, attackingPlayer: player, target };
+    const sClass = sClassCards(s, this.reg, player);
+    s.combat = { attacker, attackingPlayer: player, target, ...(sClass.length ? { sClassEligible: sClass } : {}) };
     const tname = target.kind === 'player' ? s.players[other(player)].name : this.name(target.iid);
     this.log(`${this.name(attacker)} が ${tname} を攻撃`, player);
     this.emit({ type: 'ATTACK_DECLARED', player, attacker, target });
@@ -485,6 +502,24 @@ export class Ctx {
         }
         return false;
 
+      case 'linkRelease': {
+        const cells = task.cells.filter((c) => s.cards[c]?.zone === 'battle');
+        if (!cells.length) return false;
+        let back = cells[0];
+        if (cells.length > 1) {
+          const r = this.takeResponse();
+          if (!r) {
+            s.pending = { kind: 'selectCards', player: task.player, prompt: `${task.name} のリンク解除：超次元ゾーンに戻すサイキック・セルを1枚選ぶ（残りはバトルゾーンに残る）`, candidates: cells, min: 1, max: 1 };
+            return true;
+          }
+          if (r.selected?.[0] && cells.includes(r.selected[0])) back = r.selected[0];
+        }
+        this.log(`${task.name} が${task.destroyed ? '破壊され' : '離れ'}、リンク解除：${this.name(back)} を超次元ゾーンに戻した`, task.player);
+        this.moveCard(back, 'hyperspatial');
+        this.emit({ type: 'CREATURE_LEFT', player: task.player, iid: back, to: 'hyperspatial' });
+        return false;
+      }
+
       case 'hyperize': {
         const inst = s.cards[task.iid];
         const h = this.reg[inst?.cardId]?.hyper;
@@ -553,13 +588,22 @@ export class Ctx {
           s.combat = null;
           return false;
         }
-        const pa = power(s, this.reg, attacker);
-        const pd = power(s, this.reg, defender);
+        // 「バトル中、パワーを+N」はバトルの時だけ加える
+        const pa = power(s, this.reg, attacker) + this.battleBonus(attacker);
+        const pd = power(s, this.reg, defender) + this.battleBonus(defender);
         s.combat = null;
         this.log(`バトル：${this.name(attacker)}(${pa}) vs ${this.name(defender)}(${pd})`, s.cards[attacker].owner);
         const losers: string[] = [];
-        if (pa >= pd) losers.push(defender);
-        if (pd >= pa) losers.push(attacker);
+        // 「すべてのバトルに勝つ」：片方だけが持っていればパワーに関係なくそちらが勝つ（両方なら相打ち）
+        const winsA = !!keywords(s, this.reg, attacker).winsAllBattles;
+        const winsD = !!keywords(s, this.reg, defender).winsAllBattles;
+        if (winsA || winsD) {
+          if (winsA) losers.push(defender);
+          if (winsD) losers.push(attacker);
+        } else {
+          if (pa >= pd) losers.push(defender);
+          if (pd >= pa) losers.push(attacker);
+        }
         // スレイヤー：負けた時、相手も破壊 ／ 勝ったら自壊
         const kw = (i: string) => def(s, this.reg, i).keywords ?? {};
         for (const [me, opp] of [[attacker, defender], [defender, attacker]] as const) {
@@ -568,7 +612,7 @@ export class Ctx {
         }
         const leaves = losers.map((l): Task => ({ kind: 'leave', iid: l, to: 'graveyard', cause: 'destroy' }));
         // 「バトルに勝った時」は負けた側の破壊を処理してから誘発させる
-        const winner = pa > pd ? attacker : pd > pa ? defender : null;
+        const winner = winsA !== winsD ? (winsA ? attacker : defender) : winsA ? null : pa > pd ? attacker : pd > pa ? defender : null;
         this.insertFront(...leaves, ...(winner && !losers.includes(winner) ? [{ kind: 'battleWon', winner, loser: winner === attacker ? defender : attacker } as Task] : []));
         return false;
       }
@@ -696,13 +740,51 @@ export class Ctx {
         { kind: 'enterBattle', player, iid: pick, tapped: true, replaceAttacker: true },
         { kind: 'attackSwap', player },
       );
+    } else if (s.cards[pick].zone === 'battle') {
+      // S級侵略[宇宙]・[轟速]：バトルゾーンのこのクリーチャーを攻撃中のクリーチャーの上に重ねる（新たに出たことにはならない）
+      this.log(`S級侵略！ バトルゾーンの ${d.name} を ${this.name(old)} の上に重ねる`, player);
+      this.stackFromBattle(pick, old, !!d.attackSwap?.battleCardOnly);
+      this.insertFront({ kind: 'attackSwap', player });
     } else {
       // 侵略：攻撃中のクリーチャーの上に重ねて進化し、攻撃を続ける
-      this.log(`侵略！ ${this.name(old)} の上に ${d.name} を重ねる`, player);
+      const from = s.cards[pick].zone;
+      const fromText = from === 'graveyard' ? '墓地から' : from === 'mana' ? 'マナゾーンから' : '';
+      this.log(`${fromText ? 'S級' : ''}侵略！ ${this.name(old)} の上に ${fromText}${d.name} を重ねる`, player);
       this.emit({ type: 'CARD_PLAYED', player, iid: pick });
       this.insertFront({ kind: 'enterBattle', player, iid: pick, evolveOn: old, replaceAttacker: true }, { kind: 'attackSwap', player });
     }
     return false;
+  }
+
+  /**
+   * S級侵略：バトルゾーンにある top を、攻撃中の attacker の上に重ねて攻撃を続けさせる。
+   * cardOnly なら top のカードだけを移し、下にあったカードはバトルゾーンに残る（[宇宙]）。そうでなければ下のカードごと移す（[轟速]）
+   */
+  private stackFromBattle(top: string, attacker: string, cardOnly: boolean): void {
+    const s = this.s;
+    const inst = s.cards[top];
+    const base = s.cards[attacker];
+    const bz = s.players[inst.owner].zones.battle;
+    let carried = inst.under;
+    if (cardOnly && carried.length) {
+      // 下にあったカードの一番上が、そのままバトルゾーンに残る
+      const [next, ...rest] = carried;
+      s.cards[next].under = rest;
+      s.cards[next].tapped = inst.tapped;
+      bz.splice(bz.indexOf(top), 1, next);
+      carried = [];
+    } else {
+      bz.splice(bz.indexOf(top), 1);
+    }
+    // 攻撃中のクリーチャーの位置に、重ねたカードを置く（攻撃中なのでタップ状態を引き継ぐ）
+    bz.splice(bz.indexOf(attacker), 1, top);
+    inst.under = [...carried, attacker, ...base.under];
+    base.under = [];
+    inst.tapped = base.tapped;
+    if (s.combat) {
+      s.combat.attacker = top;
+      for (const t of s.queue) if (t.kind === 'blockStep' || t.kind === 'attackResolve' || t.kind === 'attackEnd') t.attacker = top;
+    }
   }
 
   /** バトルゾーンを離れる処理。置換効果があればここで適用する */
@@ -842,6 +924,14 @@ export class Ctx {
         }
       }
     }
+    // リンク解除：セルのうち1枚を選んで超次元ゾーンに戻し、残りは裏返してバトルゾーンに残る
+    if (inst.links?.length) {
+      // 先に表へ戻してから選ばせる（選ぶ時にセルの名前が見えるように）
+      const name = this.name(task.iid);
+      const cells = this.unlink(task.iid);
+      this.insertFront({ kind: 'linkRelease', player: inst.owner, name, cells, destroyed: task.cause === 'destroy' });
+      return false;
+    }
     if (task.cause === 'destroy') this.log(`${this.name(task.iid)} は破壊された`, inst.owner);
     this.moveCard(task.iid, task.to, { toTop: task.toTop ?? true });
     if (task.tapped && task.to === 'mana') inst.tapped = true;
@@ -977,7 +1067,7 @@ export class Ctx {
         return false;
       }
       case 'conditional': {
-        const ok = evalCondition(s, this.reg, controller, e.condition);
+        const ok = evalCondition(s, this.reg, controller, e.condition, false, source);
         this.insertFront(...this.effectTasks(controller, source, ok ? e.then : (e.else ?? [])));
         return false;
       }
@@ -1109,6 +1199,11 @@ export class Ctx {
         this.playFree(controller, e.iid, e.as);
         return false;
       }
+      case 'soulRaid':
+        return this.soulRaid(controller, source);
+      case 'awakenLink':
+        this.awakenLink(controller, source);
+        return false;
       case 'shieldGamble': {
         const shields = s.players[controller].zones.shield;
         if (!shields.length) {
@@ -1244,6 +1339,91 @@ export class Ctx {
     return false;
   }
 
+  /**
+   * 覚醒リンク：バトルゾーンに自分の条件のクリーチャー（名前で指定）がそろっていれば、このクリーチャーと裏返してリンクする。
+   * リンクしたクリーチャーは1体のサイキック・スーパー・クリーチャーになり、ほかのセルは links に入る
+   */
+  private awakenLink(controller: PlayerId, source: string): void {
+    const s = this.s;
+    const inst = s.cards[source];
+    const d = inst && this.reg[inst.cardId];
+    const link = d?.psychic?.link;
+    if (!inst || inst.zone !== 'battle' || inst.flipped || !link || inst.owner !== controller) return;
+    const bz = s.players[controller].zones.battle;
+    const norm = (x: string) => x.normalize('NFKC').replace(/[\s　]+/g, '');
+    const cells: string[] = [];
+    for (const name of link.names) {
+      const want = norm(name);
+      const hit = battleCards(s, this.reg, controller).find(
+        (b) => b !== source && !cells.includes(b) && !s.cards[b].flipped && !!this.reg[s.cards[b].cardId]?.psychic && norm(def(s, this.reg, b).name).startsWith(want),
+      );
+      if (!hit) return;
+      cells.push(hit);
+    }
+    for (const c of cells) {
+      bz.splice(bz.indexOf(c), 1);
+      // リンクしたセルはバトルゾーンにあるが、一覧には入らず上のクリーチャーの一部になる
+      s.cards[c].zone = 'battle';
+    }
+    // セルのうち1枚でも召喚酔いしていなければ、リンクしたクリーチャーも召喚酔いしない
+    inst.enteredTurn = Math.min(inst.enteredTurn, ...cells.map((c) => s.cards[c].enteredTurn));
+    inst.tapped = inst.tapped && cells.every((c) => s.cards[c].tapped);
+    inst.links = cells;
+    inst.flipped = true;
+    this.log(`覚醒リンク！ ${[source, ...cells].map((c) => this.reg[s.cards[c].cardId].name).join('・')} が ${def(s, this.reg, source).name} になった`, controller);
+  }
+
+  /** リンク解除：リンクしているセルをすべてバトルゾーンに戻して表に返す（keep 以外は残る）。戻したセルの一覧を返す */
+  private unlink(top: string): string[] {
+    const s = this.s;
+    const inst = s.cards[top];
+    const cells = inst.links ?? [];
+    const bz = s.players[inst.owner].zones.battle;
+    delete inst.links;
+    delete inst.flipped;
+    let at = bz.indexOf(top) + 1;
+    for (const c of cells) {
+      const ci = s.cards[c];
+      ci.zone = 'battle';
+      ci.tapped = inst.tapped;
+      delete ci.flipped;
+      bz.splice(at++, 0, c);
+    }
+    return [top, ...cells];
+  }
+
+  /** 超魂レイド：山札の上から3枚を表向きにし、進化元になれるカードを1枚この下に置いてもよい。残りは好きな順序で山札の下へ */
+  private soulRaid(controller: PlayerId, source: string): boolean {
+    const s = this.s;
+    const src = s.cards[source];
+    if (!src || src.zone !== 'battle') return false;
+    const deck = s.players[controller].zones.deck;
+    const top = deck.slice(-3).reverse();
+    if (!top.length) return false;
+    const candidates = top.filter((iid) => canBeEvolutionSource(s, this.reg, iid, source));
+    let picked: string | undefined;
+    if (candidates.length) {
+      const r = this.takeResponse();
+      if (!r) {
+        s.pending = { kind: 'selectCards', player: controller, source, reveal: true, prompt: `${this.name(source)}：超魂レイド。山札の上から${top.length}枚のうち、この下に置くカードを1枚まで選ぶ`, candidates, min: 0, max: 1 };
+        return true;
+      }
+      picked = r.selected?.[0];
+    }
+    this.log(`${this.name(source)} の超魂レイド：山札の上から${top.length}枚を表向きにした（${top.map((i) => this.name(i)).join('・')}）`, controller);
+    if (picked) {
+      deck.splice(deck.indexOf(picked), 1);
+      const p = s.cards[picked];
+      p.zone = 'battle';
+      p.faceUp = true;
+      p.tapped = false;
+      src.under.push(picked);
+      this.log(`${this.name(picked)} を ${this.name(source)} の下に置いた`, controller);
+    }
+    for (const iid of top) if (iid !== picked) this.moveCard(iid, 'deck', { toTop: false });
+    return false;
+  }
+
   /** 対象を選んで fn を適用する。選択が必要なら pending を立てて true を返す */
   private withTargets(controller: PlayerId, source: string, spec: TargetSpec, verb: string, harmful: boolean, fn: (iid: string) => Task | void): boolean {
     const s = this.s;
@@ -1265,7 +1445,8 @@ export class Ctx {
     if (spec.count === 'all') chosen = candidates;
     else {
       const n = Math.min(spec.count, candidates.length);
-      if (!spec.upTo && candidates.length <= spec.count) chosen = candidates;
+      const fitsTotal = spec.maxTotalCost === undefined || candidates.reduce((a, c) => a + def(s, this.reg, c).cost, 0) <= spec.maxTotalCost;
+      if (!spec.upTo && candidates.length <= spec.count && fitsTotal) chosen = candidates;
       else {
         const r = this.takeResponse();
         if (!r) {
@@ -1274,7 +1455,7 @@ export class Ctx {
             kind: 'selectCards',
             player: chooser,
             source,
-            prompt: `${this.name(source)}：${spec.upTo ? `${n}枚まで` : `${n}枚`}選んで${verb}`,
+            prompt: `${this.name(source)}：${spec.maxTotalCost !== undefined ? `コストの合計が${spec.maxTotalCost}以下になるように` : ''}${spec.upTo ? `${n}枚まで` : `${n}枚`}選んで${verb}`,
             candidates,
             min: spec.upTo ? 0 : n,
             max: n,
@@ -1284,6 +1465,16 @@ export class Ctx {
         }
         chosen = r.selected ?? [];
       }
+    }
+    // 「コストの合計がN以下になるように」：選んだ順に、合計を超えるカードは外す
+    if (spec.maxTotalCost !== undefined) {
+      let sum = 0;
+      chosen = chosen.filter((iid) => {
+        const c = def(s, this.reg, iid).cost;
+        if (sum + c > spec.maxTotalCost!) return false;
+        sum += c;
+        return true;
+      });
     }
     const tasks: Task[] = [];
     for (const iid of chosen) {
@@ -1296,7 +1487,7 @@ export class Ctx {
 
   // ───────────────────────── 誘発 ─────────────────────────
   private abilityTasks(ab: TriggeredAbility, controller: PlayerId, source: string): Task[] {
-    if (ab.condition && !evalCondition(this.s, this.reg, controller, ab.condition)) return [];
+    if (ab.condition && !evalCondition(this.s, this.reg, controller, ab.condition, false, source)) return [];
     if (ab.optional) return [{ kind: 'confirmOptional', controller, source, effects: ab.effects }];
     return this.effectTasks(controller, source, ab.effects);
   }
@@ -1442,6 +1633,12 @@ export class Ctx {
     const s = this.s;
     const inst = s.cards[iid];
     const from = inst.zone;
+    // サイキック・クリーチャーはバトルゾーン以外に行く時、超次元ゾーンに戻る
+    if (from === 'battle' && to !== 'battle' && this.reg[inst.cardId]?.psychic) {
+      // 選ばずに離れた時のリンク解除：このカードだけが戻り、残りのセルはバトルゾーンに残る
+      if (inst.links?.length) this.unlink(iid);
+      to = 'hyperspatial';
+    }
     const owner = s.players[inst.owner];
     const fromList = owner.zones[from];
     const idx = fromList.indexOf(iid);

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { searchCards, type CardQuery } from '../../core/cards/registry';
 import { CIVILIZATIONS, CIV_LABEL, type CardDefinition } from '../../core/cards/types';
-import { deckCount, validateDeck, type Deck } from '../../core/deck/rules';
+import { deckCount, hyperspatialCount, validateDeck, type Deck } from '../../core/deck/rules';
 import { useApp } from '../../store/appStore';
 import { CardDetail } from '../components/CardDetail';
 import { CardFilter } from '../components/CardFilter';
@@ -34,7 +34,9 @@ export function DeckBuilderScreen() {
       </div>
     );
   }
-  const total = deckCount(deck);
+  // 超次元ゾーンのカード（サイキック・クリーチャー）は40枚に数えない
+  const hyper = hyperspatialCount(deck, registry);
+  const total = deckCount(deck) - hyper;
   const issues = validateDeck(deck, settings.format, registry);
   const max = (id: string) => settings.format.restricted[id] ?? settings.format.maxCopies;
   // 公式カードは保存（非同期）の後に追加されるので、常に最新のデッキに対して更新する
@@ -101,14 +103,14 @@ export function DeckBuilderScreen() {
         <section className="builder-deck">
           <div className="deck-head">
             <input className="deck-name" value={deck.name} onChange={(e) => { setDeck({ ...deck, name: e.target.value }); setSaved(false); }} />
-            <span className={'deck-count ' + (total === settings.format.deckSize ? 'ok' : 'ng')} data-testid="deck-count">{total} / {settings.format.deckSize}</span>
+            <span className={'deck-count ' + (total === settings.format.deckSize ? 'ok' : 'ng')} data-testid="deck-count">{total} / {settings.format.deckSize}{hyper ? `＋超次元${hyper}` : ''}</span>
           </div>
           <div className="toolbar">
             <button className="primary" onClick={() => { void saveDeck(deck); setSaved(true); }} disabled={saved} data-testid="save-deck">保存</button>
             <button onClick={async () => { const c = await duplicateDeck(deck.id); if (c) { editDeck(c.id); setDeck(c); } }}>複製</button>
             <button onClick={() => setTextImport(true)} data-testid="open-text-import">テキストから取り込み</button>
             <button onClick={() => go('decks')}>読み込み（一覧へ）</button>
-            <button onClick={() => setPrinting(true)} disabled={total === 0} data-testid="proxy-pdf">プロキシPDF（A4）</button>
+            <button onClick={() => setPrinting(true)} disabled={total + hyper === 0} data-testid="proxy-pdf">プロキシPDF（A4）</button>
             <button className="danger" onClick={() => { if (confirm('このデッキを削除しますか？')) { void deleteDeck(deck.id); go('decks'); } }}>削除</button>
             {!saved && <span className="muted">未保存の変更があります</span>}
           </div>

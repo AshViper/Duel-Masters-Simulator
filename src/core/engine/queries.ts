@@ -23,7 +23,46 @@ export function def(state: GameState, reg: CardRegistry, iid: string): CardDefin
   const d = inst && reg[inst.cardId];
   if (!d) throw new Error(`unknown card ${iid}`);
   if (inst.flipped && d.forbidden) return forbiddenDef(d);
-  return inst.hyper && d.hyperForm ? hyperDef(d) : d;
+  const base = inst.flipped && d.psychic ? psychicBackDef(d) : inst.hyper && d.hyperForm ? hyperDef(d) : d;
+  // 超魂X：下にあるカードの能力も持つ
+  if (inst.zone === 'battle' && inst.under.length) {
+    const souls = inst.under.map((u) => state.cards[u] && reg[state.cards[u].cardId]).filter((u): u is CardDefinition => !!u?.soul);
+    if (souls.length) return withSouls(base, souls);
+  }
+  return base;
+}
+
+const psychicCache = new WeakMap<CardDefinition, CardDefinition>();
+/** サイキック・クリーチャーの裏面（覚醒・覚醒リンクした後）のカード定義 */
+export function psychicBackDef(d: CardDefinition): CardDefinition {
+  let f = psychicCache.get(d);
+  if (!f) {
+    const c = d.psychic!.back;
+    f = { id: d.id, imageUrl: d.imageUrl, imageRef: d.imageRef ? `${d.imageRef}:b` : undefined, set: d.set, rarity: d.rarity, ...c, power: c.power ?? 0, type: 'creature', support: d.support, psychic: d.psychic };
+    psychicCache.set(d, f);
+  }
+  return f;
+}
+
+const soulCache = new WeakMap<CardDefinition, Map<string, CardDefinition>>();
+/** 超魂X の能力を加えたカード定義 */
+function withSouls(d: CardDefinition, souls: CardDefinition[]): CardDefinition {
+  const key = souls.map((x) => x.id).join('|');
+  let m = soulCache.get(d);
+  if (!m) soulCache.set(d, (m = new Map()));
+  let out = m.get(key);
+  if (!out) {
+    out = { ...d };
+    for (const x of souls) {
+      const so = x.soul!;
+      out.keywords = mergeKeywords(out.keywords ?? {}, so.keywords);
+      out.abilities = [...(out.abilities ?? []), ...(so.abilities ?? [])];
+      out.statics = [...(out.statics ?? []), ...(so.statics ?? [])];
+      out.replacements = [...(out.replacements ?? []), ...(so.replacements ?? [])];
+    }
+    m.set(key, out);
+  }
+  return out;
 }
 
 const forbiddenCache = new WeakMap<CardDefinition, CardDefinition>();
@@ -370,13 +409,24 @@ export function evolutionBases(state: GameState, reg: CardRegistry, player: Play
   // NEO進化：条件に合うクリーチャーの上に重ねてもよい
   if (d.neoEvolution) return battleCards(state, reg, player).filter((b) => matchFilter(state, reg, b, d.neoEvolution, undefined, true));
   if (d.type !== 'evolution') return [];
+  return battleCards(state, reg, player).filter((b) => matchesEvolvesFrom(def(state, reg, b), d));
+}
+
+function matchesEvolvesFrom(bd: CardDefinition, d: CardDefinition): boolean {
   const cond = d.evolvesFrom ?? {};
-  return battleCards(state, reg, player).filter((b) => {
-    const bd = def(state, reg, b);
-    if (cond.race && !bd.races.includes(cond.race)) return false;
-    if (cond.civilization && !bd.civilizations.includes(cond.civilization)) return false;
-    return true;
-  });
+  if (cond.race && !bd.races.includes(cond.race)) return false;
+  if (cond.civilization && !bd.civilizations.includes(cond.civilization)) return false;
+  return true;
+}
+
+/** カード iid が、クリーチャー top の進化元になれるか（超魂レイド：山札のカードを下に置く時の判定） */
+export function canBeEvolutionSource(state: GameState, reg: CardRegistry, iid: string, top: string): boolean {
+  const d = def(state, reg, top);
+  const cd = def(state, reg, iid);
+  if (!isCreatureType(cd.type)) return false;
+  if (d.neoEvolution) return matchFilter(state, reg, iid, d.neoEvolution, undefined, true);
+  if (d.type === 'evolution') return matchesEvolvesFrom(cd, d);
+  return false;
 }
 
 /**
@@ -446,11 +496,32 @@ export function instancesIn(state: GameState, player: PlayerId, zone: keyof Game
   return state.players[player].zones[zone].map((iid) => state.cards[iid]);
 }
 
-/** 攻撃中のクリーチャー attacker に対して、手札から侵略・革命チェンジできるカード */
+/** 攻撃中のクリーチャー attacker に対して、手札から侵略・革命チェンジできるカード（S級侵略は墓地・マナゾーン・バトルゾーンからも） */
 export function attackSwapCandidates(state: GameState, reg: CardRegistry, player: PlayerId, attacker: string): string[] {
   if (state.cards[attacker]?.zone !== 'battle' || state.cards[attacker].owner !== player) return [];
-  return state.players[player].zones.hand.filter((iid) => {
+  const z = state.players[player].zones;
+  const ok = (iid: string) => {
     const sw = def(state, reg, iid).attackSwap;
     return !!sw && matchFilter(state, reg, attacker, sw.filter, undefined, true);
-  });
+  };
+  const out = z.hand.filter(ok);
+  // S級侵略：攻撃する時にそのゾーンにあったカードだけ（攻撃時の能力で置かれたカードは使えない）
+  const eligible = state.combat ? (state.combat.sClassEligible ?? []) : undefined;
+  for (const zone of ['graveyard', 'mana', 'battle'] as const) {
+    for (const iid of z[zone]) {
+      const sw = def(state, reg, iid).attackSwap;
+      if (sw?.kind !== 'invasion' || !sw.zones?.includes(zone) || iid === attacker) continue;
+      if (eligible && !eligible.includes(iid)) continue;
+      // 封印されているクリーチャーは使えない
+      if (zone === 'battle' && state.cards[iid].seals?.length) continue;
+      if (ok(iid)) out.push(iid);
+    }
+  }
+  return out;
+}
+
+/** S級侵略で手札以外から使える可能性のあるカード（攻撃する時点で記録する） */
+export function sClassCards(state: GameState, reg: CardRegistry, player: PlayerId): string[] {
+  const z = state.players[player].zones;
+  return (['graveyard', 'mana', 'battle'] as const).flatMap((zone) => z[zone].filter((iid) => def(state, reg, iid).attackSwap?.zones?.includes(zone)));
 }
