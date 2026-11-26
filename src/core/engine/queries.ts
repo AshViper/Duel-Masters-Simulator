@@ -193,6 +193,7 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   const d = def(state, reg, iid);
   if (f.excludeSelf && iid === source) return false;
   if (f.not && matchFilter(state, reg, iid, f.not, source, noPower)) return false;
+  if (f.anyOf && !f.anyOf.some((x) => matchFilter(state, reg, iid, x, source, noPower))) return false;
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(d.type) : d.type !== f.cardType)) return false;
   if (f.civilization && !d.civilizations.includes(f.civilization)) return false;
   if (f.civilizations && !f.civilizations.some((c) => d.civilizations.includes(c))) return false;
@@ -245,6 +246,7 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
 function matchFace(face: PlayFace, d: CardDefinition, f: CardFilter | undefined): boolean {
   if (!f) return true;
   if (f.not && matchFace(face, d, f.not)) return false;
+  if (f.anyOf && !f.anyOf.some((x) => matchFace(face, d, x))) return false;
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(face.type) : face.type !== f.cardType)) return false;
   if (f.civilization && !face.civilizations.includes(f.civilization)) return false;
   if (f.civilizations && !f.civilizations.some((c) => face.civilizations.includes(c))) return false;

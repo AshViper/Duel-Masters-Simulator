@@ -110,6 +110,9 @@ const INSTEAD_LABEL: Record<ReplacementAbility['instead'], string> = {
 /** カードを選ぶ（動かす）効果：後に続く「そうしたら」が、選んだかどうかを見る */
 const CHOOSING_EFFECTS = new Set<EffectDef['type']>(['move', 'destroy', 'tap', 'untap', 'discardUnder', 'discardRandom', 'bounce', 'toHand', 'toGraveyard', 'toMana', 'toShield', 'toDeckBottom', 'toDeckTop', 'shieldToHand', 'graveyardToHand', 'putIntoBattle', 'seal']);
 
+/** 山札を見て選んだカードの行き先（選ぶ時の説明用） */
+const LOOK_DEST_LABEL = { hand: '手札へ', battle: 'バトルゾーンへ', mana: 'マナゾーンへ', shield: 'シールドゾーンへ', graveyard: '墓地へ', deckBottom: '山札の下へ' } as const;
+
 /** 順番を選ぶ時に出す、能力のかんたんな説明 */
 const EFFECT_HINT: Partial<Record<EffectDef['type'], string>> = {
   draw: 'カードを引く',
@@ -1457,6 +1460,61 @@ export class Ctx {
         this.insertFront(...this.effectTasks(controller, source, scaled));
         return false;
       }
+      case 'chooseDest': {
+        const [iid, ...rest] = e.iids;
+        if (!iid || s.cards[iid]?.zone !== 'deck') return false;
+        const label = (z: (typeof e.options)[number]) => (z === 'hand' ? '手札に加える' : z === 'battle' ? 'バトルゾーンに出す' : z === 'shield' ? 'シールド化する' : `${ZONE_LABEL[z]}に置く`);
+        const r = this.takeResponse();
+        if (!r) {
+          s.pending = { kind: 'chooseMode', player: controller, source, prompt: `${this.name(source)}：${this.name(iid)} をどうしますか？`, options: e.options.map(label) };
+          return true;
+        }
+        const to = e.options[Number(r.selected?.[0])] ?? e.options[0];
+        const next = rest.length ? this.effectTasks(controller, source, [{ ...e, iids: rest }]) : [];
+        const t = to === 'battle' ? this.putIntoBattle(iid, controller) : undefined;
+        if (to !== 'battle') {
+          this.moveCard(iid, to);
+          this.log(`山札から ${this.name(iid)} を${ZONE_LABEL[to]}へ`, controller);
+        }
+        this.insertFront(...(t ? [t] : []), ...next);
+        return false;
+      }
+      case 'revealUntil': {
+        // 条件に合うカードが count 枚出るまで、山札の上から表向きにする
+        const deck = s.players[controller].zones.deck;
+        const revealed: string[] = [];
+        const hits: string[] = [];
+        for (let i = deck.length - 1; i >= 0 && hits.length < e.count; i--) {
+          revealed.push(deck[i]);
+          if (matchFilter(s, this.reg, deck[i], e.filter, source)) hits.push(deck[i]);
+        }
+        this.log(`山札の上から${revealed.length}枚を表向きにした：${revealed.map((x) => this.name(x)).join('、') || 'なし'}`, controller);
+        const tasks: Task[] = [];
+        for (const iid of hits) {
+          const t = e.to === 'battle' ? this.putIntoBattle(iid, controller) : undefined;
+          if (t) tasks.push(t);
+          else {
+            this.moveCard(iid, 'hand');
+            this.log(`${this.name(iid)} を手札に加えた`, controller);
+          }
+        }
+        const rest = revealed.filter((x) => !hits.includes(x));
+        if (e.restTo === 'shuffle') this.shuffle(controller);
+        else for (const iid of rest) this.moveCard(iid, e.restTo === 'graveyard' ? 'graveyard' : 'deck', { toTop: false });
+        if (rest.length && e.restTo !== 'shuffle') this.log(`残り${rest.length}枚を${e.restTo === 'graveyard' ? '墓地' : '山札の下'}へ`, controller);
+        this.insertFront(...tasks);
+        return false;
+      }
+      case 'upToTimes': {
+        const r = this.takeResponse();
+        if (!r) {
+          s.pending = { kind: 'confirm', player: controller, source, prompt: `${this.name(source)} の能力を使いますか？（あと${e.times}回まで）` };
+          return true;
+        }
+        if (!r.accept) return false;
+        this.insertFront(...this.effectTasks(controller, source, [...e.effects, ...(e.times > 1 ? [{ ...e, times: e.times - 1 }] : [])]));
+        return false;
+      }
       case 'magibomber': {
         const top = this.topOfDeck(controller);
         const fits = (iid: string) => {
@@ -1853,7 +1911,7 @@ export class Ctx {
           player: chooser,
           source,
           reveal: true,
-          prompt: `${this.name(source)}：${chooser === controller ? '' : '相手の'}山札の上から${top.length}枚${e.chooser === 'opponent' ? 'の中' : 'を見て'}から、${max}枚${e.mustPick ? '' : 'まで'}選ぶ`,
+          prompt: `${this.name(source)}：${chooser === controller ? '' : '相手の'}山札の上から${top.length}枚${e.chooser === 'opponent' ? 'の中' : 'を見て'}から、${max}枚${e.mustPick ? '' : 'まで'}選ぶ（選んだカードは${LOOK_DEST_LABEL[e.pickTo]}${e.pickToAlt ? `か${LOOK_DEST_LABEL[e.pickToAlt]}` : ''}）`,
           candidates,
           min: e.mustPick ? max : 0,
           max,
@@ -1863,7 +1921,14 @@ export class Ctx {
       picked = r.selected ?? [];
     }
     const followUps: Task[] = [];
-    for (const iid of picked) {
+    // 「手札に加えるかマナゾーンに置く」：行き先は1枚ずつ後で選ぶ
+    if (e.pickToAlt && picked.length) followUps.push(...this.effectTasks(controller, source, [{ type: 'chooseDest', iids: picked, options: [e.pickTo === 'deckBottom' ? 'hand' : e.pickTo, e.pickToAlt] }]));
+    for (const iid of e.pickToAlt ? [] : picked) {
+      if (e.pickTo === 'deckBottom') {
+        this.moveCard(iid, 'deck', { toTop: false });
+        this.log('カード1枚を山札の下に置いた', controller);
+        continue;
+      }
       if (e.pickTo === 'battle') {
         const t = this.putIntoBattle(iid, controller);
         if (t) {
@@ -1874,6 +1939,7 @@ export class Ctx {
       }
       this.moveCard(iid, e.pickTo === 'battle' ? 'hand' : e.pickTo);
       if (e.pickTapped && e.pickTo === 'mana') s.cards[iid].tapped = true;
+      if (e.pickFaceUp && e.pickTo === 'shield') s.cards[iid].faceUp = true;
       this.log(`山札から${e.pickTo === 'shield' ? 'カード1枚' : this.name(iid)}を${ZONE_LABEL[e.pickTo === 'battle' ? 'hand' : e.pickTo]}へ`, controller);
     }
     const rest = top.filter((iid) => !picked.includes(iid));

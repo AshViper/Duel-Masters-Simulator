@@ -88,6 +88,8 @@ export interface CardFilter {
   refCost?: 'eq' | 'le';
   /** 直前に選んだ（動かした）カードと同じ文明を持つ（「その捨てたカードと同じ文明を持つ」） */
   refCivs?: boolean;
+  /** このうちのどれかに合うもの（「呪文または名前に《X》とあるカード」） */
+  anyOf?: CardFilter[];
   /** この条件に合わないもの（「闇ではない」「ドラゴンではない」「多色ではない」） */
   not?: CardFilter;
 }
@@ -179,9 +181,13 @@ export type EffectDef =
       count: number;
       pickCount: number;
       pickFilter?: CardFilter;
-      pickTo: 'hand' | 'battle' | 'mana' | 'shield' | 'graveyard';
+      pickTo: 'hand' | 'battle' | 'mana' | 'shield' | 'graveyard' | 'deckBottom';
       /** 選んだカードをタップして置く（マナゾーン） */
       pickTapped?: boolean;
+      /** 選んだカードを表向きで置く（シールドゾーン） */
+      pickFaceUp?: boolean;
+      /** 行き先をもう1つから選べる（「手札に加えるかマナゾーンに置く」） */
+      pickToAlt?: 'hand' | 'mana' | 'shield';
       /** 続けて選ぶ分（「1枚をシールド化し、1枚をマナゾーンに置き、残りを〜」の2つ目以降） */
       more?: { pickCount: number; pickFilter?: CardFilter; pickTo: 'hand' | 'battle' | 'mana' | 'shield' | 'graveyard'; mustPick?: boolean; pickTapped?: boolean }[];
       /** エンジン内部用：見ているカード（続けて選ぶ時の残り） */
@@ -255,6 +261,15 @@ export type EffectDef =
   | { type: 'ifChosen'; then: EffectDef[]; n?: number }
   /** マジボンバーN：山札の上から1枚目を見て、コストN以下のクリーチャーを1体、手札または山札の上から出してもよい */
   | { type: 'magibomber'; maxCost: number }
+  /** エンジン内部用：山札から選んだカードの行き先を、1枚ずつ2つの中から選ぶ */
+  | { type: 'chooseDest'; iids: string[]; options: ('hand' | 'battle' | 'mana' | 'shield' | 'graveyard')[] }
+  /**
+   * 条件に合うカードが count 枚出るまで、山札の上から表向きにする。出たカードを to へ、残りを restTo へ
+   * （「ファイアー・バードが3体出るまで表向きにし、その3体を出す。その後、山札をシャッフルする」）
+   */
+  | { type: 'revealUntil'; filter: CardFilter; count: number; to: 'hand' | 'battle'; restTo: 'graveyard' | 'shuffle' | 'deckBottom' }
+  /** 「次の能力をN回まで使う」：使うかどうかを1回ずつ聞く */
+  | { type: 'upToTimes'; times: number; effects: EffectDef[] }
   /**
    * 「〜1体につき、〜する」：数えた数だけ effects を行う（引く枚数・選ぶ数は掛け算にする）。
    * per: 'chosen' は直前の効果で選んだ（動かした）カードの数（「こうして破壊したクリーチャー1体につき」）。n: エンジン内部用

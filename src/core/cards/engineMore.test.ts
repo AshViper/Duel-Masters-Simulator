@@ -59,6 +59,14 @@ const C = {
   cyclica: mk('m-30', ['このクリーチャーをバトルゾーンに出した時、コスト７以下の呪文を１枚、自分の墓地からコストを支払わずに唱えてもよい。そうした場合、唱えた後、墓地に置くかわりに自分の手札に加える。', 'W・ブレイカー（このクリーチャーはシールドを２枚ブレイクする）', 'このクリーチャーが破壊される時、墓地に置くかわりに自分の山札の一番下に置く。'], { civ: '水', cost: '2', power: '6000' }),
   water: mk('m-31', [], { civ: '水' }),
   draw2: spell('m-32', ['カードを２枚引く。']),
+  lookAlt: spell('m-40', ['自分の山札の上から３枚を見る。そのうちの１枚を手札に加えるかマナゾーンに置き、残りを好きな順序で山札の下に置く。']),
+  lookPair: spell('m-41', ['自分の山札の上から５枚を見る。その中から火のカードと闇のカードをそれぞれ１枚まで、表向きにしてから手札に加えてもよい。残りを好きな順序で山札の下に置く。']),
+  untilDark: spell('m-42', ['自分の山札の上から闇のクリーチャーが２体出るまで表向きにし、その２体を出す。その後、山札をシャッフルする。']),
+  upTo3: mk('m-43', ['このクリーチャーが出た時、次の能力を３回まで使う。\n▶カードを１枚引く。']),
+  searchSwap: spell('m-44', ['自分の山札を見る。その中から１枚選んで自分のマナゾーンに置き、自分のマナゾーンから１枚選んで墓地に置く。その後、山札をシャッフルする。']),
+  revealAny: spell('m-45', ['自分の山札の上から１枚を表向きにする。それが呪文または名前に《m-2》とあるカードなら、手札に加える。']),
+  topBottom: spell('m-46', ['自分の山札の上から２枚を見る。その後、それらを好きな順序で山札の上または下に置く。']),
+  shuffleLook: spell('m-47', ['自分の山札をシャッフルし、上から３枚を表向きにする。その中からクリーチャーを１体出し、残りを好きな順序で山札の下に置く。']),
   plus: mk('m-15', ['{STP} S・トリガー・プラス（このクリーチャーを自分のシールドゾーンから手札に加える時、コストを支払わずにすぐ召喚してもよい）', '{x+}このクリーチャーが出た時、相手のクリーチャーをすべてタップする。']),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
@@ -408,5 +416,104 @@ describe('龍素記号Sr スペルサイクリカ', () => {
     s.queue.push({ kind: 'leave', iid: c, to: 'graveyard', cause: 'destroy' });
     new Ctx(s, reg).run();
     expect(s.players[0].zones.deck[0]).toBe(c);
+  });
+});
+
+describe('山札を見る効果', () => {
+  const cast = (s: GameState, cardId: string) => {
+    const sp = put(s, 0, cardId, 'hand');
+    mana(s, 1);
+    return act(s, { type: 'PLAY_CARD', player: 0, iid: sp });
+  };
+  const cands = (s: GameState) => (s.pending?.kind === 'selectCards' ? s.pending.candidates : []);
+
+  it('「手札に加えるかマナゾーンに置き」：選んだカードの行き先を選べる', () => {
+    let s = newGame();
+    const manaBefore = zone(s, 0, 'mana');
+    s = cast(s, C.lookAlt.id);
+    const pick = cands(s)[0];
+    s = act(s, { type: 'RESPOND', player: 0, selected: [pick] });
+    expect(s.pending).toMatchObject({ kind: 'chooseMode', options: ['手札に加える', 'マナゾーンに置く'] });
+    s = act(s, { type: 'RESPOND', player: 0, selected: ['1'] });
+    expect(s.pending).toBeFalsy();
+    expect(s.cards[pick].zone).toBe('mana');
+    expect(zone(s, 0, 'mana')).toBe(manaBefore + 1 + 1);
+  });
+
+  it('「火のカードと闇のカードをそれぞれ1枚まで」：条件ごとに選ぶ', () => {
+    let s = newGame();
+    const dark = put(s, 0, C.dark.id, 'deck');
+    const fire = put(s, 0, C.vanilla.id, 'deck');
+    s = cast(s, C.lookPair.id);
+    expect(cands(s)).toContain(fire);
+    expect(cands(s)).not.toContain(dark);
+    s = act(s, { type: 'RESPOND', player: 0, selected: [fire] });
+    expect(cands(s)).toEqual([dark]);
+    s = act(s, { type: 'RESPOND', player: 0, selected: [dark] });
+    expect(s.pending).toBeFalsy();
+    expect([s.cards[fire].zone, s.cards[dark].zone]).toEqual(['hand', 'hand']);
+  });
+
+  it('「闇のクリーチャーが2体出るまで表向きにし、その2体を出す」', () => {
+    let s = newGame();
+    const d1 = put(s, 0, C.dark.id, 'deck');
+    put(s, 0, C.vanilla.id, 'deck');
+    const d2 = put(s, 0, C.dark.id, 'deck');
+    const deck = s.players[0].zones.deck.length;
+    s = cast(s, C.untilDark.id);
+    expect([s.cards[d1].zone, s.cards[d2].zone]).toEqual(['battle', 'battle']);
+    expect(s.players[0].zones.deck.length).toBe(deck - 2);
+  });
+
+  it('「次の能力を3回まで使う」：1回ずつ使うかどうかを聞く', () => {
+    let s = newGame();
+    const c = put(s, 0, C.upTo3.id, 'hand');
+    mana(s, 1);
+    const hand = zone(s, 0, 'hand');
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: c });
+    s = act(s, { type: 'RESPOND', player: 0, accept: true });
+    s = act(s, { type: 'RESPOND', player: 0, accept: true });
+    expect(s.pending?.kind).toBe('confirm');
+    s = act(s, { type: 'RESPOND', player: 0, accept: false });
+    expect(s.pending).toBeFalsy();
+    expect(zone(s, 0, 'hand')).toBe(hand - 1 + 2);
+  });
+
+  it('山札から1枚マナゾーンに置き、マナゾーンから1枚墓地に置く', () => {
+    let s = newGame();
+    const manaBefore = zone(s, 0, 'mana');
+    s = cast(s, C.searchSwap.id);
+    s = act(s, { type: 'RESPOND', player: 0, selected: [cands(s)[0]] });
+    expect(s.pending?.kind).toBe('selectCards');
+    s = act(s, { type: 'RESPOND', player: 0, selected: [cands(s)[0]] });
+    expect(s.pending).toBeFalsy();
+    expect(zone(s, 0, 'mana')).toBe(manaBefore + 1);
+  });
+
+  it('「それが呪文または名前に《X》とあるカードなら、手札に加える」：合わなければ山札の上に残る', () => {
+    let s = newGame();
+    const named = put(s, 0, C.dark.id, 'deck');
+    s = cast(s, C.revealAny.id);
+    expect(s.cards[named].zone).toBe('hand');
+    let s2 = newGame();
+    const other = put(s2, 0, C.vanilla.id, 'deck');
+    s2 = cast(s2, C.revealAny.id);
+    expect(s2.cards[other].zone).toBe('deck');
+    expect(s2.players[0].zones.deck.at(-1)).toBe(other);
+  });
+
+  it('「好きな順序で山札の上または下に置く」：選んだカードを下に置き、残りは上に残す', () => {
+    let s = newGame();
+    const a = put(s, 0, C.dark.id, 'deck');
+    const b = put(s, 0, C.vanilla.id, 'deck');
+    s = cast(s, C.topBottom.id);
+    expect(cands(s)).toEqual([b, a]);
+    s = act(s, { type: 'RESPOND', player: 0, selected: [b] });
+    expect(s.players[0].zones.deck[0]).toBe(b);
+    expect(s.players[0].zones.deck.at(-1)).toBe(a);
+  });
+
+  it('「山札をシャッフルし、上から3枚を表向きにする」：シャッフルしてから見る', () => {
+    expect(C.shuffleLook.twin ?? C.shuffleLook.abilities?.[0].effects.map((e) => e.type)).toEqual(['shuffleDeck', 'lookAtTop']);
   });
 });
