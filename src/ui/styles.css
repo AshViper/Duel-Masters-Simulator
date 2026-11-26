@@ -393,7 +393,8 @@ button.stat-num:disabled { opacity: 1; }
 .modal { position: relative; background: linear-gradient(180deg, #172338, #111a2b); box-shadow: 0 20px 60px #000c; border: 1px solid var(--line); border-radius: 12px; padding: 20px; max-width: 760px; max-height: 90vh; overflow: auto; }
 .modal.wide { max-width: 1100px; width: 90vw; }
 .modal-close { position: absolute; top: 8px; right: 8px; background: none; border: none; font-size: 20px; }
-.detail { display: flex; gap: 20px; }
+.detail { display: flex; gap: 20px; align-items: flex-start; }
+.detail > .card { flex: none; }
 .detail-info h2 { margin-top: 0; }
 .detail-info th { text-align: left; color: var(--muted); padding-right: 12px; font-weight: normal; }
 .detail-text { white-space: pre-wrap; font-family: inherit; background: var(--bg2); padding: 10px; border-radius: 6px; }
