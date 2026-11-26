@@ -22,6 +22,8 @@ export interface CardInstance {
   faceUp: boolean;
   /** EXライフで置いたシールド */
   exLifeShield?: string;
+  /** 次の player のターンのはじめまで有効なキーワード能力 */
+  keywordsUntil?: { keywords: Keywords; player: PlayerId };
 }
 
 export interface PlayerState {
@@ -101,9 +103,11 @@ export type Task =
   | { kind: 'battle'; attacker: string; defender: string }
   | { kind: 'battleWon'; winner: string; loser: string }
   | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin' }
-  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string }
+  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean }
   /** 呪文を解決し終えたら墓地へ */
   | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin' }
+  /** 侵略・革命チェンジを使うか聞く */
+  | { kind: 'attackSwap'; player: PlayerId }
   /** バトルゾーンから離れる（置換効果をここで適用） */
   | { kind: 'leave'; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[] }
   /** 自動フェイズを進める（開始時誘発などを解決してから次へ） */
@@ -151,6 +155,8 @@ export interface TurnStatic {
   controller: PlayerId;
   source: string;
   static: StaticAbility;
+  /** 次のこのプレイヤーのターンのはじめまで有効（省略時はターン終了まで） */
+  untilNextTurnOf?: PlayerId;
 }
 
 export interface GameState {

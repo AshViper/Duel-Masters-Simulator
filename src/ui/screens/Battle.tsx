@@ -32,7 +32,7 @@ export function BattleScreen() {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [detail, setDetail] = useState<CardDefinition | null>(null);
   const [zoneView, setZoneView] = useState<{ player: PlayerId; zone: ZoneName } | null>(null);
-  const [evolve, setEvolve] = useState<{ iid: string; bases: string[] } | null>(null);
+  const [evolve, setEvolve] = useState<{ iid: string; bases: string[]; neo?: boolean } | null>(null);
   const [toast, setToast] = useState('');
   const [hover, setHover] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ text: string; key: number } | null>(null);
@@ -103,6 +103,11 @@ export function BattleScreen() {
     if (d.type === 'evolution') {
       const bases = evolutionBases(g, registry, owner, iid);
       if (bases.length > 1) return setEvolve({ iid, bases });
+    }
+    // NEO進化：重ねるか、そのまま召喚するかを選ぶ
+    if (d.neoEvolution) {
+      const bases = evolutionBases(g, registry, owner, iid);
+      if (bases.length > 0) return setEvolve({ iid, bases, neo: true });
     }
     act({ type: 'PLAY_CARD', player: owner, iid });
   }
@@ -442,12 +447,17 @@ export function BattleScreen() {
       )}
       {evolve && (
         <Modal onClose={() => setEvolve(null)}>
-          <h3>進化元を選んでください</h3>
+          <h3>{evolve.neo ? 'NEO進化：重ねるクリーチャーを選んでください' : '進化元を選んでください'}</h3>
           <div className="zone-cards wrap">
             {evolve.bases.map((b) => (
               <CardView key={b} card={def(b)} size="sm" onClick={() => { act({ type: 'PLAY_CARD', player: g.cards[evolve.iid].owner, iid: evolve.iid, evolveOn: b }); setEvolve(null); }} />
             ))}
           </div>
+          {evolve.neo && (
+            <button onClick={() => { act({ type: 'PLAY_CARD', player: g.cards[evolve.iid].owner, iid: evolve.iid }); setEvolve(null); }}>
+              進化せずに召喚する
+            </button>
+          )}
         </Modal>
       )}
       {toast && <div className="toast">{toast}</div>}

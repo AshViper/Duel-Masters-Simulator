@@ -27,6 +27,7 @@ import {
   evolutionBases,
   isIdle,
   isUntargetable,
+  attackSwapCandidates,
   keywords,
   matchFilter,
   playRestriction,
@@ -78,6 +79,7 @@ const INSTEAD_LABEL: Record<ReplacementAbility['instead'], string> = {
   toDeckBottom: '山札の下に置く',
   destroySelf: 'このクリーチャーを破壊する',
   stay: 'バトルゾーンにとどまる',
+  escape: '自分のシールドを1つ手札に加える',
 };
 
 export class Ctx {
@@ -183,6 +185,9 @@ export class Ctx {
     switch (phase) {
       case 'start': {
         const P = s.players[pl];
+        // 「次の自分のターンのはじめまで」の効果はここで終わる
+        s.turnStatics = s.turnStatics.filter((t) => t.untilNextTurnOf !== pl);
+        for (const c of Object.values(s.cards)) if (c.keywordsUntil?.player === pl) delete c.keywordsUntil;
         for (const iid of [...P.zones.battle, ...P.zones.mana]) s.cards[iid].tapped = false;
         P.chargedThisTurn = false;
         this.log(`── ターン${s.turn}：${P.name} ──`, pl);
@@ -209,7 +214,7 @@ export class Ctx {
       c.powerModTurn = 0;
       delete c.keywordsTurn;
     }
-    s.turnStatics = [];
+    s.turnStatics = s.turnStatics.filter((t) => t.untilNextTurnOf !== undefined);
     const P = s.players[s.activePlayer];
     if (P.extraTurns > 0) {
       P.extraTurns -= 1;
@@ -245,7 +250,10 @@ export class Ctx {
     const face = playFace(d, side);
     const restricted = playRestriction(s, this.reg, player, iid, side);
     if (restricted) throw new IllegalAction(restricted);
-    if (face.type === 'evolution') {
+    if (face.type !== 'evolution' && evolveOn) {
+      // NEO進化：重ねて召喚する
+      if (side !== 'main' || !evolutionBases(s, this.reg, player, iid).includes(evolveOn)) throw new IllegalAction('そのクリーチャーには進化できません');
+    } else if (face.type === 'evolution') {
       const bases = evolutionBases(s, this.reg, player, iid);
       if (bases.length === 0) throw new IllegalAction('進化元のクリーチャーがいません');
       if (!evolveOn) {
@@ -282,7 +290,7 @@ export class Ctx {
     const tname = target.kind === 'player' ? s.players[other(player)].name : this.name(target.iid);
     this.log(`${this.name(attacker)} が ${tname} を攻撃`, player);
     this.emit({ type: 'ATTACK_DECLARED', player, attacker, target });
-    s.queue.push({ kind: 'blockStep', attacker, defender: other(player) }, { kind: 'attackResolve', attacker });
+    s.queue.push({ kind: 'attackSwap', player }, { kind: 'blockStep', attacker, defender: other(player) }, { kind: 'attackResolve', attacker });
     this.run();
   }
 
@@ -419,6 +427,12 @@ export class Ctx {
         } else {
           this.moveCard(task.iid, 'battle');
         }
+        if (task.tapped) inst.tapped = true;
+        // 侵略・革命チェンジで出たクリーチャーが攻撃を続ける
+        if (task.replaceAttacker && s.combat) {
+          s.combat.attacker = task.iid;
+          for (const t of s.queue) if (t.kind === 'blockStep' || t.kind === 'attackResolve') t.attacker = task.iid;
+        }
         // EXライフ：山札の上から1枚をシールド化する
         const deck = s.players[inst.owner].zones.deck;
         if (def(s, this.reg, task.iid).keywords?.exLife && deck.length) {
@@ -433,6 +447,9 @@ export class Ctx {
 
       case 'leave':
         return this.execLeave(task);
+
+      case 'attackSwap':
+        return this.execAttackSwap(task.player);
 
       case 'blockStep': {
         const blockers = blockersFor(s, this.reg, task.defender, task.attacker);
@@ -582,6 +599,48 @@ export class Ctx {
     return false;
   }
 
+  /** 侵略・革命チェンジ：攻撃中のクリーチャーが条件に合えば、手札のカードを使ってもよい（何度でも） */
+  private execAttackSwap(player: PlayerId): boolean {
+    const s = this.s;
+    const c = s.combat;
+    if (!c || s.cards[c.attacker]?.zone !== 'battle') return false;
+    const candidates = attackSwapCandidates(s, this.reg, player, c.attacker);
+    if (!candidates.length) return false;
+    const r = this.takeResponse();
+    if (!r) {
+      s.pending = {
+        kind: 'selectCards',
+        player,
+        source: c.attacker,
+        prompt: `${this.name(c.attacker)} の攻撃時に、侵略・革命チェンジするカードを選んでください（使わないなら選ばずに決定）`,
+        candidates,
+        min: 0,
+        max: 1,
+      };
+      return true;
+    }
+    const pick = r.selected?.[0];
+    if (!pick) return false;
+    const d = def(s, this.reg, pick);
+    const old = c.attacker;
+    if (d.attackSwap?.kind === 'revolution') {
+      // 革命チェンジ：攻撃中のクリーチャーを手札に戻し、このクリーチャーを出して攻撃を続ける
+      this.log(`革命チェンジ！ ${this.name(old)} を手札に戻し、${d.name} を出す`, player);
+      this.emit({ type: 'CARD_PLAYED', player, iid: pick });
+      this.insertFront(
+        { kind: 'leave', iid: old, to: 'hand', cause: 'effect' },
+        { kind: 'enterBattle', player, iid: pick, tapped: true, replaceAttacker: true },
+        { kind: 'attackSwap', player },
+      );
+    } else {
+      // 侵略：攻撃中のクリーチャーの上に重ねて進化し、攻撃を続ける
+      this.log(`侵略！ ${this.name(old)} の上に ${d.name} を重ねる`, player);
+      this.emit({ type: 'CARD_PLAYED', player, iid: pick });
+      this.insertFront({ kind: 'enterBattle', player, iid: pick, evolveOn: old, replaceAttacker: true }, { kind: 'attackSwap', player });
+    }
+    return false;
+  }
+
   /** バトルゾーンを離れる処理。置換効果があればここで適用する */
   private execLeave(task: Extract<Task, { kind: 'leave' }>): boolean {
     const s = this.s;
@@ -620,6 +679,16 @@ export class Ctx {
       switch (ability.instead) {
         case 'stay':
           return false;
+        case 'escape': {
+          const shields = s.players[owner].zones.shield;
+          if (!shields.length) {
+            this.insertFront({ ...task, replaced: [...replaced, key] });
+            return false;
+          }
+          // シールドを手札に加える（S・トリガーは使えない）
+          this.moveCard(shields[shields.length - 1], 'hand');
+          return false;
+        }
         case 'destroySelf':
           this.insertFront({ kind: 'leave', iid: source, to: 'graveyard', cause: 'destroy', replaced: [...replaced, key] });
           return false;
@@ -696,7 +765,7 @@ export class Ctx {
       }
       case 'discardRandom':
         for (let i = 0; i < e.count; i++) {
-          const hand = s.players[opp].zones.hand;
+          const hand = s.players[e.self ? controller : opp].zones.hand;
           if (hand.length === 0) break;
           const pick = hand[Math.floor(this.random() * hand.length)];
           this.moveCard(pick, 'graveyard');
@@ -734,9 +803,32 @@ export class Ctx {
         return false;
       }
       case 'turnStatic':
-        s.turnStatics.push({ controller, source, static: e.static });
-        this.log(`${this.name(source)} の効果がこのターンの間有効`, controller);
+        s.turnStatics.push({ controller, source, static: e.static, ...(e.untilNextTurn ? { untilNextTurnOf: controller } : {}) });
+        this.log(`${this.name(source)} の効果が${e.untilNextTurn ? '次の自分のターンのはじめまで' : 'このターンの間'}有効`, controller);
         return false;
+      case 'fight': {
+        if (s.cards[source]?.zone !== 'battle') return false;
+        return this.withTargets(controller, source, e.target, 'バトルさせる', true, (iid) => {
+          this.insertFront({ kind: 'battle', attacker: source, defender: iid });
+        });
+      }
+      case 'gachinko': {
+        // 互いに山札の上を公開してコストを比べ、公開したカードは山札の下へ
+        const reveal = (p: PlayerId) => {
+          const top = this.topOfDeck(p);
+          if (!top) return -1;
+          const cost = def(s, this.reg, top).cost;
+          this.log(`ガチンコ・ジャッジ：${s.players[p].name} は ${this.name(top)}（コスト${cost}）を公開`, controller);
+          this.moveCard(top, 'deck', { toTop: false });
+          return cost;
+        };
+        const mine = reveal(controller);
+        const theirs = reveal(opp);
+        const win = mine >= 0 && mine >= theirs;
+        this.log(`ガチンコ・ジャッジに${win ? '勝った' : '負けた'}`, controller);
+        if (win) this.insertFront(...this.effectTasks(controller, source, e.then));
+        return false;
+      }
       case 'conditional': {
         const ok = evalCondition(s, this.reg, controller, e.condition);
         this.insertFront(...this.effectTasks(controller, source, ok ? e.then : (e.else ?? [])));
@@ -745,12 +837,17 @@ export class Ctx {
       case 'chooseOne': {
         const r = this.takeResponse();
         if (!r) {
-          s.pending = { kind: 'chooseMode', player: controller, source, prompt: `${this.name(source)}：次の中から1つ選ぶ`, options: e.options.map((o) => o.label) };
+          const times = e.times && e.times > 1 ? `（あと${e.times}回）` : '';
+          s.pending = { kind: 'chooseMode', player: controller, source, prompt: `${this.name(source)}：次の中から1つ選ぶ${times}`, options: e.options.map((o) => o.label) };
           return true;
         }
-        const opt = e.options[Number(r.selected?.[0])];
+        const idx = Number(r.selected?.[0]);
+        const opt = e.options[idx];
         this.log(`${this.name(source)}：「${opt.label}」を選んだ`, controller);
-        this.insertFront(...this.effectTasks(controller, source, opt.effects));
+        const left = (e.times ?? 1) - 1;
+        const options = e.distinct ? e.options.filter((_, i) => i !== idx) : e.options;
+        const again: EffectDef[] = left > 0 && options.length ? [{ ...e, options, times: left }] : [];
+        this.insertFront(...this.effectTasks(controller, source, [...opt.effects, ...again]));
         return false;
       }
       case 'lookAtTop':
@@ -768,8 +865,15 @@ export class Ctx {
       }
       case 'grantKeyword': {
         const apply = (iid: string) => {
-          s.cards[iid].keywordsTurn = { ...(s.cards[iid].keywordsTurn ?? {}), ...e.keywords };
-          this.log(`${this.name(iid)} はこのターン能力を得た`, controller);
+          const inst = s.cards[iid];
+          if (e.untilNextTurn) {
+            const prev = inst.keywordsUntil?.player === controller ? inst.keywordsUntil.keywords : {};
+            inst.keywordsUntil = { keywords: { ...prev, ...e.keywords }, player: controller };
+            this.log(`${this.name(iid)} は次の${s.players[controller].name}のターンのはじめまで能力を得た`, controller);
+          } else {
+            inst.keywordsTurn = { ...(inst.keywordsTurn ?? {}), ...e.keywords };
+            this.log(`${this.name(iid)} はこのターン能力を得た`, controller);
+          }
         };
         if (e.target === 'self') {
           if (s.cards[source]?.zone === 'battle') apply(source);
@@ -974,7 +1078,9 @@ export class Ctx {
     }
     const rest = top.filter((iid) => !picked.includes(iid));
     if (e.restTo === 'shuffle') this.shuffle(controller);
-    else {
+    else if (e.restTo === 'top') {
+      for (const iid of rest) s.cards[iid].faceUp = false;
+    } else {
       for (const iid of rest) {
         if (e.restTo === 'deckBottom') this.moveCard(iid, 'deck', { toTop: false });
         else this.moveCard(iid, e.restTo);
@@ -1146,6 +1252,7 @@ export class Ctx {
     inst.tapped = false;
     inst.powerModTurn = 0;
     delete inst.keywordsTurn;
+    delete inst.keywordsUntil;
     delete inst.exLifeShield;
     inst.faceUp = to !== 'shield' && to !== 'deck';
     if (to === 'battle') inst.enteredTurn = s.turn;

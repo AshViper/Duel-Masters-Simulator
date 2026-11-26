@@ -110,6 +110,9 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     abilities: main.abilities.length ? main.abilities : undefined,
     statics: main.statics.length ? main.statics : undefined,
     evolvesFrom: card.type === 'evolution' ? main.evolvesFrom : card.evolvesFrom,
+    replacements: main.replacements.length ? main.replacements : undefined,
+    attackSwap: main.attackSwap,
+    neoEvolution: main.neoEvolution,
     twin,
     support,
   };

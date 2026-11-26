@@ -52,12 +52,16 @@ export interface CardFilter {
   maxCost?: number;
   minCost?: number;
   civilization?: Civilization;
+  /** いずれかの文明を持つ（「光または自然の」） */
+  civilizations?: Civilization[];
   cardType?: CardType;
   race?: string;
   /** いずれかの種族を持つ（「AまたはB」） */
   races?: string[];
   /** 進化ではない */
   nonEvolution?: boolean;
+  /** ツインパクト */
+  twinpact?: boolean;
   /** 多色 */
   multicolor?: boolean;
   tapped?: boolean;
@@ -112,7 +116,8 @@ export type EffectDef =
   | { type: 'graveyardToHand'; target: TargetSpec }
   /** 指定ゾーンのクリーチャーをバトルゾーンに出す（コストを払わない） */
   | { type: 'putIntoBattle'; target: TargetSpec }
-  | { type: 'discardRandom'; count: number }
+  /** 手札を見ないで選んで捨てさせる（self: 自分の手札を相手に選ばせる） */
+  | { type: 'discardRandom'; count: number; self?: boolean }
   /** 山札の上から count 枚を見て、条件に合うものを pickCount 枚まで pickTo へ。残りは restTo へ */
   | {
       type: 'lookAtTop';
@@ -120,7 +125,8 @@ export type EffectDef =
       pickCount: number;
       pickFilter?: CardFilter;
       pickTo: 'hand' | 'battle' | 'mana' | 'shield';
-      restTo: 'deckBottom' | 'graveyard' | 'mana' | 'shuffle';
+      /** top: 山札の上に残す */
+      restTo: 'deckBottom' | 'graveyard' | 'mana' | 'shuffle' | 'top';
       /** 条件に合うものをすべて選ぶ（選択なし） */
       pickAll?: boolean;
       /** 選べるなら必ず pickCount 枚選ぶ（「〜てもよい」でない） */
@@ -149,12 +155,18 @@ export type EffectDef =
   /** ターン終了時まで、パワーを変更する */
   | { type: 'powerMod'; target: TargetSpec | 'self'; amount: number }
   /** ターン終了時まで、キーワード能力を与える */
-  | { type: 'grantKeyword'; target: TargetSpec | 'self'; keywords: Keywords }
+  /** untilNextTurn: 次の自分のターンのはじめまで（省略時はこのターン） */
+  | { type: 'grantKeyword'; target: TargetSpec | 'self'; keywords: Keywords; untilNextTurn?: boolean }
   /** ターン終了時まで有効な常在効果（例：このターン、相手のクリーチャーは攻撃できない） */
-  | { type: 'turnStatic'; static: StaticAbility }
+  | { type: 'turnStatic'; static: StaticAbility; untilNextTurn?: boolean }
   | { type: 'conditional'; condition: Condition; then: EffectDef[]; else?: EffectDef[] }
   /** モード選択（「次の中から1つ選ぶ」） */
-  | { type: 'chooseOne'; options: { label: string; effects: EffectDef[] }[] }
+  /** times: 選ぶ回数（「次の中から2回選ぶ」）。distinct: 同じものは選べない */
+  | { type: 'chooseOne'; options: { label: string; effects: EffectDef[] }[]; times?: number; distinct?: boolean }
+  /** このクリーチャーと選んだクリーチャーをバトルさせる */
+  | { type: 'fight'; target: TargetSpec }
+  /** ガチンコ・ジャッジ：互いに山札の上を公開し、自分のコストが相手以上なら勝ち（then を処理）。公開したカードは山札の下へ */
+  | { type: 'gachinko'; then: EffectDef[] }
   /** エンジンでは処理しない。ログに出してプレイヤーの手動操作に委ねる */
   | { type: 'manual'; text: string };
 
@@ -214,7 +226,8 @@ export interface ReplacementAbility {
   subject: 'self' | 'otherOwn' | 'anyOwn';
   filter?: CardFilter;
   /** destroySelf: かわりにこのクリーチャーを破壊する（セイバー） / stay: とどまる */
-  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'destroySelf' | 'stay';
+  /** escape: かわりに自分のシールドを1つ手札に加える（エスケープ） */
+  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'destroySelf' | 'stay' | 'escape';
   optional?: boolean;
 }
 
@@ -258,6 +271,10 @@ export interface Keywords {
   exLife?: boolean;
   /** マナゾーンにタップして置かれる */
   manaTapped?: boolean;
+  /** ガードマン：相手のクリーチャーが自分の他のクリーチャーを攻撃する時、攻撃先をこのクリーチャーに変更できる */
+  guardman?: boolean;
+  /** スーパーガードマン：相手のクリーチャーが攻撃する時、攻撃先をこのクリーチャーに変更できる */
+  superGuardman?: boolean;
   /** 山札の最後の1枚を引く時、ゲームに負けるかわりに勝つ */
   winOnLastDraw?: boolean;
 }
@@ -298,6 +315,10 @@ export interface CardDefinition {
   twin?: TwinSide;
   /** 進化元の条件（種族名 or 文明） */
   evolvesFrom?: { race?: string; civilization?: Civilization };
+  /** 侵略（invasion）・革命チェンジ（revolution）：攻撃中の自分のクリーチャーが filter に合えば、手札から使える */
+  attackSwap?: { kind: 'invasion' | 'revolution'; filter: CardFilter };
+  /** NEO進化：このクリーチャーを、条件に合う自分のクリーチャーの上に重ねて召喚してもよい */
+  neoEvolution?: CardFilter;
   support: SupportLevel;
 }
 

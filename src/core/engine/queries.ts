@@ -35,9 +35,11 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   if (f.excludeSelf && iid === source) return false;
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(d.type) : d.type !== f.cardType)) return false;
   if (f.civilization && !d.civilizations.includes(f.civilization)) return false;
+  if (f.civilizations && !f.civilizations.some((c) => d.civilizations.includes(c))) return false;
   if (f.race && !d.races.some((r) => r.includes(f.race!))) return false;
   if (f.races && !f.races.some((x) => d.races.some((r) => r.includes(x)))) return false;
-  if (f.nonEvolution && d.type === 'evolution') return false;
+  if (f.nonEvolution && (d.type === 'evolution' || (inst.zone === 'battle' && inst.under.length > 0))) return false;
+  if (f.twinpact && !d.twin) return false;
   if (f.multicolor && d.civilizations.length < 2) return false;
   if (f.maxCost !== undefined && d.cost > f.maxCost) return false;
   if (f.minCost !== undefined && d.cost < f.minCost) return false;
@@ -56,9 +58,11 @@ function matchFace(face: PlayFace, d: CardDefinition, f: CardFilter | undefined)
   if (!f) return true;
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(face.type) : face.type !== f.cardType)) return false;
   if (f.civilization && !face.civilizations.includes(f.civilization)) return false;
+  if (f.civilizations && !f.civilizations.some((c) => face.civilizations.includes(c))) return false;
   if (f.race && (face.side === 'twin' || !d.races.some((r) => r.includes(f.race!)))) return false;
   if (f.races && (face.side === 'twin' || !f.races.some((x) => d.races.some((r) => r.includes(x))))) return false;
   if (f.nonEvolution && face.type === 'evolution') return false;
+  if (f.twinpact && !d.twin) return false;
   if (f.multicolor && face.civilizations.length < 2) return false;
   if (f.maxCost !== undefined && face.cost > f.maxCost) return false;
   if (f.minCost !== undefined && face.cost < f.minCost) return false;
@@ -113,7 +117,7 @@ function mergeKeywords(base: Keywords, add: Keywords | undefined): Keywords {
 /** 現在のキーワード能力（元の能力＋ターン中の付与＋常在効果） */
 export function keywords(state: GameState, reg: CardRegistry, iid: string): Keywords {
   const inst = state.cards[iid];
-  let kw = mergeKeywords({ ...(def(state, reg, iid).keywords ?? {}) }, inst.keywordsTurn);
+  let kw = mergeKeywords(mergeKeywords({ ...(def(state, reg, iid).keywords ?? {}) }, inst.keywordsTurn), inst.keywordsUntil?.keywords);
   if (inst.zone !== 'battle') return kw;
   for (const a of activeStatics(state, reg)) {
     if (a.static.type === 'grantKeyword' && appliesToCreature(state, reg, a, a.static.appliesTo, iid)) kw = mergeKeywords(kw, a.static.keywords);
@@ -198,7 +202,8 @@ export function playRestriction(state: GameState, reg: CardRegistry, player: Pla
 export function isSummoningSick(state: GameState, reg: CardRegistry, iid: string): boolean {
   const inst = state.cards[iid];
   const d = def(state, reg, iid);
-  if (keywords(state, reg, iid).speedAttacker || d.type === 'evolution') return false;
+  // 進化クリーチャー（NEO進化で重ねたものを含む）は召喚酔いしない
+  if (keywords(state, reg, iid).speedAttacker || d.type === 'evolution' || inst.under.length > 0) return false;
   return inst.enteredTurn >= state.turn;
 }
 
@@ -227,11 +232,16 @@ export function attackTargets(state: GameState, reg: CardRegistry, player: Playe
 }
 
 export function blockersFor(state: GameState, reg: CardRegistry, defender: PlayerId, attacker: string): string[] {
-  if (keywords(state, reg, attacker).unblockable) return [];
+  const unblockable = !!keywords(state, reg, attacker).unblockable;
+  const target = state.combat?.target;
   return state.players[defender].zones.battle.filter((b) => {
     if (state.cards[b].tapped) return false;
     const kw = keywords(state, reg, b);
-    return !!kw.blocker && !kw.cannotBlock;
+    if (kw.cannotBlock) return false;
+    // ガードマンは「ブロック」ではなく攻撃先の変更なので、ブロックされないクリーチャーにも使える
+    if (kw.superGuardman) return true;
+    if (kw.guardman && target?.kind === 'creature' && target.iid !== b) return true;
+    return !!kw.blocker && !unblockable;
   });
 }
 
@@ -273,6 +283,8 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
 /** 進化元として選べるクリーチャー */
 export function evolutionBases(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string[] {
   const d = def(state, reg, iid);
+  // NEO進化：条件に合うクリーチャーの上に重ねてもよい
+  if (d.neoEvolution) return state.players[player].zones.battle.filter((b) => matchFilter(state, reg, b, d.neoEvolution, undefined, true));
   if (d.type !== 'evolution') return [];
   const cond = d.evolvesFrom ?? {};
   return state.players[player].zones.battle.filter((b) => {
@@ -346,4 +358,13 @@ export function isIdle(state: GameState): boolean {
 
 export function instancesIn(state: GameState, player: PlayerId, zone: keyof GameState['players'][0]['zones']): CardInstance[] {
   return state.players[player].zones[zone].map((iid) => state.cards[iid]);
+}
+
+/** 攻撃中のクリーチャー attacker に対して、手札から侵略・革命チェンジできるカード */
+export function attackSwapCandidates(state: GameState, reg: CardRegistry, player: PlayerId, attacker: string): string[] {
+  if (state.cards[attacker]?.zone !== 'battle' || state.cards[attacker].owner !== player) return [];
+  return state.players[player].zones.hand.filter((iid) => {
+    const sw = def(state, reg, iid).attackSwap;
+    return !!sw && matchFilter(state, reg, attacker, sw.filter, undefined, true);
+  });
 }
