@@ -1,0 +1,308 @@
+// ゲーム状態を読むだけの関数群（状態を変更しない）。UI・AI・エンジンで共用する。
+// 常在効果（パワー修正・キーワード付与・コスト増減・召喚制限）はここで計算する。
+import type { CardRegistry } from '../cards/registry';
+import {
+  isCreatureType,
+  manaCivilizations,
+  playFace,
+  type Applies,
+  type CardDefinition,
+  type CardFilter,
+  type Civilization,
+  type Condition,
+  type Keywords,
+  type PlayFace,
+  type Quantity,
+  type StaticAbility,
+  type TargetSpec,
+} from '../cards/types';
+import { other, type AttackTarget, type CardInstance, type GameState, type PlayerId } from './types';
+
+export function def(state: GameState, reg: CardRegistry, iid: string): CardDefinition {
+  const inst = state.cards[iid];
+  const d = inst && reg[inst.cardId];
+  if (!d) throw new Error(`unknown card ${iid}`);
+  return d;
+}
+
+// ───────────────────────── 絞り込み ─────────────────────────
+
+/** カード（バトルゾーン以外も可）が条件に合うか。noPower なら現在パワーではなく元のパワーで判定（常在効果の循環防止） */
+export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f: CardFilter | undefined, source?: string, noPower = false): boolean {
+  if (!f) return true;
+  const inst = state.cards[iid];
+  const d = def(state, reg, iid);
+  if (f.excludeSelf && iid === source) return false;
+  if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(d.type) : d.type !== f.cardType)) return false;
+  if (f.civilization && !d.civilizations.includes(f.civilization)) return false;
+  if (f.race && !d.races.some((r) => r.includes(f.race!))) return false;
+  if (f.maxCost !== undefined && d.cost > f.maxCost) return false;
+  if (f.minCost !== undefined && d.cost < f.minCost) return false;
+  if (f.tapped && !inst.tapped) return false;
+  if (f.untapped && inst.tapped) return false;
+  if (f.maxPower !== undefined || f.minPower !== undefined) {
+    const p = inst.zone === 'battle' && !noPower ? power(state, reg, iid) : (d.power ?? 0);
+    if (f.maxPower !== undefined && p > f.maxPower) return false;
+    if (f.minPower !== undefined && p < f.minPower) return false;
+  }
+  return true;
+}
+
+/** 使う面（ツインパクトの呪文側を含む）が条件に合うか */
+function matchFace(face: PlayFace, d: CardDefinition, f: CardFilter | undefined): boolean {
+  if (!f) return true;
+  if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(face.type) : face.type !== f.cardType)) return false;
+  if (f.civilization && !face.civilizations.includes(f.civilization)) return false;
+  if (f.race && (face.side === 'twin' || !d.races.some((r) => r.includes(f.race!)))) return false;
+  if (f.maxCost !== undefined && face.cost > f.maxCost) return false;
+  if (f.minCost !== undefined && face.cost < f.minCost) return false;
+  return true;
+}
+
+// ───────────────────────── 常在効果 ─────────────────────────
+
+export interface ActiveStatic {
+  controller: PlayerId;
+  source: string;
+  static: StaticAbility;
+}
+
+/** いま有効な常在効果（バトルゾーンのカード＋ターン終了まで有効なもの） */
+export function activeStatics(state: GameState, reg: CardRegistry): ActiveStatic[] {
+  const out: ActiveStatic[] = [];
+  for (const p of state.players) {
+    for (const iid of p.zones.battle) {
+      for (const s of def(state, reg, iid).statics ?? []) out.push({ controller: p.id, source: iid, static: s });
+    }
+  }
+  for (const t of state.turnStatics ?? []) out.push(t);
+  return out;
+}
+
+function ownerMatches(owner: Applies['owner'], controller: PlayerId, target: PlayerId): boolean {
+  return owner === 'any' || (owner === 'self') === (controller === target);
+}
+
+function appliesToCreature(state: GameState, reg: CardRegistry, a: ActiveStatic, applies: Applies, iid: string): boolean {
+  const inst = state.cards[iid];
+  if (!ownerMatches(applies.owner, a.controller, inst.owner)) return false;
+  if (applies.excludeSelf && iid === a.source) return false;
+  return matchFilter(state, reg, iid, applies.filter, a.source, true);
+}
+
+function mergeKeywords(base: Keywords, add: Keywords | undefined): Keywords {
+  if (!add) return base;
+  const out: Keywords = { ...base };
+  for (const [k, v] of Object.entries(add) as [keyof Keywords, Keywords[keyof Keywords]][]) {
+    if (k === 'breaker') out.breaker = Math.max(out.breaker ?? 1, v as number);
+    else if (k === 'powerAttacker') out.powerAttacker = (out.powerAttacker ?? 0) + (v as number);
+    else if (v) (out as Record<string, unknown>)[k] = v;
+  }
+  return out;
+}
+
+/** 現在のキーワード能力（元の能力＋ターン中の付与＋常在効果） */
+export function keywords(state: GameState, reg: CardRegistry, iid: string): Keywords {
+  const inst = state.cards[iid];
+  let kw = mergeKeywords({ ...(def(state, reg, iid).keywords ?? {}) }, inst.keywordsTurn);
+  if (inst.zone !== 'battle') return kw;
+  for (const a of activeStatics(state, reg)) {
+    if (a.static.type === 'grantKeyword' && appliesToCreature(state, reg, a, a.static.appliesTo, iid)) kw = mergeKeywords(kw, a.static.keywords);
+  }
+  return kw;
+}
+
+export function power(state: GameState, reg: CardRegistry, iid: string): number {
+  const inst = state.cards[iid];
+  const d = def(state, reg, iid);
+  let p = (d.power ?? 0) + inst.powerModTurn;
+  if (inst.zone !== 'battle') return Math.max(0, p);
+  const attacking = state.combat?.attacker === iid;
+  for (const a of activeStatics(state, reg)) {
+    const s = a.static;
+    if (s.type === 'powerMod' && (!s.attackingOnly || attacking) && appliesToCreature(state, reg, a, s.appliesTo, iid)) p += s.amount;
+  }
+  if (attacking) p += keywords(state, reg, iid).powerAttacker ?? 0;
+  return Math.max(0, p);
+}
+
+export function breakerCount(state: GameState, reg: CardRegistry, iid: string): number {
+  return keywords(state, reg, iid).breaker ?? 1;
+}
+
+/** 常在効果込みのコスト */
+export function effectiveCost(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): number {
+  const d = def(state, reg, iid);
+  const face = playFace(d, side);
+  let cost = face.cost;
+  let floor = Math.min(face.cost, 1);
+  for (const a of activeStatics(state, reg)) {
+    const s = a.static;
+    if (s.type !== 'costMod' || !ownerMatches(s.appliesTo.owner, a.controller, player)) continue;
+    if (!matchFace(face, d, s.appliesTo.filter)) continue;
+    cost += s.amount;
+    if (s.minCost !== undefined) floor = Math.min(face.cost, Math.max(floor, s.minCost));
+  }
+  return Math.max(floor, cost);
+}
+
+/** 召喚・呪文の禁止を受けているなら理由を返す */
+export function playRestriction(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): string | null {
+  const d = def(state, reg, iid);
+  const face = playFace(d, side);
+  for (const a of activeStatics(state, reg)) {
+    const s = a.static;
+    if (s.type !== 'cannotSummon' && s.type !== 'cannotCast') continue;
+    if ((s.type === 'cannotSummon') !== isCreatureType(face.type)) continue;
+    const hit = s.who === 'both' || (s.who === 'self') === (a.controller === player);
+    if (hit && matchFace(face, d, s.filter)) return `${def(state, reg, a.source).name} の効果で${s.type === 'cannotSummon' ? '召喚' : '呪文を唱えることが'}できません`;
+  }
+  return null;
+}
+
+// ───────────────────────── 攻撃・ブロック ─────────────────────────
+
+export function isSummoningSick(state: GameState, reg: CardRegistry, iid: string): boolean {
+  const inst = state.cards[iid];
+  const d = def(state, reg, iid);
+  if (keywords(state, reg, iid).speedAttacker || d.type === 'evolution') return false;
+  return inst.enteredTurn >= state.turn;
+}
+
+/** 攻撃可能なクリーチャーか（状態・召喚酔い・攻撃制限） */
+export function canAttackWith(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): boolean {
+  const inst = state.cards[iid];
+  if (!inst || inst.owner !== player || inst.zone !== 'battle' || inst.tapped) return false;
+  if (!state.players[player].zones.battle.includes(iid)) return false;
+  if (keywords(state, reg, iid).cannotAttack) return false;
+  return !isSummoningSick(state, reg, iid);
+}
+
+export function attackTargets(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): AttackTarget[] {
+  if (!canAttackWith(state, reg, player, iid)) return [];
+  const kw = keywords(state, reg, iid);
+  const out: AttackTarget[] = [];
+  if (!kw.cannotAttackPlayers) out.push({ kind: 'player' });
+  for (const t of state.players[other(player)].zones.battle) {
+    if (state.cards[t].tapped || kw.attackUntapped) out.push({ kind: 'creature', iid: t });
+  }
+  return out;
+}
+
+export function blockersFor(state: GameState, reg: CardRegistry, defender: PlayerId, attacker: string): string[] {
+  if (keywords(state, reg, attacker).unblockable) return [];
+  return state.players[defender].zones.battle.filter((b) => !state.cards[b].tapped && keywords(state, reg, b).blocker);
+}
+
+// ───────────────────────── 効果の対象・条件 ─────────────────────────
+
+/** 効果の対象候補 */
+export function targetCandidates(state: GameState, reg: CardRegistry, controller: PlayerId, spec: TargetSpec, source?: string): string[] {
+  const owners: PlayerId[] = spec.owner === 'self' ? [controller] : spec.owner === 'opponent' ? [other(controller)] : [controller, other(controller)];
+  const out: string[] = [];
+  for (const o of owners) {
+    for (const iid of state.players[o].zones[spec.zone]) {
+      if (matchFilter(state, reg, iid, spec.filter, source)) out.push(iid);
+    }
+  }
+  return out;
+}
+
+function countQuantity(state: GameState, reg: CardRegistry, controller: PlayerId, q: Quantity): number {
+  const p = q.who === 'self' ? controller : other(controller);
+  return state.players[p].zones[q.zone].filter((iid) => matchFilter(state, reg, iid, q.filter)).length;
+}
+
+export function evalCondition(state: GameState, reg: CardRegistry, controller: PlayerId, c: Condition): boolean {
+  switch (c.type) {
+    case 'not':
+      return !evalCondition(state, reg, controller, c.condition);
+    case 'and':
+      return c.conditions.every((x) => evalCondition(state, reg, controller, x));
+    case 'compare': {
+      const l = countQuantity(state, reg, controller, c.left);
+      const r = typeof c.right === 'number' ? c.right : countQuantity(state, reg, controller, c.right);
+      return c.op === '>' ? l > r : c.op === '>=' ? l >= r : c.op === '<' ? l < r : c.op === '<=' ? l <= r : l === r;
+    }
+  }
+}
+
+// ───────────────────────── 召喚・支払い ─────────────────────────
+
+/** 進化元として選べるクリーチャー */
+export function evolutionBases(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string[] {
+  const d = def(state, reg, iid);
+  if (d.type !== 'evolution') return [];
+  const cond = d.evolvesFrom ?? {};
+  return state.players[player].zones.battle.filter((b) => {
+    const bd = def(state, reg, b);
+    if (cond.race && !bd.races.includes(cond.race)) return false;
+    if (cond.civilization && !bd.civilizations.includes(cond.civilization)) return false;
+    return true;
+  });
+}
+
+/**
+ * コストの支払いに使うマナを決める。払えなければ null。
+ * 各文明について1枚ずつ別々のマナを割り当てる（小さな二部マッチング）。
+ */
+export function choosePayment(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, preferred?: string[], side: 'main' | 'twin' = 'main'): string[] | null {
+  const face = playFace(def(state, reg, iid), side);
+  const cost = effectiveCost(state, reg, player, iid, side);
+  const civs: Civilization[] = face.civilizations.filter((cv) => cv !== 'zero');
+  const untapped = state.players[player].zones.mana.filter((m) => !state.cards[m].tapped);
+  const mciv = (m: string) => manaCivilizations(def(state, reg, m));
+  if (preferred) {
+    if (preferred.length !== cost || preferred.some((m) => !untapped.includes(m)) || new Set(preferred).size !== preferred.length) return null;
+    return assignCivs(civs, preferred, mciv) ? preferred : null;
+  }
+  if (untapped.length < cost) return null;
+  // 単色のマナを優先して使う
+  const sorted = [...untapped].sort((a, b) => mciv(a).length - mciv(b).length);
+  const assigned = assignCivs(civs, sorted, mciv);
+  if (!assigned || assigned.length > cost) return null;
+  const rest = untapped.filter((m) => !assigned.includes(m));
+  // 残りは「このカードに不要な文明」のマナから使う
+  const useless = (m: string) => (mciv(m).some((cv) => civs.includes(cv)) ? 0 : 1);
+  rest.sort((a, b) => useless(b) - useless(a));
+  return [...assigned, ...rest.slice(0, cost - assigned.length)];
+}
+
+function assignCivs(civs: Civilization[], mana: string[], mciv: (m: string) => Civilization[]): string[] | null {
+  const used: string[] = [];
+  const dfs = (i: number): boolean => {
+    if (i === civs.length) return true;
+    for (const m of mana) {
+      if (used.includes(m) || !mciv(m).includes(civs[i])) continue;
+      used.push(m);
+      if (dfs(i + 1)) return true;
+      used.pop();
+    }
+    return false;
+  };
+  return dfs(0) ? used : null;
+}
+
+export function canPlay(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): boolean {
+  if (!isIdle(state) || state.activePlayer !== player) return false;
+  if (state.phase !== 'charge' && state.phase !== 'main') return false;
+  const inst = state.cards[iid];
+  if (!inst || inst.owner !== player || inst.zone !== 'hand') return false;
+  const d = def(state, reg, iid);
+  if (side === 'twin' && !d.twin) return false;
+  if (side === 'main' && d.type === 'evolution' && evolutionBases(state, reg, player, iid).length === 0) return false;
+  if (playRestriction(state, reg, player, iid, side)) return false;
+  return choosePayment(state, reg, player, iid, undefined, side) !== null;
+}
+
+export function untappedManaCount(state: GameState, player: PlayerId): number {
+  return state.players[player].zones.mana.filter((m) => !state.cards[m].tapped).length;
+}
+
+export function isIdle(state: GameState): boolean {
+  return state.gameOverReason === null && !state.pending && state.queue.length === 0 && !state.combat;
+}
+
+export function instancesIn(state: GameState, player: PlayerId, zone: keyof GameState['players'][0]['zones']): CardInstance[] {
+  return state.players[player].zones[zone].map((iid) => state.cards[iid]);
+}
