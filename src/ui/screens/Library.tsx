@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { OFFICIAL_PREFIX } from '../../core/cards/officialConvert';
+import { buildBackup, isBackupFile, parseBackup, restoreBackup } from '../../db/backup';
 import { imageCacheStats } from '../../db/imageCache';
 import { deleteAllOfficialCards } from '../../store/officialCards';
 import { parseCardJson, searchCards, type CardQuery } from '../../core/cards/registry';
@@ -11,7 +12,7 @@ import { CardView } from '../components/CardView';
 import { Header } from './Menus';
 
 export function LibraryScreen() {
-  const { cards, importCards, go } = useApp();
+  const { cards, decks, importCards, go, init } = useApp();
   const [cache, setCache] = useState<{ count: number; bytes: number } | null>(null);
   const officialCount = useMemo(() => cards.filter((c) => c.id.startsWith(OFFICIAL_PREFIX)).length, [cards]);
   useEffect(() => {
@@ -28,9 +29,50 @@ export function LibraryScreen() {
     return by;
   }, [cards]);
 
+  const [busy, setBusy] = useState(false);
+  const backupRef = useRef<HTMLInputElement>(null);
+
+  const onExport = async () => {
+    setBusy(true);
+    try {
+      const b = await buildBackup();
+      const url = URL.createObjectURL(new Blob([JSON.stringify(b)], { type: 'application/json' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `card-duel-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMsg(`カード${b.cards.length}枚・デッキ${b.decks.length}個・画像${b.images.length}枚を書き出しました`);
+    } catch (e) {
+      setMsg(`書き出しに失敗しました: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onBackupFile = async (f: File) => {
+    setBusy(true);
+    try {
+      const { cards: c, decks: d, images, errors } = parseBackup(JSON.parse(await f.text()));
+      if (c.length + d.length + images.length === 0) throw new Error(errors[0] ?? '読み込めるデータがありません');
+      if (d.some((x) => decks.some((y) => y.id === x.id)) && !confirm('同じデッキがすでにあります。ファイルの内容で上書きしますか？')) return;
+      await restoreBackup({ cards: c, decks: d, images });
+      await init();
+      setCache(await imageCacheStats());
+      setMsg(`カード${c.length}枚・デッキ${d.length}個・画像${images.length}枚を読み込みました` + (errors.length ? `／${errors.slice(0, 3).join('、')}` : ''));
+    } catch (e) {
+      setMsg(`読み込みに失敗しました: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+      if (backupRef.current) backupRef.current.value = '';
+    }
+  };
+
   const onFile = async (f: File) => {
     try {
-      const { cards: parsed, errors } = parseCardJson(JSON.parse(await f.text()));
+      const raw = JSON.parse(await f.text());
+      if (isBackupFile(raw)) return void (await onBackupFile(f));
+      const { cards: parsed, errors } = parseCardJson(raw);
       if (parsed.length) await importCards(parsed);
       setMsg(`${parsed.length}枚を取り込みました` + (errors.length ? `／エラー${errors.length}件: ${errors.slice(0, 3).join('、')}` : ''));
     } catch (e) {
@@ -66,6 +108,15 @@ export function LibraryScreen() {
               >
                 すべて削除
               </button>
+            </div>
+          </div>
+          <div className="import">
+            <h4>バックアップ（別のブラウザへ移す）</h4>
+            <p className="muted small">カード・画像・デッキを1つのファイルにまとめます。公式カード検索が使えない版（GitHub Pages など）へは、ローカル版で書き出したファイルを読み込んでください。</p>
+            <input ref={backupRef} type="file" accept=".json,application/json" hidden onChange={(e) => e.target.files?.[0] && void onBackupFile(e.target.files[0])} />
+            <div className="row">
+              <button disabled={busy} onClick={() => void onExport()} data-testid="backup-export">書き出す</button>
+              <button disabled={busy} onClick={() => backupRef.current?.click()} data-testid="backup-import">読み込む</button>
             </div>
           </div>
           <div className="import">
