@@ -2,7 +2,7 @@
 // 「〜1体につき」、行き先がいくつもある山札めくり、鬼タイム、「そうしたら」の続き
 import { describe, expect, it } from 'vitest';
 import { Ctx, applyAction } from '../engine/engine';
-import { altCost, canPlayAlt, fushigiCandidates, keywords, playRestriction, power } from '../engine/queries';
+import { altCost, breakerCount, canPlayAlt, fushigiCandidates, keywords, playRestriction, power } from '../engine/queries';
 import { getLegalActions } from '../engine/legal';
 import { createGame } from '../engine/setup';
 import type { Action, GameState, PlayerId } from '../engine/types';
@@ -961,5 +961,61 @@ describe('条件を満たすと能力を得る・能力語つきの本文', () =
     ctx.moveCard(s.players[0].zones.shield[0], 'graveyard');
     ctx.run();
     expect(s.players[0].zones.hand.length).toBe(hand + 1);
+  });
+});
+
+describe('ブレイカーの変種', () => {
+  it('マスター・W・ブレイカー：出たターン、各ブレイクの前に相手のクリーチャーを1体破壊する', () => {
+    const mw = mk('m-110', ['スピードアタッカー', 'マスター・W・ブレイカー（このクリーチャーはシールドを２つブレイクする。このクリーチャーがバトルゾーンに出たターン、各ブレイクの前に、相手のクリーチャーを１体破壊する）']);
+    expect(mw.support).toBe('full');
+    expect(mw.keywords?.breaker).toBe(2);
+    const r = buildRegistry([...SAMPLE_CARDS, ...Object.values(C), mw]);
+    let s = createGame({ players: [{ name: 'A', deck: filler }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, r);
+    const add = (p: PlayerId, cardId: string, zone: ZoneName) => {
+      const iid = `t${s.nextIid++}`;
+      s.cards[iid] = { iid, cardId, owner: p, zone: 'deck', tapped: false, enteredTurn: 0, powerModTurn: 0, under: [], faceUp: false };
+      s.players[p].zones.deck.unshift(iid);
+      new Ctx(s, r).moveCard(iid, zone);
+      return iid;
+    };
+    const a = add(1, C.vanilla.id, 'battle');
+    const b = add(1, C.vanilla.id, 'battle');
+    const c = add(0, mw.id, 'battle');
+    const shields = s.players[1].zones.shield.length;
+    const step = (x: GameState, act2: Action) => applyAction(x, act2, r).state;
+    s = step(s, { type: 'ATTACK', player: 0, attacker: c, target: { kind: 'player' } });
+    for (let i = 0; i < 12 && s.pending; i++) {
+      const p = s.pending;
+      s = step(s, p.kind === 'selectCards' ? { type: 'RESPOND', player: p.player, selected: p.candidates.slice(0, Math.max(1, p.min)) } : { type: 'RESPOND', player: p.player, selected: [], accept: false });
+    }
+    expect(s.players[1].zones.shield.length).toBe(shields - 2);
+    expect([s.cards[a].zone, s.cards[b].zone]).toEqual(['graveyard', 'graveyard']);
+  });
+
+  it('クルー・ブレイカー：自分の他のハンター1体につき、もう1枚ブレイクする', () => {
+    const crew = mk('m-111', ['クルー・ブレイカー：ハンター（このクリーチャーは、バトルゾーンにある自分の他のハンター１体につき、シールドをさらにもう１枚ブレイクする）']);
+    const hunter = mk('m-112', [], { race: 'ハンター' });
+    expect(crew.support).toBe('full');
+    const r = buildRegistry([...SAMPLE_CARDS, ...Object.values(C), crew, hunter]);
+    const s = createGame({ players: [{ name: 'A', deck: filler }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, r);
+    const add = (cardId: string) => {
+      const iid = `t${s.nextIid++}`;
+      s.cards[iid] = { iid, cardId, owner: 0, zone: 'deck', tapped: false, enteredTurn: 0, powerModTurn: 0, under: [], faceUp: false };
+      s.players[0].zones.deck.unshift(iid);
+      new Ctx(s, r).moveCard(iid, 'battle');
+      return iid;
+    };
+    const c = add(crew.id);
+    expect(breakerCount(s, r, c)).toBe(1);
+    add(hunter.id);
+    add(hunter.id);
+    expect(breakerCount(s, r, c)).toBe(3);
+  });
+
+  it('G・ブレイカー：相手のシールドをすべてブレイクし、攻撃の後に自分のシールドもすべてブレイクする', () => {
+    const p = parseAbilityText('G・ブレイカー（このクリーチャーは、相手のシールドをすべてブレイクし、その攻撃の後、自分のシールドをすべてブレイクする）', 'creature');
+    expect(p.manualLines).toHaveLength(0);
+    expect(p.keywords.breaker).toBe(99);
+    expect(p.abilities).toEqual([{ when: 'onAttackEnd', effects: [{ type: 'breakShields', count: 99, self: true }] }]);
   });
 });

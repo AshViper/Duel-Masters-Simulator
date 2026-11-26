@@ -311,6 +311,9 @@ function parseTrigger(t: string): ParsedTrigger | null {
   // 「カードがこのクリーチャーの下を離れた時、」「カードが自分のクリーチャーの下を離れた時、」
   const under = t.match(/^カードが(この|自分の)クリーチャーの下を離れた時、(.+)$/);
   if (under) return { when: [under[1] === 'この' ? 'onUnderLeft' : 'onOwnUnderLeft'], rest: under[2] };
+  // 「このクリーチャーの各ブレイクの前に、」
+  const bb = t.match(/^(?:このクリーチャーの)?各ブレイクの前に、(.+)$/);
+  if (bb) return { when: ['onBeforeBreak'], rest: bb[1] };
   if (t.startsWith('このクリーチャーの攻撃の終わりに、')) return { when: ['onAttackEnd'], rest: t.slice('このクリーチャーの攻撃の終わりに、'.length) };
   // 「相手のターンにこのクリーチャーが出た時、」
   const turnOf = t.match(/^(自分|相手)のターン(?:中)?に、?(この(?:クリーチャー|タマシード)が.+)$/);
@@ -1712,8 +1715,21 @@ function parseFromReminder(line: string, options: string[], kind: 'creature' | '
   }
   // 能力語だけの行：補足説明を能力として読む
   const label = raw.match(/^([^()。、]{1,28})\(([^()]+)\)。?$/);
-  if (label) return tryParse(label[2]);
-  return false;
+  if (!label) return false;
+  if (tryParse(label[2])) return true;
+  // 補足説明が、別々の能力を並べた文の時（「シールドを2つブレイクする。出たターン、各ブレイクの前に〜」）：1文ずつ読む。全部読めた時だけ使う
+  const parts = label[2].split('。').filter(Boolean);
+  if (parts.length < 2) return false;
+  const all: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
+  const saved = out;
+  for (const p of parts) {
+    const one: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
+    if (!applyKeywordLine(p, one.keywords) && !parseLine(p, [], kind, one)) return false;
+    if (one.abilities.some((a) => a.effects.some((e) => e.type === 'manual'))) return false;
+    mergeParsed(all, one);
+  }
+  mergeParsed(saved, all);
+  return true;
 }
 
 /** 読み取った能力のまとまりを、もう1つに足す */
@@ -1939,6 +1955,9 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
   // ウェーブストライカー：「「ウェーブストライカー」を持つクリーチャーが他に2体以上あれば、」
   const wave = body.match(/^「ウェーブストライカー」を持つクリーチャーが他に(\d+)体以上あれば、(.+)$/);
   if (wave) return { body: wave[2], condition: { type: 'compare', left: { who: 'any', zone: 'battle', filter: { hasKeyword: 'waveStriker', excludeSelf: true } }, op: '>=', right: n(wave[1]) } };
+  // 「このクリーチャーが出たターン、各ブレイクの前に、〜」：出たターンだけ
+  const enteredTurn = body.match(/^このクリーチャーが(?:バトルゾーンに)?出たターン、(.+)$/);
+  if (enteredTurn) return { body: enteredTurn[1], condition: { type: 'selfEnteredThisTurn' } };
   // 「そのクリーチャーがコストを支払わずに出ていたら、」（誘発の原因になったクリーチャー）
   const free = body.match(/^(?:その|それらの)クリーチャーがコストを支払わずに出ていたら、(.+)$/);
   if (free) return { body: free[1], condition: { type: 'subjectEnteredFree' } };
@@ -2019,6 +2038,28 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   const t = normalizeText(line);
   const opts = options.map(normalizeText);
   if (kind === 'other') return false;
+  // 「このクリーチャーが出たターン、各ブレイクの前に、相手のクリーチャーを1体破壊する」：誘発に「出たターンだけ」の条件を付ける
+  const turnTrig = t.match(/^このクリーチャーが(?:バトルゾーンに)?出たターン、(各ブレイクの前に、.+)$/);
+  if (turnTrig && kind === 'creature') {
+    const tmp: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
+    if (!parseLine(turnTrig[1], options, kind, tmp) || tmp.abilities.some((a) => a.effects.some((e) => e.type === 'manual'))) return false;
+    for (const ab of tmp.abilities) out.abilities.push({ ...ab, condition: ab.condition ? { type: 'and', conditions: [{ type: 'selfEnteredThisTurn' }, ab.condition] } : { type: 'selfEnteredThisTurn' } });
+    return true;
+  }
+  // クルー・ブレイカー：「このクリーチャーは、自分の他のハンター1体につき、シールドをさらにもう1枚ブレイクする」
+  const crew = t.match(/^このクリーチャーは、?(.+?につき)、?シールドをさらに(?:もう)?(\d+)(?:枚|つ)ブレイクする。?$/);
+  if (crew && kind === 'creature') {
+    const p = parsePer(crew[1]);
+    if (!p) return false;
+    out.statics.push({ type: 'breakerBonus', amount: n(crew[2]), perCount: p.per, unit: p.unit });
+    return true;
+  }
+  // G・ブレイカー：「このクリーチャーは、相手のシールドをすべてブレイクし、その攻撃の後、自分のシールドをすべてブレイクする」
+  if (/^このクリーチャーは、?相手のシールドをすべてブレイクし、その攻撃の後、自分のシールドをすべてブレイクする。?$/.test(t) && kind === 'creature') {
+    out.keywords.breaker = 99;
+    out.abilities.push({ when: 'onAttackEnd', effects: [{ type: 'breakShields', count: 99, self: true }] });
+    return true;
+  }
   // シンカライズ：このタマシードがクリーチャーであるかのように、この上に進化クリーチャーを置いてもよい
   if (/^シンカライズ(?:[:：].*)?$/.test(t)) {
     out.keywords.shinkarize = true;

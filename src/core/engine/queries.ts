@@ -370,7 +370,11 @@ function powerImpl(state: GameState, reg: CardRegistry, iid: string): number {
 
 export function breakerCount(state: GameState, reg: CardRegistry, iid: string): number {
   const kw = keywords(state, reg, iid);
-  const base = kw.breaker ?? 1;
+  let base = kw.breaker ?? 1;
+  // クルー・ブレイカー：数えた数だけ多くブレイクする
+  for (const a of activeStatics(state, reg)) {
+    if (a.static.type === 'breakerBonus' && a.source === iid) base += a.static.amount * Math.floor(countQuantity(state, reg, a.controller, a.static.perCount, true, iid) / a.static.unit);
+  }
   // パワード・ブレイカー：パワー6000ごとに1つ多くブレイクする
   return kw.poweredBreaker ? Math.max(base, 1 + Math.floor(power(state, reg, iid) / 6000)) : base;
 }
@@ -654,6 +658,8 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
     }
     case 'didNot':
       return !state.lastDid;
+    case 'selfEnteredThisTurn':
+      return !!source && state.cards[source]?.zone === 'battle' && state.cards[source].enteredTurn === state.turn;
     case 'subjectEnteredFree':
       return !!c.iid && state.cards[c.iid]?.zone === 'battle' && !!state.cards[c.iid].enteredFree;
     case 'enteredThisTurn': {

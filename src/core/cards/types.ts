@@ -162,6 +162,8 @@ export type Condition =
   | { type: 'castThisTurn'; who: 'self' | 'opponent' }
   /** このターンにそのプレイヤーのシールドが min 個以上ブレイクされた */
   | { type: 'shieldsBrokenThisTurn'; who: 'self' | 'opponent'; min: number }
+  /** このクリーチャーが、このターンに出た（「このクリーチャーが出たターン、〜」） */
+  | { type: 'selfEnteredThisTurn' }
   /** 誘発の原因になったクリーチャーが、コストを支払わずに出ていた（iid はエンジンが誘発の時に入れる） */
   | { type: 'subjectEnteredFree'; iid?: string }
   /** このターンに出たクリーチャーの数が min 以上（who: 誰のクリーチャーか） */
@@ -252,7 +254,8 @@ export type EffectDef =
   /** エンジン内部用：公開したカードを出す／唱える（てもよい）。しなければそのまま */
   | { type: 'playRevealed'; iid: string; as: 'creature' | 'spell' }
   /** 相手のシールドをブレイクする（S・トリガー可） */
-  | { type: 'breakShields'; count: number }
+  /** self: 自分のシールドをブレイクする（G・ブレイカーの「その攻撃の後、自分のシールドをすべてブレイクする」） */
+  | { type: 'breakShields'; count: number; self?: boolean }
   | { type: 'extraTurn' }
   /**
    * 効果の発生源（このクリーチャー）自身に対する処理。移動先（MoveDest）なら move と同じ移動をする。
@@ -371,6 +374,8 @@ export const TRIGGER_EVENTS = [
   'onOwnUnderLeft',
   /** カードがシールドゾーンを離れた時（who で誰のシールドゾーンか） */
   'onShieldLeft',
+  /** このクリーチャーの各ブレイクの前に（攻撃によるブレイクを1つずつに分け、その前に誘発する） */
+  'onBeforeBreak',
   /** このクリーチャーの「EXライフ」シールドが離れた時 */
   'onExLifeLeft',
 ] as const;
@@ -430,6 +435,8 @@ export type StaticAbility = (
   | { type: 'cannotEnter'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
   /** 相手のカードによる「攻撃できない」効果を無視して攻撃できる */
   | { type: 'ignoreAttackLocks'; appliesTo: Applies }
+  /** このクリーチャーは、数えた数 unit ごとに amount だけ多くシールドをブレイクする（クルー・ブレイカー） */
+  | { type: 'breakerBonus'; amount: number; perCount: Quantity; unit: number }
 ) & {
   /** 有効なターン（「自分のターン中」= self）。省略時は常に有効 */
   duringTurn?: 'self' | 'opponent';

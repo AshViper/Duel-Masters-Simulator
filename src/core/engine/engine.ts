@@ -1011,10 +1011,25 @@ export class Ctx {
         if (s.cards[task.winner]?.zone === 'battle') this.emit({ type: 'BATTLE_WON', winner: task.winner, loser: task.loser });
         return false;
 
+      case 'beforeBreak':
+        // 「このクリーチャーの各ブレイクの前に」：ブレイクするシールドが残っている時だけ
+        if (s.cards[task.source]?.zone === 'battle' && s.players[task.defender].zones.shield.length > 0) {
+          this.triggerFrom(task.source, 'onBeforeBreak');
+          this.flushTriggers();
+        }
+        return false;
+
       case 'breakShields': {
         const shields = s.players[task.defender].zones.shield;
         const n = Math.min(task.count, shields.length);
         if (n === 0) return false;
+        // 「各ブレイクの前に」の能力を持つクリーチャーの攻撃：1つずつブレイクし、その前に能力を誘発させる
+        if (task.byAttack && !task.split && s.cards[task.source]?.zone === 'battle' && (def(s, this.reg, task.source).abilities ?? []).some((ab) => ab.when === 'onBeforeBreak')) {
+          const seq: Task[] = [];
+          for (let i = 0; i < n; i++) seq.push({ kind: 'beforeBreak', source: task.source, defender: task.defender }, { ...task, count: 1, split: true });
+          this.insertFront(...seq);
+          return false;
+        }
         let chosen: string[];
         if (shields.length <= n) chosen = [...shields];
         else {
@@ -1683,7 +1698,7 @@ export class Ctx {
         this.log('このターンの後、もう一度自分のターンを行う', controller);
         return false;
       case 'breakShields':
-        this.insertFront({ kind: 'breakShields', breaker: controller, source, defender: opp, count: e.count });
+        this.insertFront({ kind: 'breakShields', breaker: controller, source, defender: e.self ? controller : opp, count: e.count });
         return false;
       case 'selfAction': {
         const inst = s.cards[source];
