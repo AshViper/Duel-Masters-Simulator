@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isNonCreaturePermanent, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
-import { altCost, battleCards, canCross, isCrossGear, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canSummonFromZone, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
+import { altCost, battleCards, canCross, isCrossGear, isGrCard, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canSummonFromZone, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
@@ -301,7 +301,7 @@ export function BattleScreen() {
           inst.seals?.length ? (
             <span className="under-badge seal-badge" title="封印されている間、両プレイヤーはこのカードを無視する">封印 ×{inst.seals.length}</span>
           ) : inst.under.length > 0 ? (
-            <span className="under-badge">進化 +{inst.under.length}</span>
+            <span className="under-badge">{inst.zone === 'shield' ? `束 +${inst.under.length}` : `進化 +${inst.under.length}`}</span>
           ) : inst.equippedTo && g.cards[inst.equippedTo] ? (
             <span className="under-badge" title="これを装備（クロス）しているクリーチャー">{isCrossGear(d) ? 'クロス' : '装備'}：{def(inst.equippedTo).name}</span>
           ) : undefined
@@ -314,7 +314,8 @@ export function BattleScreen() {
 
   /** バトルゾーンで横向きに置くカード：D2フィールドなどのフィールド（禁断の鼓動は縦のまま） */
   function isSideways(iid: string): boolean {
-    return g.cards[iid].zone === 'battle' && def(iid).type === 'field';
+    // クロスギアとドラグハート・ウエポンは縦向きのカード（クリーチャーに付けて使う）
+    return g.cards[iid].zone === 'battle' && def(iid).type === 'field' && !/クロスギア|ウエポン/.test(def(iid).typeLabel ?? '');
   }
 
   const side = (p: PlayerId) => {
@@ -328,6 +329,8 @@ export function BattleScreen() {
     const hyperTop = P.zones.hyperspatial[P.zones.hyperspatial.length - 1];
     // 超次元ゾーンを使うプレイヤー（サイキック・クリーチャーを持っている）だけ置き場を出す。空になっても消さない
     const usesHyper = !!hyperTop || Object.values(g.cards).some((c) => c.owner === p && !!registry[c.cardId]?.psychic);
+    // 超GRゾーンを使うプレイヤーだけ、残り枚数を出す（裏向きの山なので中身は見せない）
+    const usesGr = P.zones.grZone.length > 0 || Object.values(g.cards).some((c) => c.owner === p && isGrCard(registry[c.cardId]));
 
     const plate = (
       <div
@@ -346,6 +349,7 @@ export function BattleScreen() {
             <span>盾<b>{P.zones.shield.length}</b></span>
             <span>手札<b>{P.zones.hand.length}</b></span>
             <span>マナ<b>{untapped}/{P.zones.mana.length}</b></span>
+            {usesGr && <span title="超GRゾーンの残り枚数" data-testid={`gr-${p}`}>超GR<b>{P.zones.grZone.length}</b></span>}
           </div>
         </div>
         {targetable && <div className="plate-target">プレイヤーを攻撃</div>}
@@ -567,6 +571,7 @@ export function BattleScreen() {
       {evolve?.multi && (
         <Modal onClose={() => setEvolve(null)}>
           <h3>進化元を選んでください（選んだ順に下に重なります）</h3>
+          <p className="muted">{evolve.picked?.length ?? 0}枚選択中</p>
           <div className="zone-cards wrap">
             {evolve.bases.length === 0 && <p className="muted">進化元にできるカードがありません</p>}
             {evolve.bases.map((b) => {
@@ -747,7 +752,7 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
   }
   if (controllable) {
     manual.push({ label: inst.tapped ? 'アンタップ' : 'タップ', run: () => act({ type: 'MANUAL_TAP', player: actor, iid, tapped: !inst.tapped }) });
-    if (inst.zone === 'battle') {
+    if (inst.zone === 'battle' && !isNonCreaturePermanent(d.type)) {
       manual.push({ label: 'パワー +1000', run: () => act({ type: 'MANUAL_POWER', player: actor, iid, amount: 1000 }) });
       manual.push({ label: 'パワー −1000', run: () => act({ type: 'MANUAL_POWER', player: actor, iid, amount: -1000 }) });
     }
@@ -759,7 +764,7 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
   }
   const where = `${g.players[owner].name} の${ZONE_LABEL[inst.zone]}`;
   const stateLine = [
-    inst.zone === 'battle' && !isIgnored(g, registry, iid) ? `現在のパワー ${power(g, registry, iid)}` : null,
+    inst.zone === 'battle' && !isNonCreaturePermanent(d.type) && !isIgnored(g, registry, iid) ? `現在のパワー ${power(g, registry, iid)}` : null,
     inst.tapped ? 'タップ中' : null,
     inst.under.length ? `進化元 ${inst.under.length}枚` : null,
     inst.seals?.length ? `封印 ${inst.seals.length}枚` : null,

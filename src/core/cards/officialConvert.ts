@@ -113,7 +113,8 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
     type,
     typeLabel,
     races: main.race ? main.race.split(/[/／]/).map((r) => r.trim()).filter(Boolean) : [],
-    power: type === 'spell' || type === 'tamaseed' ? undefined : (power ?? 0),
+    // クロスギア・フィールドなど、パワーのないカードには 0 を入れない
+    power: type === 'spell' || type === 'tamaseed' || (type === 'field' && power === undefined) ? undefined : (power ?? 0),
     text: faceText(main),
     set: set ? OFFICIAL_SET_PREFIX + set : `${OFFICIAL_SET_PREFIX}その他`,
     rarity: main.rarity || undefined,
