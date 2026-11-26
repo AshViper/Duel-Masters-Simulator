@@ -484,6 +484,11 @@ export class Ctx {
           this.moveCard(task.iid, 'battle');
         }
         if (task.tapped) inst.tapped = true;
+        // 出したクリーチャーに能力を与える
+        if (task.grant) {
+          if (task.grant.untilNextTurn) inst.keywordsUntil = { keywords: { ...(inst.keywordsUntil?.keywords ?? {}), ...task.grant.keywords }, player: task.grant.by };
+          else inst.keywordsTurn = { ...(inst.keywordsTurn ?? {}), ...task.grant.keywords };
+        }
         // 侵略・革命チェンジで出たクリーチャーが攻撃を続ける
         if (task.replaceAttacker && s.combat) {
           s.combat.attacker = task.iid;
@@ -1196,7 +1201,17 @@ export class Ctx {
           this.log(`${this.name(iid)} をアンタップ`, controller);
         });
       case 'putIntoBattle':
-        return this.withTargets(controller, source, e.target, 'バトルゾーンに出す', false, (iid) => this.putIntoBattle(iid, controller));
+        return this.withTargets(controller, source, e.target, 'バトルゾーンに出す', false, (iid) => {
+          const t = this.putIntoBattle(iid, controller);
+          return t && e.grant && t.kind === 'enterBattle' ? { ...t, grant: { ...e.grant, by: controller } } : t;
+        });
+      case 'putSelfIntoBattle': {
+        // ツインパクトの呪文側を唱えた後、このカードをクリーチャーとしてバトルゾーンに出す（墓地には置かない）
+        const inst = s.cards[source];
+        if (!inst || inst.zone === 'battle' || !isCreatureType(def(s, this.reg, source).type)) return false;
+        this.insertFront({ kind: 'enterBattle', player: inst.owner, iid: source });
+        return false;
+      }
       case 'toDeckTop':
         return this.withTargets(controller, source, e.target, '山札の上に置く', false, (iid) => {
           if (s.cards[iid].zone === 'battle') return this.moveTo(iid, 'deck', controller);
@@ -1657,9 +1672,14 @@ export class Ctx {
       case 'BLOCKED':
         this.triggerFrom(e.blocker, 'onBlock');
         break;
-      case 'BATTLE_WON':
+      case 'BATTLE_WON': {
         this.triggerFrom(e.winner, 'onBattleWin');
+        // 「自分のクリーチャーがバトルに勝った時」：他のクリーチャーと、「他の」でなければ勝ったクリーチャー自身も
+        const wOwner = s.cards[e.winner].owner;
+        this.triggerOthers(e.winner, 'onOtherBattleWin', wOwner);
+        this.triggerFrom(e.winner, 'onOtherBattleWin', (ab) => this.whoMatches(ab.who, wOwner, wOwner) && !ab.filter?.excludeSelf && matchFilter(s, this.reg, e.winner, ab.filter, e.winner));
         break;
+      }
       // 「自分のターンのはじめに」(who: self) と「相手のターンのはじめに」(who: opponent)
       case 'TURN_STARTED':
         for (const iid of battleAll()) this.triggerFrom(iid, 'onTurnStart', (ab) => this.whoMatches(ab.who, s.cards[iid].owner, e.player));

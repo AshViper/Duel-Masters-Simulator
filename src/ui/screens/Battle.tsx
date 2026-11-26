@@ -11,6 +11,7 @@ import { CardView, CIV_COLOR, type CardSize } from '../components/CardView';
 import { create } from 'zustand';
 import '../battle.css';
 import { dropKey, parseDropKey, resolveDrop, type DropResult, type DropTarget } from './battleDrag';
+import { ActionFx } from './battleFx';
 
 const CIV_ORDER = CIVILIZATIONS;
 
@@ -486,6 +487,7 @@ export function BattleScreen() {
         </div>
         <p className="muted tiny-help">ドラッグ：チャージ・召喚・攻撃・移動　右クリック：カードの詳細と手動操作　クリック：判断の選択</p>
       </aside>
+      <ActionFx g={g} me={me} solo={mode === 'solo'} />
       {pending && (
         <DecisionPanel
           g={g}

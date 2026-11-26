@@ -76,6 +76,10 @@ export interface CardFilter {
   evolution?: boolean;
   /** 持ち主のクリーチャーの中で一番パワーが大きい（highest）／小さい（lowest） */
   extremePower?: 'highest' | 'lowest';
+  /** 効果の発生源（このクリーチャー）とパワー・コストを比べる（「このクリーチャーよりパワーが小さい」） */
+  relativeToSource?: { stat: 'power' | 'cost'; cmp: 'less' | 'greater' };
+  /** 名前にこの文字列を含む（「名前に《ボルメテウス》とある」） */
+  nameIncludes?: string;
 }
 
 /** 効果の対象指定 */
@@ -129,7 +133,10 @@ export type EffectDef =
   | { type: 'shieldToHand'; target: TargetSpec }
   | { type: 'graveyardToHand'; target: TargetSpec }
   /** 指定ゾーンのクリーチャーをバトルゾーンに出す（コストを払わない） */
-  | { type: 'putIntoBattle'; target: TargetSpec }
+  /** grant：出したクリーチャーに与える能力（「次の自分のターンのはじめまで、そのクリーチャーに「ブロッカー」を与える」） */
+  | { type: 'putIntoBattle'; target: TargetSpec; grant?: { keywords: Keywords; untilNextTurn?: boolean } }
+  /** ツインパクトの呪文側を唱えた後、このカードをバトルゾーンに出す（「このカードを出す」） */
+  | { type: 'putSelfIntoBattle' }
   /** 手札を見ないで選んで捨てさせる（self: 自分の手札を相手に選ばせる） */
   | { type: 'discardRandom'; count: number; self?: boolean }
   /** 山札の上から count 枚を見て、条件に合うものを pickCount 枚まで pickTo へ。残りは restTo へ */
@@ -194,6 +201,8 @@ export type EffectDef =
 
 export const TRIGGER_EVENTS = [
   'onSummon',
+  /** 自分（または相手）の他のクリーチャーがバトルに勝った時 */
+  'onOtherBattleWin',
   'onDestroyed',
   'onAttack',
   'onCast',
@@ -403,6 +412,8 @@ export interface CardDefinition {
   gZero?: Condition;
   /** このカード自身の召喚コストを「〜1枚につきN」少なくする。コストは min 未満にならない */
   selfCost?: { amount: number; per: Quantity; unit: number; min: number };
+  /** 条件を満たす時、このカード自身のコストを amount 少なくする（「〜があれば、このクリーチャーの召喚コストを3少なくする」） */
+  condCost?: { amount: number; condition: Condition };
   /** ハイパー化：自分のクリーチャーを count 体タップして、次の自分のターンのはじめまでハイパーモードになる */
   hyper?: { count: number; excludeSelf: boolean; filter?: CardFilter };
   /** ハイパーモードの面にだけある能力の文（公式の2面目から） */

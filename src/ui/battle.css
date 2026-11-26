@@ -583,3 +583,73 @@
 
 .battle-screen .detail-info table { font-size: 15px; }
 .battle-screen .detail-info th { padding: 2px 14px 2px 0; }
+
+/* ───── 行動の演出（battleFx.tsx）：テロップ・矢印・残像・呪文の大写し・カードの光り方 ───── */
+.fx-layer { position: absolute; inset: 0; pointer-events: none; z-index: 40; }
+.fx-arrows { position: fixed; inset: 0; overflow: visible; }
+.fx-arrow path { fill: none; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; animation: fxDraw 0.38s var(--ease-out-quint) forwards, fxFade 0.35s 0.75s ease-in forwards; }
+.fx-arrow .fx-arrow-line { stroke-width: 6; }
+.fx-arrow .fx-arrow-glow { stroke-width: 18; opacity: 0.3; filter: blur(4px); }
+.fx-arrow.attack path { stroke: #ff5a4e; }
+.fx-arrow.block path { stroke: #5dd9f5; }
+.fx-arrow-hit { fill: none; stroke-width: 4; opacity: 0; transform-box: fill-box; transform-origin: center; animation: fxHit 0.55s 0.32s ease-out forwards; }
+.fx-arrow.attack .fx-arrow-hit { stroke: #ffb3aa; }
+.fx-arrow.block .fx-arrow-hit { stroke: #b6f0ff; }
+
+.fx-ghost { position: fixed; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; }
+.fx-ghost .card { --w: var(--gw); }
+.fx-ghost.destroy .card { animation: fxShatter 0.95s ease-in forwards; }
+.fx-ghost.leave .card { animation: fxLeave 0.95s var(--ease-out-quint) forwards; }
+.fx-ghost-label { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 3px 12px; border-radius: 999px; font-weight: 800; font-size: 15px; letter-spacing: 0.12em; white-space: nowrap; background: rgba(8, 13, 23, 0.82); animation: fxLabel 0.95s ease-out forwards; }
+.fx-ghost.destroy .fx-ghost-label { color: #ffb3aa; border: 1px solid #ff5a4e; box-shadow: 0 0 14px rgba(255, 90, 78, 0.6); }
+.fx-ghost.leave .fx-ghost-label { color: #b6f0ff; border: 1px solid #5dd9f5; box-shadow: 0 0 14px rgba(93, 217, 245, 0.5); }
+
+.fx-spot { position: absolute; left: calc((100% - var(--panel-w)) / 2); top: 50%; display: flex; flex-direction: column; align-items: center; gap: 8px; animation: fxSpot 1.5s var(--ease-out-expo) forwards; }
+.fx-spot .card { --w: clamp(140px, 22vh, 220px); box-shadow: 0 0 0 2px var(--gold), 0 0 40px rgba(244, 211, 94, 0.55), var(--shadow-floating); }
+.fx-spot.theirs .card { box-shadow: 0 0 0 2px var(--red), 0 0 40px rgba(255, 90, 78, 0.55), var(--shadow-floating); }
+.fx-spot-label { padding: 4px 18px; border-radius: 6px; font-size: 20px; font-weight: 800; letter-spacing: 0.18em; color: var(--gold-hi); background: rgba(8, 13, 23, 0.85); border: 1px solid var(--gold); text-shadow: 0 0 10px rgba(244, 211, 94, 0.6); }
+.fx-spot.theirs .fx-spot-label { color: #ffb3aa; border-color: var(--red); text-shadow: 0 0 10px rgba(255, 90, 78, 0.6); }
+
+.fx-feed { position: absolute; right: calc(var(--panel-w) + 12px); top: 50%; transform: translateY(-50%); width: min(300px, 26vw); margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.fx-item { --tone: var(--cyan); display: flex; align-items: center; gap: 9px; padding: 6px 10px 6px 6px; border-radius: 8px; background: linear-gradient(90deg, rgba(10, 18, 31, 0.94), rgba(21, 31, 48, 0.9)); border: 1px solid var(--border-main); border-left: 4px solid var(--cyan); box-shadow: var(--shadow-panel); animation: fxFeedIn 0.35s var(--ease-out-expo), fxFeedOut 0.4s 2.4s ease-in forwards; }
+.fx-item.theirs, .fx-item.p1 { border-left-color: var(--red); }
+.fx-item .card { --w: 34px; flex: none; animation: none; }
+.fx-item-icon { width: 34px; height: 34px; flex: none; border-radius: 50%; background: radial-gradient(circle, var(--tone), transparent 70%); }
+.fx-item-body { display: flex; flex-direction: column; min-width: 0; }
+.fx-item-body b { font-size: 14px; letter-spacing: 0.08em; color: var(--tone); }
+.fx-item-body span { font-size: 12.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-item.tone-summon { --tone: var(--gold-hi); }
+.fx-item.tone-spell { --tone: #c39bff; }
+.fx-item.tone-charge { --tone: var(--green); }
+.fx-item.tone-attack, .fx-item.tone-break, .fx-item.tone-destroy { --tone: var(--red); }
+.fx-item.tone-block { --tone: var(--cyan); }
+.fx-item.tone-battle { --tone: #ff9f43; }
+.fx-item.tone-leave, .fx-item.tone-draw { --tone: #8fb8ff; }
+.fx-item.tone-trigger { --tone: var(--gold-hi); background: linear-gradient(90deg, rgba(70, 52, 10, 0.95), rgba(21, 31, 48, 0.92)); }
+.fx-item.tone-break b, .fx-item.tone-trigger b { font-size: 15.5px; }
+
+/* カードそのものの光り方（盤面の要素に一時的に付ける） */
+.battle-screen .card.fx-enter { animation: fxEnter 1.2s var(--ease-out-expo); z-index: 5; }
+.battle-screen .card.fx-charge { animation: fxCharge 1s var(--ease-out-expo); }
+.battle-screen .card.fx-attack { animation: fxAttackGlow 1.1s ease-out; z-index: 5; }
+.battle-screen .card.fx-targeted, .battle-screen .plate.fx-targeted { animation: fxTargeted 1.1s ease-out; }
+.battle-screen .card.fx-block { animation: fxBlockGlow 1.1s ease-out; z-index: 5; }
+.battle-screen .card.fx-win { animation: fxWin 1s ease-out; }
+.battle-screen .fx-pile { animation: fxPile 0.85s ease-out; }
+
+@keyframes fxDraw { to { stroke-dashoffset: 0; } }
+@keyframes fxFade { to { opacity: 0; } }
+@keyframes fxHit { 0% { opacity: 1; transform: scale(0.4); } 100% { opacity: 0; transform: scale(3.2); } }
+@keyframes fxShatter { 0% { filter: brightness(1.8) saturate(1.4); transform: scale(1.05); } 25% { filter: brightness(2.2) sepia(1) hue-rotate(-40deg) saturate(4); transform: scale(1.08) rotate(-3deg); } 100% { opacity: 0; filter: grayscale(1) brightness(0.4) blur(3px); transform: scale(0.7) rotate(8deg) translateY(30px); } }
+@keyframes fxLeave { 0% { filter: brightness(1.6); } 100% { opacity: 0; filter: brightness(2) blur(2px); transform: scale(0.6) translateY(-50px); } }
+@keyframes fxLabel { 0% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); } 20% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes fxSpot { 0% { opacity: 0; transform: translate(-50%, -40%) scale(0.6) rotateY(80deg); } 18% { opacity: 1; transform: translate(-50%, -50%) scale(1.05) rotateY(0); } 28% { transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; transform: translate(-50%, -50%); } 100% { opacity: 0; transform: translate(-50%, -55%) scale(0.92); } }
+@keyframes fxFeedIn { from { opacity: 0; transform: translateX(40px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes fxFeedOut { to { opacity: 0; transform: translateX(24px); } }
+@keyframes fxEnter { 0% { filter: brightness(2.4); transform: scale(1.25) translateY(-8px); } 35% { filter: brightness(1.5) drop-shadow(0 0 22px var(--gold-hi)); transform: scale(1.06); } 100% { filter: none; transform: none; } }
+@keyframes fxCharge { 0% { filter: brightness(2.2) drop-shadow(0 0 14px var(--green)); transform: translateY(-14px) scale(1.15); } 100% { filter: none; } }
+@keyframes fxAttackGlow { 0%, 100% { filter: none; } 20%, 60% { filter: brightness(1.5) drop-shadow(0 0 18px var(--red)); } }
+@keyframes fxTargeted { 0%, 100% { filter: none; } 30%, 70% { filter: brightness(1.4) drop-shadow(0 0 18px var(--red)); } 45% { filter: brightness(2) drop-shadow(0 0 28px var(--red)); } }
+@keyframes fxBlockGlow { 0%, 100% { filter: none; } 25%, 65% { filter: brightness(1.6) drop-shadow(0 0 20px var(--cyan)); } }
+@keyframes fxWin { 0%, 100% { filter: none; } 30% { filter: brightness(1.8) drop-shadow(0 0 22px #ff9f43); } }
+@keyframes fxPile { 0%, 100% { filter: none; } 35% { filter: brightness(1.8) drop-shadow(0 0 12px var(--cyan)); } }

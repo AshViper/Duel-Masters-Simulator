@@ -121,7 +121,7 @@ export type Task =
   | { kind: 'battle'; attacker: string; defender: string }
   | { kind: 'battleWon'; winner: string; loser: string }
   | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin' }
-  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean }
+  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
   /** 呪文を解決し終えたら墓地へ */
   | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin' }
   | { kind: 'hyperize'; player: PlayerId; iid: string }

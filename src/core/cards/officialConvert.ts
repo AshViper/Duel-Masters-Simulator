@@ -90,7 +90,8 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
   const spellFace = hyperFace || forbiddenFace || psychicFace ? undefined : d.faces[1];
   const twin: TwinSide | undefined = spellFace
     ? {
-        name: spellFace.name,
+        // 公式はツインパクトの両面に「クリーチャー名 / 呪文名」をまとめた名前を返すので分ける
+        name: splitTwinName(spellFace.name)?.[1] ?? spellFace.name,
         cost: parseNumber(spellFace.cost) ?? 0,
         civilizations: parseCivs(spellFace.civilization || main.civilization),
         text: faceText(spellFace),
@@ -99,7 +100,7 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
 
   return applyParsedEffects({
     id: officialCardId(d.id),
-    name: main.name,
+    name: spellFace ? (splitTwinName(main.name)?.[0] ?? main.name) : main.name,
     imageRef: officialImageRef(d.id),
     cost: parseNumber(main.cost) ?? 0,
     civilizations: parseCivs(main.civilization),
@@ -116,6 +117,12 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
     ...(psychic ? { psychic } : {}),
     support: 'manual',
   });
+}
+
+/** 「クリーチャー名 / 呪文名」を2つに分ける。区切りがなければ null */
+function splitTwinName(name: string): [string, string] | null {
+  const parts = name.split(/\s+[/／]\s+/);
+  return parts.length === 2 && parts[0] && parts[1] ? [parts[0], parts[1]] : null;
 }
 
 function isForbiddenLabel(label: string | undefined): boolean {
@@ -145,6 +152,9 @@ export function faceKind(card: CardDefinition): 'creature' | 'spell' | 'other' {
  */
 export function applyParsedEffects(card: CardDefinition): CardDefinition {
   // 以前の版で、ハイパーモードの面をツインパクトの呪文側として保存したカードを直す
+  // ツインパクトで、両面とも「A / B」の名前のまま保存したカードは、名前を分ける（ハイパー化と取り違えない）
+  const both = card.twin && card.twin.name === card.name ? splitTwinName(card.name) : null;
+  if (both && card.twin) card = { ...card, name: both[0], twin: { ...card.twin, name: both[1] } };
   if (card.twin && card.twin.name === card.name) {
     const mainLines = new Set(card.text.split('\n'));
     card = { ...card, hyperText: card.twin.text.split('\n').filter((l) => !mainLines.has(l)).join('\n'), twin: undefined };
@@ -233,6 +243,7 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     neoEvolution: main.neoEvolution,
     hyper: main.hyper,
     selfCost: main.selfCost,
+    condCost: main.condCost,
     gZero: main.gZero,
     hyperForm: hyperParsed
       ? {

@@ -188,6 +188,14 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   if (f.hasKeyword && !(inst.zone === 'battle' && !noPower ? keywords(state, reg, iid) : (d.keywords ?? {}))[f.hasKeyword]) return false;
   if (f.multicolor && d.civilizations.length < 2) return false;
   if (f.evolution && d.type !== 'evolution') return false;
+  if (f.nameIncludes && !d.name.includes(f.nameIncludes)) return false;
+  // 「このクリーチャーよりパワーが小さい」：効果の発生源と比べる
+  if (f.relativeToSource && source && state.cards[source]) {
+    const val = (x: string) => (f.relativeToSource!.stat === 'cost' ? def(state, reg, x).cost : state.cards[x].zone === 'battle' && !noPower ? power(state, reg, x) : (def(state, reg, x).power ?? 0));
+    const mine = val(iid);
+    const theirs = val(source);
+    if (f.relativeToSource.cmp === 'less' ? !(mine < theirs) : !(mine > theirs)) return false;
+  }
   // 一番パワーが大きい／小さい：持ち主のクリーチャーの中で比べる（同じパワーならすべて）
   if (f.extremePower && inst.zone === 'battle') {
     const pw = (x: string) => (noPower ? (def(state, reg, x).power ?? 0) : power(state, reg, x));
@@ -358,6 +366,11 @@ function effectiveCostImpl(state: GameState, reg: CardRegistry, player: PlayerId
   // G・ゼロ：条件を満たしていればコストを支払わずに使える
   if (side === 'main' && d.gZero && evalCondition(state, reg, player, d.gZero, true, iid)) return 0;
   // このカード自身のコスト軽減（「〜1枚につき1少なくする」）
+  // 条件つきの自分のコスト軽減
+  if (side === 'main' && d.condCost && evalCondition(state, reg, player, d.condCost.condition, true, iid)) {
+    cost -= d.condCost.amount;
+    floor = Math.min(face.cost, Math.max(floor, 1));
+  }
   if (side === 'main' && d.selfCost) {
     const sc = d.selfCost;
     cost -= sc.amount * Math.floor(countQuantity(state, reg, player, sc.per, true, iid) / sc.unit);
