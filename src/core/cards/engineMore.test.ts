@@ -2,7 +2,7 @@
 // 「〜1体につき」、行き先がいくつもある山札めくり、鬼タイム、「そうしたら」の続き
 import { describe, expect, it } from 'vitest';
 import { Ctx, applyAction } from '../engine/engine';
-import { altCost, canPlayAlt, fushigiCandidates, keywords, power } from '../engine/queries';
+import { altCost, canPlayAlt, fushigiCandidates, keywords, playRestriction, power } from '../engine/queries';
 import { getLegalActions } from '../engine/legal';
 import { createGame } from '../engine/setup';
 import type { Action, GameState, PlayerId } from '../engine/types';
@@ -68,6 +68,10 @@ const C = {
   revealAny: spell('m-45', ['自分の山札の上から１枚を表向きにする。それが呪文または名前に《m-2》とあるカードなら、手札に加える。']),
   topBottom: spell('m-46', ['自分の山札の上から２枚を見る。その後、それらを好きな順序で山札の上または下に置く。']),
   shuffleLook: spell('m-47', ['自分の山札をシャッフルし、上から３枚を表向きにする。その中からクリーチャーを１体出し、残りを好きな順序で山札の下に置く。']),
+  numberBounce: mk('m-90', ['このクリーチャーがバトルゾーンに出た時、数字を１つ選ぶ。その数字と同じコストを持つ相手のクリーチャーをすべて、持ち主の手札に戻す。']),
+  numberLock: spell('m-91', ['数字を１つ選ぶ。次の自分のターンのはじめまで、相手はその数字と同じコストを持つクリーチャーと呪文を召喚したり唱えたりできない。']),
+  tapOrCast: spell('m-92', ['次のうちいずれかひとつを選ぶ。\n▶相手のクリーチャーをすべてタップする。\n▶カードを１枚引く。その後、光または水のコスト５以下の呪文を１枚、コストを支払わずに自分の手札から唱えてもよい。']),
+  spell5: mk('m-93', [], { type: '呪文', power: '', cost: '5' }),
   number: spell('m-50', ['数字を１つ選ぶ。次の自分のターンのはじめまで、その数字と同じコストの相手のクリーチャーは攻撃もブロックもできない。']),
   both: spell('m-51', ['次のうちいずれかひとつを選ぶ。バトルゾーンに自分の闇のクリーチャーと火のクリーチャーがそれぞれ１体以上あれば、両方選んでもよい。\n▶カードを１枚引く。\n▶自分の山札の上から１枚目をマナゾーンに置く。その後、カードを１枚、自分のマナゾーンから手札に戻してもよい。']),
   tapAll: mk('m-52', ['このクリーチャーがバトルゾーンに出た時、相手のクリーチャーをすべてタップする。次の相手のターンのはじめに、それらはアンタップしない。']),
@@ -561,6 +565,46 @@ describe('数字を選ぶ・次のうちいずれかを選ぶ・出た時の能�
     s.chosenNumber = 1;
     expect(keywords(s, reg, five).cannotAttack).toBe(true);
     expect(keywords(s, reg, one).cannotAttack).toBeFalsy();
+  });
+
+  it('「その数字と同じコストを持つ相手のクリーチャーをすべて、持ち主の手札に戻す」', () => {
+    let s = newGame();
+    const one = put(s, 1, C.vanilla.id, 'battle');
+    const five = put(s, 1, C.cost5.id, 'battle');
+    const mine = put(s, 0, C.cost5.id, 'battle');
+    expect(C.numberBounce.support).toBe('full');
+    const b = put(s, 0, C.numberBounce.id, 'hand');
+    mana(s, 1);
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: b });
+    expect(s.pending).toMatchObject({ kind: 'chooseMode', player: 0 });
+    s = act(s, { type: 'RESPOND', player: 0, selected: ['5'] });
+    expect(s.cards[five].zone).toBe('hand');
+    expect(s.cards[one].zone).toBe('battle');
+    expect(s.cards[mine].zone).toBe('battle');
+  });
+
+  it('「相手はその数字と同じコストを持つクリーチャーと呪文を召喚したり唱えたりできない」', () => {
+    let s = newGame();
+    expect(C.numberLock.support).toBe('full');
+    s = cast(s, C.numberLock.id).s;
+    s = act(s, { type: 'RESPOND', player: 0, selected: ['5'] });
+    const c5 = put(s, 1, C.cost5.id, 'hand');
+    const sp = put(s, 1, C.spell5.id, 'hand');
+    const c1 = put(s, 1, C.vanilla.id, 'hand');
+    // コスト5のクリーチャーも呪文も使えない。コスト1や自分のカードは使える
+    expect(playRestriction(s, reg, 1, c5)).toBeTruthy();
+    expect(playRestriction(s, reg, 1, sp)).toBeTruthy();
+    expect(playRestriction(s, reg, 1, c1)).toBeNull();
+    expect(playRestriction(s, reg, 0, put(s, 0, C.cost5.id, 'hand'))).toBeNull();
+  });
+
+  it('「次のうちいずれかひとつを選ぶ。▶すべてタップ ▶1枚引いて光または水のコスト5以下の呪文を唱えてもよい」', () => {
+    expect(C.tapOrCast.support).toBe('full');
+    let s = newGame();
+    const o = put(s, 1, C.vanilla.id, 'battle');
+    s = cast(s, C.tapOrCast.id).s;
+    s = act(s, { type: 'RESPOND', player: 0, selected: ['0'] });
+    expect(s.cards[o].tapped).toBe(true);
   });
 
   it('「次のうちいずれかひとつを選ぶ。〜があれば、両方選んでもよい」：条件を満たす時だけ両方を選べる', () => {

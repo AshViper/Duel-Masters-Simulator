@@ -98,6 +98,10 @@ export function normalizeText(s: string): string {
     .replace(/(自分|相手)のマナゾーンに(\d+)枚以上カードがあれば/g, '$1のマナゾーンにカードが$2枚以上あれば')
     .replace(/を無限の数、?/g, 'をすべて')
     .replace(/カードをもう(\d+)枚/g, 'カードを$1枚')
+    // 「その数字と同じコストを持つ相手のクリーチャー」＝「相手の、その数字と同じコストを持つクリーチャー」
+    .replace(/((?:その|選んだ)数字と同じコスト(?:の|を持つ))(相手|自分)の/g, '$2の、$1')
+    // 「コストを支払わずに自分の手札から唱える」＝「自分の手札からコストを支払わずに唱える」
+    .replace(/コストを支払わずに、?(自分の(?:手札|墓地)(?:または(?:手札|墓地))?から)/g, '$1コストを支払わずに')
     // 「山札の上から10枚を表向きにし、その中から〜」「4枚を見て、そのうちの〜」は2つの文として読む
     .replace(/(山札(?:の上|を、?上)から\d+枚(?:目まで)?を)見て、(?=その)/g, '$1見る。')
     .replace(/表向きにし、(?=その(?:中|うち|\d+体))/g, '表向きにする。')
@@ -1525,6 +1529,17 @@ function parseStatic(t: string): StaticAbility[] | null {
     const filter: CardFilter = {};
     if (!parseSubject(noEnter[3], filter)) return null;
     return [{ type: 'cannotEnter', who: noEnter[1] === '自分' ? 'self' : 'opponent', ...(Object.keys(filter).length ? { filter } : {}) }];
+  }
+  // 「相手はその数字と同じコストを持つクリーチャーと呪文を召喚したり唱えたりできない」：召喚と呪文の両方を禁じる
+  const noBoth = t.match(/^(誰も|相手は|自分は)、?(.*?)クリーチャーと呪文を(?:召喚したり唱えたり|召喚も唱えることも)できない$/);
+  if (noBoth) {
+    const filter: CardFilter = {};
+    if (!parseMods(noBoth[2], filter)) return null;
+    const who = noBoth[1] === '誰も' ? 'both' : noBoth[1] === '相手は' ? 'opponent' : 'self';
+    return [
+      { type: 'cannotSummon', who, filter: { ...filter, cardType: 'creature' } },
+      { type: 'cannotCast', who, filter: { ...filter, cardType: 'spell' } },
+    ];
   }
   // 「誰もゼニスを召喚できない」「相手は光のクリーチャーを召喚できない」
   const noSummon = t.match(/^(誰も|相手は|自分は)、?(.+?)を召喚できない$/);
