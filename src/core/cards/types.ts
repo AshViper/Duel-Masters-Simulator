@@ -269,6 +269,8 @@ export type EffectDef =
   | { type: 'extraTurn' }
   /** そのプレイヤー（効果の持ち主）がゲームに勝つ */
   | { type: 'winGame' }
+  /** Dスイッチ：このD2フィールドを上下逆さまにする（ゲーム中に一度） */
+  | { type: 'dSwitchFlip' }
   /**
    * 効果の発生源（このクリーチャー）自身に対する処理。移動先（MoveDest）なら move と同じ移動をする。
    * 'toHand' / 'toMana' は旧形式（'hand' / 'mana' と同じ）。tapped: タップして置く
@@ -367,6 +369,8 @@ export const TRIGGER_EVENTS = [
   'onDraw',
   /** 他のクリーチャーが攻撃する時・破壊された時・離れた時（who・filter で絞る） */
   'onOtherAttack',
+  /** 他のクリーチャーがプレイヤーを攻撃する時（「相手のクリーチャーが自分を攻撃する時」） */
+  'onOtherAttackPlayer',
   'onOtherDestroyed',
   'onOtherLeave',
   /** このクリーチャーの攻撃の終わりに */

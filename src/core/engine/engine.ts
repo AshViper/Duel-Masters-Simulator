@@ -1744,6 +1744,12 @@ export class Ctx {
         s.players[controller].extraTurns += 1;
         this.log('このターンの後、もう一度自分のターンを行う', controller);
         return false;
+      case 'dSwitchFlip': {
+        const inst = s.cards[source];
+        if (inst) inst.dSwitched = true;
+        this.log(`${this.name(source)} を上下逆さまにした（Dスイッチ）`, controller);
+        return false;
+      }
       case 'winGame':
         this.log(`${this.name(source)} の効果でゲームに勝利`, controller);
         this.gameOver(controller, `${this.name(source)} の効果`);
@@ -2718,6 +2724,7 @@ export class Ctx {
         // 「自分のドラゴンが攻撃する時」は、条件に合えばこのクリーチャー自身の攻撃でも誘発する
         this.triggerFrom(e.attacker, 'onAttack', (ab) => !ab.filter || matchFilter(s, this.reg, e.attacker, ab.filter, e.attacker));
         this.triggerOthers(e.attacker, 'onOtherAttack', e.player);
+        if (e.target.kind === 'player') this.triggerOthers(e.attacker, 'onOtherAttackPlayer', e.player);
         if (e.target.kind === 'creature') this.triggerFrom(e.target.iid, 'onAttacked');
         break;
       case 'CREATURE_TAPPED':
