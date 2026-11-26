@@ -289,6 +289,7 @@ export class Ctx {
         s.turnStatics = s.turnStatics.filter((t) => t.untilNextTurnOf !== pl);
         for (const c of Object.values(s.cards)) {
           if (c.keywordsUntil?.player === pl) delete c.keywordsUntil;
+          if (c.powerModUntil?.player === pl) delete c.powerModUntil;
           // ハイパーモードは次の自分のターンのはじめまで
           if (c.hyper && c.owner === pl) delete c.hyper;
         }
@@ -806,6 +807,8 @@ export class Ctx {
           inst.tapped = baseTapped;
           if (baseNonEvo) inst.evolvedOnNonEvolution = true;
           this.log(`${this.name(task.evolveOn)} が ${this.name(task.iid)} に進化`, task.player);
+          // 装備していたウエポンは、進化したクリーチャーが引き継ぐ
+          for (const w of s.players[inst.owner].zones.battle) if (s.cards[w].equippedTo === task.evolveOn) s.cards[w].equippedTo = task.iid;
           // シンカパワー：「このクリーチャーが進化する時」。進化した後のクリーチャーが使う
           for (const ab of evolvedDef.abilities ?? []) if (ab.when === 'onEvolved') this.addTrigger(inst.owner, task.iid, this.abilityTasks(ab, inst.owner, task.iid));
         } else {
@@ -849,6 +852,10 @@ export class Ctx {
                 }
               }
             }
+          }
+          if (task.equipTo && s.cards[task.equipTo]?.zone === 'battle') {
+            inst.equippedTo = task.equipTo;
+            this.log(`${enteredDef.name} を ${this.name(task.equipTo)} に装備した`, task.player);
           }
           // 「このドラグハートが出た時」「このフィールドが出た時」
           this.triggerFrom(task.iid, 'onSummon');
@@ -1739,6 +1746,14 @@ export class Ctx {
         return false;
       case 'selfAction': {
         const inst = s.cards[source];
+        // 「このクリーチャーが破壊された時、このクリーチャーを（墓地から）手札に戻す」：墓地にあるこのカードを動かす
+        if (inst?.zone === 'graveyard' && e.action !== 'destroy' && e.action !== 'tap' && e.action !== 'untap' && e.action !== 'graveyard') {
+          const dest = e.action === 'toHand' ? 'hand' : e.action === 'toMana' ? 'mana' : e.action;
+          this.moveCard(source, dest === 'deckTop' || dest === 'deckBottom' ? 'deck' : dest, { toTop: dest !== 'deckBottom' });
+          if (dest === 'mana' && e.tapped) inst.tapped = true;
+          this.log(`${this.name(source)} を墓地から${ZONE_LABEL[dest === 'deckTop' || dest === 'deckBottom' ? 'deck' : dest] ?? dest}へ`, controller);
+          return false;
+        }
         if (inst?.zone !== 'battle') return false;
         if (e.action === 'tap') {
           this.setTapped(source, controller);
@@ -1784,6 +1799,8 @@ export class Ctx {
         inst.flipped = want;
         if (e.untap) inst.tapped = false;
         this.log(`${before} を裏返した：${this.name(source)}`, controller);
+        // 龍解したウエポンは、装備から外れてクリーチャーになる
+        if (want) delete inst.equippedTo;
         if (want) {
           // 表がクリーチャーでないカード（ドラグハート）は、裏返ってクリーチャーになる。このターンに出たものとして扱う
           if (!isCreatureType(d0.type)) inst.enteredTurn = s.turn;
@@ -1966,7 +1983,11 @@ export class Ctx {
         return this.lookAtTop(controller, source, e);
       case 'powerMod': {
         const apply = (iid: string) => {
-          s.cards[iid].powerModTurn += e.amount;
+          const inst = s.cards[iid];
+          if (e.untilNextTurn) {
+            const prev = inst.powerModUntil?.player === controller ? inst.powerModUntil.amount : 0;
+            inst.powerModUntil = { amount: prev + e.amount, player: controller };
+          } else inst.powerModTurn += e.amount;
           this.log(`${this.name(iid)} のパワー${e.amount >= 0 ? '+' : ''}${e.amount}`, controller);
         };
         if (e.target === 'self') {
@@ -2158,7 +2179,10 @@ export class Ctx {
     return this.withTargets(controller, source, e.target, info.verb, info.harmful(e.target.zone), (iid) => {
       switch (e.to) {
         case 'battle': {
-          const t = this.putIntoBattle(iid, controller);
+          let t = this.putIntoBattle(iid, controller);
+          // ドラグハート・ウエポン：クリーチャーの能力で出した時は、そのクリーチャーに装備して出す
+          const host = s.cards[source];
+          if (t && t.kind === 'enterBattle' && /ウエポン/.test(def(s, this.reg, iid).typeLabel ?? '') && host?.zone === 'battle' && isCreatureType(def(s, this.reg, source).type)) t = { ...t, equipTo: source };
           return t && e.grant && t.kind === 'enterBattle' ? { ...t, grant: { ...e.grant, by: controller } } : t;
         }
         case 'under':
@@ -2568,6 +2592,8 @@ export class Ctx {
     const d = def(s, this.reg, iid);
     if (!isCreatureType(d.type) && !isNonCreaturePermanent(d.type)) return;
     (d.abilities ?? []).forEach((ab, i) => {
+      // 「これを装備したクリーチャーが〜時」は、装備先の出来事でだけ誘発する（下で処理）
+      if (ab.viaEquip) return;
       if (ab.when !== when || (extra && !extra(ab))) return;
       // 「進化ではないクリーチャーの上に置いた時」
       if (ab.evolvedOnNonEvolution && !inst.evolvedOnNonEvolution) return;
@@ -2584,6 +2610,13 @@ export class Ctx {
       }
       this.addTrigger(inst.owner, iid, this.abilityTasks(ab, inst.owner, iid, subject));
     });
+    // 装備しているドラグハート・ウエポンの「これを装備したクリーチャーが〜時」
+    for (const w of [...s.players[inst.owner].zones.battle]) {
+      if (s.cards[w].equippedTo !== iid) continue;
+      for (const ab of def(s, this.reg, w).abilities ?? []) {
+        if (ab.viaEquip && ab.when === when) this.addTrigger(s.cards[w].owner, w, this.abilityTasks(ab, s.cards[w].owner, w, iid));
+      }
+    }
   }
 
   /** 他のクリーチャー（subject）に起きた出来事で、バトルゾーンの他のクリーチャーの能力を誘発させる */
@@ -2819,6 +2852,7 @@ export class Ctx {
     inst.powerModTurn = 0;
     delete inst.keywordsTurn;
     delete inst.keywordsUntil;
+    delete inst.powerModUntil;
     delete inst.hyper;
     delete inst.exLifeShield;
     delete inst.exLifeShields;
@@ -2842,6 +2876,16 @@ export class Ctx {
     else owner.zones[to].push(iid);
     this.emit({ type: 'CARD_MOVED', iid, from, to });
     if (to === 'shield' && from !== 'shield') this.emit({ type: 'SHIELD_ADDED', player: inst.owner, iid });
+    // 装備：装備先のクリーチャーが離れたら、ウエポンは超次元ゾーンに戻る
+    if (from === 'battle' && to !== 'battle') {
+      delete inst.equippedTo;
+      for (const w of [...s.players[0].zones.battle, ...s.players[1].zones.battle]) {
+        if (s.cards[w].equippedTo !== iid) continue;
+        delete s.cards[w].equippedTo;
+        this.log(`${this.name(w)} は装備先が離れたので超次元ゾーンに戻った`, s.cards[w].owner);
+        this.moveCard(w, 'hyperspatial');
+      }
+    }
     if (from === 'shield' && to !== 'shield') this.emit({ type: 'SHIELD_LEFT', player: inst.owner, iid });
     // Zラッシュ：シールドが離れたら、次の自分のターンのはじめまでハイパーモードになる
     if (from === 'shield' && to !== 'shield') {

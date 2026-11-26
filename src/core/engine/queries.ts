@@ -301,6 +301,8 @@ function ownerMatches(owner: Applies['owner'], controller: PlayerId, target: Pla
 
 function appliesToCreature(state: GameState, reg: CardRegistry, a: ActiveStatic, applies: Applies, iid: string): boolean {
   const inst = state.cards[iid];
+  // 「これを装備したクリーチャー」：発生源のウエポンを装備しているクリーチャーだけ
+  if (applies.equipped) return state.cards[a.source]?.equippedTo === iid;
   if (!ownerMatches(applies.owner, a.controller, inst.owner)) return false;
   if (applies.excludeSelf && iid === a.source) return false;
   if (applies.onlySelf && iid !== a.source) return false;
@@ -356,7 +358,7 @@ export function power(state: GameState, reg: CardRegistry, iid: string): number 
 function powerImpl(state: GameState, reg: CardRegistry, iid: string): number {
   const inst = state.cards[iid];
   const d = def(state, reg, iid);
-  let p = (d.power ?? 0) + inst.powerModTurn;
+  let p = (d.power ?? 0) + inst.powerModTurn + (inst.powerModUntil?.amount ?? 0);
   if (inst.zone !== 'battle') return Math.max(0, p);
   const attacking = state.combat?.attacker === iid;
   for (const a of activeStatics(state, reg)) {

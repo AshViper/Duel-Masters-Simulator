@@ -269,7 +269,7 @@ export type EffectDef =
    */
   | { type: 'selfAction'; action: 'destroy' | 'tap' | 'untap' | 'toHand' | 'toMana' | Exclude<MoveDest, 'battle' | 'under'>; tapped?: boolean }
   /** ターン終了時まで、パワーを変更する */
-  | { type: 'powerMod'; target: TargetSpec | 'self'; amount: number }
+  | { type: 'powerMod'; target: TargetSpec | 'self'; amount: number; untilNextTurn?: boolean }
   /** ターン終了時まで、キーワード能力を与える */
   /** untilNextTurn: 次の自分のターンのはじめまで（省略時はこのターン） */
   | { type: 'grantKeyword'; target: TargetSpec | 'self'; keywords: Keywords; untilNextTurn?: boolean }
@@ -419,6 +419,8 @@ export interface TriggeredAbility {
   dSwitch?: boolean;
   /** このターンの時だけ誘発する（「相手のターンにこのクリーチャーが出た時」は opponent） */
   duringTurn?: 'self' | 'opponent';
+  /** 「これを装備したクリーチャーが〜時」：装備先のクリーチャーに起きた出来事で誘発する（ドラグハート・ウエポン） */
+  viaEquip?: boolean;
 }
 
 /** 常在効果がかかる範囲 */
@@ -427,6 +429,8 @@ export interface Applies {
   excludeSelf?: boolean;
   /** このクリーチャー自身だけ */
   onlySelf?: boolean;
+  /** これ（ドラグハート・ウエポン）を装備したクリーチャーだけ */
+  equipped?: boolean;
   filter?: CardFilter;
 }
 

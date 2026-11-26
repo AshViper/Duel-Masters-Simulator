@@ -28,6 +28,8 @@ export interface CardInstance {
   hyper?: boolean;
   /** 次の player のターンのはじめまで有効なキーワード能力 */
   keywordsUntil?: { keywords: Keywords; player: PlayerId };
+  /** 次の player のターンのはじめまでのパワー修正 */
+  powerModUntil?: { amount: number; player: PlayerId };
   /** このカードに付いている封印（seal ゾーンのカード。最後が一番上） */
   seals?: string[];
   /** 禁断の鼓動がクリーチャー側に裏返った（禁断解放した）／サイキック・クリーチャーが裏返った（覚醒リンク） */
@@ -38,6 +40,8 @@ export interface CardInstance {
   evolvedOnNonEvolution?: boolean;
   /** Dスイッチを使った（D2フィールドを上下逆さまにした） */
   dSwitched?: boolean;
+  /** このカード（ドラグハート・ウエポン）を装備しているクリーチャー */
+  equippedTo?: string;
   /** コストを支払わずに出た（「そのクリーチャーがコストを支払わずに出ていたら」） */
   enteredFree?: boolean;
   /** このターン（turn）の終わりにバトルゾーンを離れる（B・A・D・J・O・E・アビスラッシュ） */
@@ -159,7 +163,7 @@ export type Task =
   /** after: 唱えた後、墓地のかわりに置く場所 */
   | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin'; after?: 'deckBottom' | 'hand' }
   /** summoned: 召喚で出る（効果で「出す」のではない） */
-  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveFrom?: string[]; evolveDeck?: { count: number; creatureOnly?: boolean }; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; paid?: boolean; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
+  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveFrom?: string[]; evolveDeck?: { count: number; creatureOnly?: boolean }; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; paid?: boolean; equipTo?: string; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
   /** 呪文を解決し終えたら墓地へ */
   | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin'; after?: 'deckBottom' | 'hand' }
   | { kind: 'hyperize'; player: PlayerId; iid: string }

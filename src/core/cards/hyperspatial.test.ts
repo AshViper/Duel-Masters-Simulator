@@ -34,6 +34,11 @@ const C = {
     face('要塞', ['このドラグハートをバトルゾーンに出した時、カードを１枚引いてもよい。', '龍解：自分のターンの終わりに、自分の墓地にカードが３枚以上あれば、このドラグハートをクリーチャー側に裏返し、アンタップする。'], { type: 'ドラグハート・フォートレス', cost: '4', power: '' }),
     face('龍解した龍', ['W・ブレイカー', '龍回避：このクリーチャーがバトルゾーンを離れる時、バトルゾーンを離れるかわりに、フォートレス側に裏返す。'], { type: 'ドラグハート・クリーチャー', cost: '7', power: '9000' }),
   ),
+  weapon: two(
+    'h-14',
+    face('剣', ['これを装備したクリーチャーに「スピードアタッカー」を与える。', 'これを装備したクリーチャーのパワーを+2000する。', '龍解：これを装備したクリーチャーが攻撃する時、このドラグハートをクリーチャー側に裏返す。'], { type: 'ドラグハート・ウエポン', cost: '3', power: '' }),
+    face('剣の龍', ['W・ブレイカー'], { type: 'ドラグハート・クリーチャー', cost: '6', power: '7000' }),
+  ),
   dragner: mk('h-13', ['このクリーチャーが出た時、コスト４以下のドラグハートを１枚、自分の超次元ゾーンからバトルゾーンに出す。']),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
@@ -145,5 +150,47 @@ describe('ドラグハート', () => {
     expect(s.cards[f].zone).toBe('battle');
     expect(s.cards[f].flipped).toBeFalsy();
     expect(def(s, reg, f).type).toBe('field');
+  });
+});
+
+describe('ドラグハート・ウエポンの装備', () => {
+  const setup = () => {
+    let s = createGame({ players: [{ name: 'A', deck: [...filler.slice(0, 39), C.weapon.id] }, { name: 'B', deck: filler }], seed: 11, firstPlayer: 0 }, reg);
+    const w = s.players[0].zones.hyperspatial[0];
+    const dr = put(s, 0, C.dragner.id, 'hand');
+    put(s, 0, C.vanilla.id, 'mana');
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: dr });
+    return { s, w, dr };
+  };
+
+  it('クリーチャーの能力で出したウエポンは、そのクリーチャーに装備される。装備したクリーチャーに能力を与える', () => {
+    const { s, w, dr } = setup();
+    expect(s.cards[w].zone).toBe('battle');
+    expect(s.cards[w].equippedTo).toBe(dr);
+    expect(keywords(s, reg, dr).speedAttacker).toBe(true);
+    expect(power(s, reg, dr)).toBe(3000 + 2000);
+    // 装備していないクリーチャーにはかからない
+    const other = put(s, 0, C.vanilla.id, 'battle');
+    expect(keywords(s, reg, other).speedAttacker).toBeFalsy();
+    expect(power(s, reg, other)).toBe(1000);
+  });
+
+  it('装備先が離れたら、ウエポンは超次元ゾーンに戻る', () => {
+    const { s, w, dr } = setup();
+    s.queue.push({ kind: 'leave', iid: dr, to: 'graveyard', cause: 'destroy' });
+    new Ctx(s, reg).run();
+    expect(s.cards[dr].zone).toBe('graveyard');
+    expect(s.cards[w].zone).toBe('hyperspatial');
+    expect(s.cards[w].equippedTo).toBeUndefined();
+  });
+
+  it('「これを装備したクリーチャーが攻撃する時」で龍解し、装備から外れてクリーチャーになる', () => {
+    let { s, w, dr } = setup();
+    s = settle(act(s, { type: 'ATTACK', player: 0, attacker: dr, target: { kind: 'player' } }));
+    expect(s.cards[w].flipped).toBe(true);
+    expect(s.cards[w].equippedTo).toBeUndefined();
+    expect(def(s, reg, w).type).toBe('creature');
+    // 装備が外れたので、与えていた能力はなくなる
+    expect(power(s, reg, dr)).toBe(3000);
   });
 });

@@ -302,6 +302,8 @@ export function BattleScreen() {
             <span className="under-badge seal-badge" title="封印されている間、両プレイヤーはこのカードを無視する">封印 ×{inst.seals.length}</span>
           ) : inst.under.length > 0 ? (
             <span className="under-badge">進化 +{inst.under.length}</span>
+          ) : inst.equippedTo && g.cards[inst.equippedTo] ? (
+            <span className="under-badge" title="このウエポンを装備しているクリーチャー">装備：{def(inst.equippedTo).name}</span>
           ) : undefined
         }
         dimmed={inst.zone === 'battle' && !!inst.seals?.length}
@@ -753,6 +755,7 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
     inst.tapped ? 'タップ中' : null,
     inst.under.length ? `進化元 ${inst.under.length}枚` : null,
     inst.seals?.length ? `封印 ${inst.seals.length}枚` : null,
+    inst.equippedTo && g.cards[inst.equippedTo] ? `${cardDef(g, registry, inst.equippedTo).name} に装備中` : null,
   ].filter(Boolean).join('・');
   const buttons = (
     <div className="inspect-ops" data-testid="inspector">
