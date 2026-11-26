@@ -251,7 +251,10 @@
 .field-cards .card.tapped { margin: 0 calc(var(--w) * 0.15); transform: rotate(90deg) scale(0.86); filter: brightness(0.72); opacity: 1; }
 .field-cards .card.tapped::after { display: none; }
 /* D2フィールドなどは横向きに置く（タップとは違い、暗くしない） */
-.field-cards .card.sideways { margin: 0 calc(var(--w) * 0.15); transform: rotate(90deg) scale(0.86); }
+/* 自分のものは上を左に（自分から読める向き）、相手のものは上を右に。Dスイッチで上下逆さまにしたものは逆向き */
+.field-cards .card.sideways { --rot: -90deg; margin: 0 calc(var(--w) * 0.15); transform: rotate(calc(var(--rot) + var(--flip, 0deg))) scale(0.86); }
+.side.top .field-cards .card.sideways { --rot: 90deg; }
+.field-cards .card.sideways.flipped { --flip: 180deg; }
 .field-cards .card.sideways::after { display: none; }
 .field-cards .card.sideways.tapped { filter: brightness(0.72); }
 
@@ -333,7 +336,7 @@
 .battle-screen .card.hl-target { box-shadow: 0 0 0 3px var(--red), 0 0 18px rgba(255, 90, 78, 0.7); animation: targetBlink 1s ease-in-out infinite; }
 .battle-screen .card.hl-attacker { box-shadow: 0 0 0 3px #ffa040, 0 0 20px #ff8020; transform: translateY(-6px); }
 .battle-screen .card.tapped.hl-attacker { transform: rotate(90deg) scale(0.86); }
-.battle-screen .field-cards .card.sideways:hover, .battle-screen .field-cards .card.sideways.hl-target { transform: rotate(90deg) scale(0.86); }
+.battle-screen .field-cards .card.sideways:hover, .battle-screen .field-cards .card.sideways.hl-target { transform: rotate(calc(var(--rot) + var(--flip, 0deg))) scale(0.86); }
 .battle-screen .card.dimmed { filter: grayscale(1) brightness(0.45); }
 .battle-screen .card.dimmed::before { content: ''; position: absolute; inset: 0; z-index: 2; border-radius: inherit; pointer-events: none; background: repeating-linear-gradient(135deg, rgba(155, 107, 214, 0.35) 0 4px, transparent 4px 10px); }
 .battle-screen .under-badge { z-index: 3; font-weight: 700; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6); }
@@ -373,7 +376,7 @@
 .battle-screen .card.drop-ok { box-shadow: 0 0 0 2px var(--drop-c), 0 0 14px var(--drop-c); }
 .battle-screen .card.drop-over { box-shadow: 0 0 0 3px var(--drop-c), 0 0 26px var(--drop-c); transform: scale(1.08); z-index: 6; }
 .battle-screen .card.tapped.drop-over { transform: rotate(90deg) scale(0.94); }
-.battle-screen .card.sideways.drop-over { transform: rotate(90deg) scale(0.94); }
+.battle-screen .card.sideways.drop-over { transform: rotate(calc(var(--rot, 90deg) + var(--flip, 0deg))) scale(0.94); }
 .battle-screen .mana-row .card.tapped.drop-over { transform: rotate(90deg) scale(0.86); }
 .battle-screen .card.drop-no { filter: brightness(0.55); }
 .plate.drop-ok { border-color: var(--drop-c); box-shadow: 0 0 14px var(--drop-c); }

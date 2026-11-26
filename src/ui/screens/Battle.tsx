@@ -296,7 +296,7 @@ export function BattleScreen() {
         onHover={opts.hidden ? undefined : (on) => setHover(on ? iid : null)}
         onPointerDown={canControl(inst.owner) ? (e) => onCardPointerDown(iid, e) : undefined}
         dropId={dropKey({ kind: 'card', iid })}
-        className={[sideways && 'sideways', drag?.iid === iid && 'drag-source', drag && drag.iid !== iid && dropState({ kind: 'card', iid }).trim()].filter(Boolean).join(' ') || undefined}
+        className={[sideways && 'sideways', sideways && inst.dSwitched && 'flipped', drag?.iid === iid && 'drag-source', drag && drag.iid !== iid && dropState({ kind: 'card', iid }).trim()].filter(Boolean).join(' ') || undefined}
         badge={
           inst.seals?.length ? (
             <span className="under-badge seal-badge" title="封印されている間、両プレイヤーはこのカードを無視する">封印 ×{inst.seals.length}</span>
