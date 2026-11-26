@@ -573,6 +573,11 @@ export class Ctx {
       case 'spellToGrave': {
         if (s.cards[task.iid]?.zone !== 'hand') return false;
         // 「それを唱えた後、墓地のかわりに山札の下に置く」
+        // 「唱えた後、墓地に置くかわりに自分の手札に加える」（唱えている間は手札を経由しているので、そのまま残す）
+        if (task.after === 'hand') {
+          this.log(`${this.name(task.iid)} を手札に加えた`, s.cards[task.iid].owner);
+          return false;
+        }
         if (task.after === 'deckBottom') {
           this.moveCard(task.iid, 'deck', { toTop: false });
           this.log(`${this.name(task.iid)} を山札の下に置いた`, s.cards[task.iid].owner);
@@ -1649,7 +1654,7 @@ export class Ctx {
   }
 
   /** コストを支払わずにクリーチャーを出す／呪文を唱える（山札・シールド・手札から） */
-  private playFree(controller: PlayerId, iid: string, as: 'creature' | 'spell', after?: 'deckBottom'): void {
+  private playFree(controller: PlayerId, iid: string, as: 'creature' | 'spell', after?: 'deckBottom' | 'hand'): void {
     const s = this.s;
     const d = def(s, this.reg, iid);
     s.cards[iid].faceUp = true;

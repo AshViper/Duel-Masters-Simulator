@@ -56,6 +56,9 @@ const C = {
   joe: mk('m-25', ['Ｊ・Ｏ・Ｅ ２ (このクリーチャーを、コストを２少なくして召喚してもよい。こうして出したら、このターンの終わりに、それを自分の山札の下に置く。そうしたら、カードを１枚引く)'], { cost: '4' }),
   cheap: spell('m-26', ['この呪文を[ff01]支払って唱えてもよい。そうしたら、相手はカードを１枚引いてもよい。', 'カードを２枚引く。']),
   cost5: mk('m-27', [], { cost: '5' }),
+  cyclica: mk('m-30', ['このクリーチャーをバトルゾーンに出した時、コスト７以下の呪文を１枚、自分の墓地からコストを支払わずに唱えてもよい。そうした場合、唱えた後、墓地に置くかわりに自分の手札に加える。', 'W・ブレイカー（このクリーチャーはシールドを２枚ブレイクする）', 'このクリーチャーが破壊される時、墓地に置くかわりに自分の山札の一番下に置く。'], { civ: '水', cost: '2', power: '6000' }),
+  water: mk('m-31', [], { civ: '水' }),
+  draw2: spell('m-32', ['カードを２枚引く。']),
   plus: mk('m-15', ['{STP} S・トリガー・プラス（このクリーチャーを自分のシールドゾーンから手札に加える時、コストを支払わずにすぐ召喚してもよい）', '{x+}このクリーチャーが出た時、相手のクリーチャーをすべてタップする。']),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
@@ -376,5 +379,34 @@ describe('別のコストでの使い方', () => {
     expect(s.pending).toMatchObject({ kind: 'confirm', player: 1 });
     s = act(s, { type: 'RESPOND', player: 1, accept: true });
     expect(zone(s, 1, 'hand')).toBe(theirs + 1);
+  });
+});
+
+describe('龍素記号Sr スペルサイクリカ', () => {
+  it('出た時、墓地の呪文をコストを支払わずに唱え、唱えた後は手札に加える', () => {
+    expect(C.cyclica.support).toBe('full');
+    let s = newGame();
+    const c = put(s, 0, C.cyclica.id, 'hand');
+    const sp = put(s, 0, C.draw2.id, 'graveyard');
+    put(s, 0, C.water.id, 'mana');
+    put(s, 0, C.water.id, 'mana');
+    const hand = zone(s, 0, 'hand');
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: c });
+    // 唱える呪文を選ぶ（候補が1枚でも、使うかどうかを選べる）
+    for (let i = 0; i < 3 && s.pending; i++) {
+      s = act(s, s.pending.kind === 'selectCards' ? { type: 'RESPOND', player: 0, selected: [sp] } : { type: 'RESPOND', player: 0, accept: true });
+    }
+    expect(s.pending).toBeFalsy();
+    expect(s.cards[sp].zone).toBe('hand');
+    // スペルサイクリカを出して1枚減り、2枚引き、唱えた呪文が手札に加わる
+    expect(zone(s, 0, 'hand')).toBe(hand - 1 + 2 + 1);
+  });
+
+  it('破壊される時、墓地に置くかわりに山札の一番下に置く', () => {
+    let s = newGame();
+    const c = put(s, 0, C.cyclica.id, 'battle');
+    s.queue.push({ kind: 'leave', iid: c, to: 'graveyard', cause: 'destroy' });
+    new Ctx(s, reg).run();
+    expect(s.players[0].zones.deck[0]).toBe(c);
   });
 });

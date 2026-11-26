@@ -868,9 +868,11 @@ function parseBody(body: string, options: string[]): Group[] | null {
       const filter: CardFilter = freeZ[2] === 'カード' ? {} : { cardType: freeZ[2] === '呪文' ? 'spell' : 'creature' };
       if (!parseMods(freeZ[1], filter)) return null;
       const zones = [freeZ[3], freeZ[4]].filter(Boolean).map((z) => (z === '手札' ? 'hand' : 'graveyard') as 'hand' | 'graveyard');
-      const after = /^(?:こうして呪文を唱えたなら、)?それを唱えた後、墓地(?:の|に置く)かわりに山札の下に置く$/.test(sentences[i + 1] ?? '');
+      // 「それを唱えた後、墓地のかわりに山札の下に置く」「そうした場合、唱えた後、墓地に置くかわりに自分の手札に加える」
+      const am = (sentences[i + 1] ?? '').match(/^(?:こうして呪文を唱えたなら、|そうした場合、|そうしたら、)?(?:それを|その呪文を)?唱えた後、墓地(?:の|に置く)かわりに(?:自分の)?(山札の(?:一番)?下に置く|手札に(?:加える|戻す))$/);
+      const after = am ? (am[1].startsWith('山札') ? ('deckBottom' as const) : ('hand' as const)) : null;
       if (after) i++;
-      pushGroup(groups, false, [{ type: 'playFromHandFree', ...(Object.keys(filter).length ? { filter } : {}), zones, ...(after ? { spellAfter: 'deckBottom' as const } : {}) }], chain);
+      pushGroup(groups, false, [{ type: 'playFromHandFree', ...(Object.keys(filter).length ? { filter } : {}), zones, ...(after ? { spellAfter: after } : {}) }], chain);
       continue;
     }
     // 「クリーチャーを2体選ぶ。その2体をバトルさせる」

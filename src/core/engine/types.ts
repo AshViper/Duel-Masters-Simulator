@@ -140,11 +140,11 @@ export type Task =
   | { kind: 'battle'; attacker: string; defender: string }
   | { kind: 'battleWon'; winner: string; loser: string }
   /** after: 唱えた後、墓地のかわりに置く場所 */
-  | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin'; after?: 'deckBottom' }
+  | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin'; after?: 'deckBottom' | 'hand' }
   /** summoned: 召喚で出る（効果で「出す」のではない） */
   | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
   /** 呪文を解決し終えたら墓地へ */
-  | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin'; after?: 'deckBottom' }
+  | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin'; after?: 'deckBottom' | 'hand' }
   | { kind: 'hyperize'; player: PlayerId; iid: string }
   /** リンク解除：表に戻ったセルのうち1枚を選んで超次元ゾーンに戻す */
   | { kind: 'linkRelease'; player: PlayerId; name: string; cells: string[]; destroyed: boolean }

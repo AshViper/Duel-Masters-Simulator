@@ -210,9 +210,9 @@ export type EffectDef =
   | { type: 'removeOwnSeals'; count: number }
   /**
    * 手札から条件に合うカードを1枚、コストを支払わずに使ってもよい（maxCostHandSize: コストが手札の枚数以下）。
-   * zones: 手札以外からも使える（「自分の手札または墓地から」）。spellAfter: 唱えた呪文を墓地のかわりに置く場所
+   * zones: 手札以外からも使える（「自分の手札または墓地から」）。spellAfter: 唱えた呪文を墓地のかわりに置く場所（山札の下・手札）
    */
-  | { type: 'playFromHandFree'; filter?: CardFilter; maxCostHandSize?: boolean; zones?: Array<'hand' | 'graveyard'>; spellAfter?: 'deckBottom' }
+  | { type: 'playFromHandFree'; filter?: CardFilter; maxCostHandSize?: boolean; zones?: Array<'hand' | 'graveyard'>; spellAfter?: 'deckBottom' | 'hand' }
   /** 同じ名前のカードが2枚以上あるものをすべて、バトルゾーンなら破壊し、マナゾーンなら持ち主の墓地に置く */
   | { type: 'destroyDuplicates'; zone: 'battle' | 'mana' }
   /** エンジン内部用：公開したカードを出す／唱える（てもよい）。しなければそのまま */
