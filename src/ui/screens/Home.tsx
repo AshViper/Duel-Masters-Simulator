@@ -35,15 +35,15 @@ function CivDots({ civ }: { civ: [Civilization, number][] }) {
   );
 }
 
-const HOME_MENU: { icon: string; label: string; desc: string; testId?: string; primary?: boolean; run: () => void }[] = [
-  { icon: '⚔', label: '対戦開始', desc: 'CPU戦・1人回し', testId: 'menu-battle', primary: true, run: () => useApp.getState().go('setup') },
-  { icon: '✚', label: 'デッキ構築', desc: '新しいデッキを作る', run: () => void useApp.getState().newDeck() },
-  { icon: '▤', label: 'デッキ一覧', desc: '保存したデッキ', testId: 'menu-decks', run: () => useApp.getState().go('decks') },
-  { icon: '❖', label: 'カード図鑑', desc: '保存したカード・バックアップ', testId: 'menu-library', run: () => useApp.getState().go('library') },
-  { icon: '⌕', label: '公式カード検索', desc: 'カードを探して保存', testId: 'menu-official', run: () => useApp.getState().go('official') },
-  { icon: '⇄', label: 'オンライン対戦', desc: '部屋コードで友達と', run: () => useApp.getState().go('online') },
-  { icon: '☰', label: '対戦履歴', desc: '過去の対戦とログ', run: () => useApp.getState().go('history') },
-  { icon: '⚙', label: '設定', desc: '構築ルール・CPU', run: () => useApp.getState().go('settings') },
+const HOME_MENU: { icon: string; art: string; label: string; desc: string; testId?: string; primary?: boolean; run: () => void }[] = [
+  { icon: '⚔', art: 'battle', label: '対戦開始', desc: 'CPU戦・1人回し', testId: 'menu-battle', primary: true, run: () => useApp.getState().go('setup') },
+  { icon: '✚', art: 'build', label: 'デッキ構築', desc: '新しいデッキを作る', run: () => void useApp.getState().newDeck() },
+  { icon: '▤', art: 'decks', label: 'デッキ一覧', desc: '保存したデッキ', testId: 'menu-decks', run: () => useApp.getState().go('decks') },
+  { icon: '❖', art: 'library', label: 'カード図鑑', desc: '保存したカード・バックアップ', testId: 'menu-library', run: () => useApp.getState().go('library') },
+  { icon: '⌕', art: 'search', label: '公式カード検索', desc: 'カードを探して保存', testId: 'menu-official', run: () => useApp.getState().go('official') },
+  { icon: '⇄', art: 'online', label: 'オンライン対戦', desc: '部屋コードで友達と', run: () => useApp.getState().go('online') },
+  { icon: '☰', art: 'history', label: '対戦履歴', desc: '過去の対戦とログ', run: () => useApp.getState().go('history') },
+  { icon: '⚙', art: 'settings', label: '設定', desc: '構築ルール・CPU', run: () => useApp.getState().go('settings') },
 ];
 
 export function HomeScreen() {
@@ -67,7 +67,7 @@ export function HomeScreen() {
         </section>
         <nav className="home-menu">
           {HOME_MENU.map((m) => (
-            <button key={m.label} className={'home-tile' + (m.primary ? ' primary' : '')} onClick={m.run} data-testid={m.testId}>
+            <button key={m.label} className={'home-tile art-' + m.art + (m.primary ? ' primary' : '')} onClick={m.run} data-testid={m.testId}>
               <span className="home-tile-icon" aria-hidden>{m.icon}</span>
               <b>{m.label}</b>
               <small>{m.desc}</small>
