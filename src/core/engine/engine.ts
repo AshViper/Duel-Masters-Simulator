@@ -651,7 +651,17 @@ export class Ctx {
     const s = this.s;
     if (!s.waiting?.length) return;
     // ルール：解決中の能力（呪文）が終わるまで、次の能力は解決しない。S・トリガーは待っている能力より先に使う
-    if (s.queue.some((t) => t.kind === 'abilityEnd' || t.kind === 'shieldTrigger' || t.kind === 'pickTrigger')) return;
+    if (s.queue.some((t) => t.kind === 'abilityEnd' || t.kind === 'shieldTrigger' || t.kind === 'orderShieldTriggers' || t.kind === 'pickTrigger')) return;
+    // ルール：カードを使う処理（呪文を唱える・バトルゾーンに出す）の途中でも割り込まない。「唱えた時」などは呪文の解決後
+    if (s.queue[0]?.kind === 'castSpell' || s.queue[0]?.kind === 'enterBattle') return;
+    // ルール：侵略・革命チェンジなども「攻撃する時」の能力と同じタイミング。どちらを先にするかはターンプレイヤーが選ぶ
+    const head = s.queue[0];
+    if (s.combat?.swapFirst || s.queue.some((t) => t.kind === 'attackSwapOrder')) return;
+    if (head?.kind === 'attackSwap' && !head.ordered && s.combat && attackSwapCandidates(s, this.reg, head.player, s.combat.attacker).length) {
+      if (s.waiting.some((g) => g.controller === s.activePlayer)) this.insertFront({ kind: 'attackSwapOrder', player: head.player });
+      else s.combat.swapFirst = true;
+      return;
+    }
     // ルール：ターンプレイヤーの能力をすべて解決してから、相手の能力を解決する
     const player = s.waiting.some((g) => g.controller === s.activePlayer) ? s.activePlayer : other(s.activePlayer);
     this.insertFront({ kind: 'pickTrigger', player });
@@ -1102,6 +1112,19 @@ export class Ctx {
       case 'attackSwap':
         return this.execAttackSwap(task.player);
 
+      case 'attackSwapOrder': {
+        const r = this.takeResponse();
+        if (!r) {
+          s.pending = { kind: 'chooseMode', player: task.player, prompt: '侵略・革命チェンジなどと「攻撃する時」の能力、どちらを先に処理しますか？', options: ['侵略・革命チェンジなどを先に使う', '「攻撃する時」の能力を先に解決する'] };
+          return true;
+        }
+        const head = s.queue[0];
+        if (r.selected?.[0] === '0') {
+          if (s.combat) s.combat.swapFirst = true;
+        } else if (head?.kind === 'attackSwap') head.ordered = true;
+        return false;
+      }
+
       case 'pickTrigger':
         return this.execPickTrigger(task.player);
 
@@ -1354,12 +1377,32 @@ export class Ctx {
         }
         // キリフダッシュ：この攻撃でシールドをブレイクしたことを、攻撃の終わりの処理に伝える
         if (task.byAttack && chosen.length) for (const t of s.queue) if (t.kind === 'attackEnd') t.broke = true;
-        this.insertFront(...triggers);
+        // ルール：S・トリガーが2枚以上あれば、ブレイクされたプレイヤーが使う順番を選ぶ
+        const st = triggers.filter((t): t is Extract<Task, { kind: 'shieldTrigger' }> => t.kind === 'shieldTrigger');
+        const rest = triggers.filter((t) => t.kind !== 'shieldTrigger');
+        this.insertFront(...(st.length > 1 ? [{ kind: 'orderShieldTriggers', player: task.defender, iids: st.map((t) => t.iid) } as Task] : st), ...rest);
         return false;
       }
 
       case 'shieldTrigger':
         return this.execShieldTrigger(task.player, task.iid);
+
+      case 'orderShieldTriggers': {
+        // まだ手札にあるS・トリガーだけ（先に使った能力で手札から離れたものは使えない）
+        const left = task.iids.filter((x) => s.cards[x]?.zone === 'hand');
+        if (left.length <= 1) {
+          this.insertFront(...left.map((iid): Task => ({ kind: 'shieldTrigger', player: task.player, iid })));
+          return false;
+        }
+        const r = this.takeResponse();
+        if (!r) {
+          s.pending = { kind: 'chooseMode', player: task.player, prompt: 'S・トリガーが2枚以上あります。先に処理するカードを選んでください（選んだカードから、使うかどうかを聞きます）', options: left.map((x) => this.name(x)) };
+          return true;
+        }
+        const first = left[Number(r.selected?.[0])] ?? left[0];
+        this.insertFront({ kind: 'shieldTrigger', player: task.player, iid: first }, { kind: 'orderShieldTriggers', player: task.player, iids: left.filter((x) => x !== first) });
+        return false;
+      }
     }
   }
 
@@ -1407,7 +1450,11 @@ export class Ctx {
   private execAttackSwap(player: PlayerId): boolean {
     const s = this.s;
     const c = s.combat;
-    if (!c || s.cards[c.attacker]?.zone !== 'battle') return false;
+    if (c && !this.response && !attackSwapCandidates(s, this.reg, player, c.attacker).length) c.swapFirst = false;
+    if (!c || s.cards[c.attacker]?.zone !== 'battle') {
+      if (c) c.swapFirst = false;
+      return false;
+    }
     const candidates = attackSwapCandidates(s, this.reg, player, c.attacker);
     if (!candidates.length) return false;
     const r = this.takeResponse();
@@ -1424,7 +1471,12 @@ export class Ctx {
       return true;
     }
     const pick = r.selected?.[0];
-    if (!pick) return false;
+    if (!pick) {
+      c.swapFirst = false;
+      return false;
+    }
+    // 使い終わるまで（もう一度使えるか聞き終わるまで）、待っている能力は解決しない
+    c.swapFirst = true;
     const d = def(s, this.reg, pick);
     const old = c.attacker;
     if (d.attackSwap?.kind === 'attackChance') {
@@ -3530,7 +3582,8 @@ export class Ctx {
     }
     if (losers.size === 1) return this.gameOver(other([...losers][0]), `${s.players[[...losers][0]].name} の敗北条件`);
     if (losers.size === 2) return this.gameOver(null, '両者の敗北条件（引き分け）');
-    if (s.pending) return;
+    // ルール：ルール処理（パワー0以下の破壊など）は、能力・呪文の解決が終わってから行う（「-3000し、その後+3000」の途中で破壊しない）
+    if (s.pending || s.queue.some((t) => t.kind === 'abilityEnd')) return;
     // パワー0以下のクリーチャーは破壊される（入力待ちの間は、中断中のタスクより前に割り込ませない）
     // パワーが分からないカード（古い版で保存した禁断クリーチャーなど）は、0とみなして破壊しない
     const queued = new Set(s.queue.flatMap((t) => (t.kind === 'leave' ? [t.iid] : [])));

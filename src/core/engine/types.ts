@@ -178,6 +178,8 @@ export type Task =
   /** 「各ブレイクの前に」の能力を誘発させる */
   | { kind: 'beforeBreak'; source: string; defender: PlayerId }
   | { kind: 'shieldTrigger'; player: PlayerId; iid: string }
+  /** ブレイクされたシールドのS・トリガーが2枚以上ある時、使う順番をそのプレイヤーが選ぶ（1枚選ぶごとに使うかを聞く） */
+  | { kind: 'orderShieldTriggers'; player: PlayerId; iids: string[] }
   | { kind: 'battle'; attacker: string; defender: string }
   | { kind: 'battleWon'; winner: string; loser: string }
   /** after: 唱えた後、墓地のかわりに置く場所 */
@@ -195,7 +197,9 @@ export type Task =
   /** 攻撃の終わり */
   | { kind: 'attackEnd'; attacker: string; broke?: boolean }
   /** 侵略・革命チェンジを使うか聞く */
-  | { kind: 'attackSwap'; player: PlayerId }
+  | { kind: 'attackSwap'; player: PlayerId; ordered?: boolean }
+  /** 侵略・革命チェンジなどと「攻撃する時」の能力が同時にある時、どちらを先にするかターンプレイヤーが選ぶ */
+  | { kind: 'attackSwapOrder'; player: PlayerId }
   /** 解決を待っている誘発能力のうち、player のものを1つ選んで解決を始める（2つ以上あれば順番を選ぶ） */
   | { kind: 'pickTrigger'; player: PlayerId }
   /** 能力（呪文）1つの解決の終わりの印。これがキューにある間は、新しく誘発した能力は解決を待つ */
@@ -245,6 +249,8 @@ export interface LogEntry {
 export interface CombatState {
   /** この攻撃中に「ニンジャ・ストライク」の仲間を使ったプレイヤー */
   ninjaUsed?: PlayerId[];
+  /** 侵略・革命チェンジなどを先に使っている間は、待っている「攻撃する時」の能力を解決しない */
+  swapFirst?: boolean;
   /** この攻撃中に使った「〜を使っていなければ」の能力（「プレイヤー:能力名」） */
   usedKeys?: string[];
   attacker: string;

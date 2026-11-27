@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# コード地図（73ファイル）
+# コード地図（74ファイル）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -32,13 +32,14 @@ generated: 2026-11-27
 | `src/core/deck/rules.ts` | 98 | デッキ構成ルール。フォーマットごとに差し替えられる。 |  |
 | `src/core/engine/effects.test.ts` | 398 | 常在効果 / 置換効果 / 誘発タイミング / ツインパクト | [[codemap/src-core-engine-effects.test\|地図]] |
 | `src/core/engine/engine.test.ts` | 333 | ゲーム開始 / ターン進行 / 召喚・呪文 / 攻撃 | [[codemap/src-core-engine-engine.test\|地図]] |
-| `src/core/engine/engine.ts` | 3606 | ゲームエンジン本体。applyAction(state, action) で新しい状態を返す純粋な入口を持ち、 | [[codemap/src-core-engine-engine\|地図]] |
+| `src/core/engine/engine.ts` | 3659 | ゲームエンジン本体。applyAction(state, action) で新しい状態を返す純粋な入口を持ち、 | [[codemap/src-core-engine-engine\|地図]] |
 | `src/core/engine/legal.ts` | 58 | 入力待ちでない時にターンプレイヤーが取れる合法アクションの一覧。 |  |
 | `src/core/engine/order.test.ts` | 148 | 効果の処理順 / 置換効果が2つ以上ある時 |  |
 | `src/core/engine/queries.ts` | 998 | ゲーム状態を読むだけの関数群（状態を変更しない）。UI・AI・エンジンで共用する。 | [[codemap/src-core-engine-queries\|地図]] |
 | `src/core/engine/rng.ts` | 10 | 決定的な乱数（mulberry32）。状態を GameState に保存するので保存・復元・リプレイで再現できる。 |  |
 | `src/core/engine/setup.ts` | 109 | PlayerSetup, NewGameOptions, createGame |  |
-| `src/core/engine/types.ts` | 328 | 対戦中のカード個体。同名カードでも iid で個別に識別する。 | [[codemap/src-core-engine-types\|地図]] |
+| `src/core/engine/timing.test.ts` | 147 | 総合ルールの処理順 |  |
+| `src/core/engine/types.ts` | 334 | 対戦中のカード個体。同名カードでも iid で個別に識別する。 | [[codemap/src-core-engine-types\|地図]] |
 | `src/core/print/proxyPdf.test.ts` | 59 | proxyLayout / buildPdf |  |
 | `src/core/print/proxyPdf.ts` | 184 | プロキシカード印刷用の A4 レイアウトと、最小限の PDF 書き出し（外部ライブラリなし）。 |  |
 | `src/core/testing/abilitySamples.ts` | 67 | 能力テキストの例文集（ユーザーが挙げた実際のカードの文）。 |  |
