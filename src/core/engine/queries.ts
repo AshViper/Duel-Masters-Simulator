@@ -426,7 +426,7 @@ export function cannotBeAttacked(state: GameState, reg: CardRegistry, iid: strin
 /** 常在効果込みのコスト */
 /** neo: NEO進化クリーチャーとして（重ねて）召喚する */
 export function effectiveCost(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main', sacrifice: string[] = [], neo = false): number {
-  return cached(state, `ec:${player}:${iid}:${side}:${sacrifice.join(",")}:${neo}`, () => effectiveCostImpl(state, reg, player, iid, side, sacrifice, neo));
+  return cached(state, `ec:${player}:${iid}:${side}:${sacrifice.join(",")}:${neo}:${state.evolveCountHint ?? ''}`, () => effectiveCostImpl(state, reg, player, iid, side, sacrifice, neo));
 }
 
 function effectiveCostImpl(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main', sacrifice: string[] = [], neo = false): number {
@@ -458,7 +458,8 @@ function effectiveCostImpl(state: GameState, reg: CardRegistry, player: PlayerId
   }
   if (side === 'main' && d.selfCost) {
     const sc = d.selfCost;
-    cost -= sc.amount * Math.floor(countQuantity(state, reg, player, sc.per, true, iid) / sc.unit);
+    const cnt = sc.perEvolve ? (state.evolveCountHint ?? evolveSourceCandidates(state, reg, player, iid).length) : countQuantity(state, reg, player, sc.per, true, iid);
+    cost -= sc.amount * Math.floor(cnt / sc.unit);
     floor = Math.min(face.cost, Math.max(floor, sc.min));
   }
   // ハイパーエナジー：コストが異なるクリーチャーを1体タップするごとに2少なくする（コストは0以下にならない）
@@ -612,7 +613,9 @@ function attackTargetsImpl(state: GameState, reg: CardRegistry, player: PlayerId
   const kw = keywords(state, reg, iid);
   const machOnly = isSummoningSick(state, reg, iid);
   const out: AttackTarget[] = [];
-  if (!kw.cannotAttackPlayers && !machOnly) out.push({ kind: 'player' });
+  // 「自分は、このクリーチャーよりパワーが小さいクリーチャーに攻撃されない」
+  const shielded = activeStatics(state, reg).some((a) => a.static.type === 'protectFromWeaker' && a.controller === other(player) && state.cards[a.source]?.zone === 'battle' && power(state, reg, iid) < power(state, reg, a.source));
+  if (!kw.cannotAttackPlayers && !machOnly && !shielded) out.push({ kind: 'player' });
   if (kw.cannotAttackCreatures) return out;
   for (const t of battleCards(state, reg, other(player))) {
     if (cannotBeAttacked(state, reg, t)) continue;

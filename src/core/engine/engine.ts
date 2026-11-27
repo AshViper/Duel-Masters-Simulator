@@ -124,6 +124,7 @@ const INSTEAD_LABEL: Record<ReplacementAbility['instead'], string> = {
   destroyOther: '自分の他のクリーチャーを1体破壊する',
   faceUpShieldToGrave: 'シールドゾーンにある表向きのカードを1枚墓地に置く',
   avertCost: '表向きのカードを破壊するか、シールドを墓地に置く',
+  underToDeckBottom: '下に重ねたカードを山札の下に置く',
 };
 
 /** 効果の中の「誘発の原因になったカード」（ref: 'event'）を、実際のカードに決める */
@@ -525,8 +526,11 @@ export class Ctx {
     }
     // NEO進化クリーチャーとして（重ねて）召喚する
     const neo = (!!evolveOn || !!evolveFrom?.length) && face.type !== 'evolution';
+    // 「進化元1体につきコストを少なくする」：選んだ進化元の数でコストを決める
+    if (d.selfCost?.perEvolve) s.evolveCountHint = evolveFrom?.length ?? (evolveOn ? 1 : 0);
     const cost = effectiveCost(s, this.reg, player, iid, side, sacrifice, neo);
     const pay = choosePayment(s, this.reg, player, iid, manaIids, side, sacrifice, neo);
+    delete s.evolveCountHint;
     if (!pay) throw new IllegalAction(`マナが足りません（コスト${cost}・${face.civilizations.map((c) => CIV_LABEL[c]).join('/')}）`);
     if (s.phase === 'charge') {
       s.phase = 'main';
@@ -1748,6 +1752,16 @@ export class Ctx {
           for (const u of shed) this.emit({ type: 'UNDER_LEFT', iid: task.iid, card: u });
           return false;
         }
+        case 'underToDeckBottom': {
+          // 《大魔王 ウラギリダムス》：かわりに下に重ねたカードを山札の下に置き、バトルゾーンにとどまる
+          const need = ability.count ?? 5;
+          if (inst.under.length < need) {
+            this.insertFront({ ...task, replaced: [...replaced, key] });
+            return false;
+          }
+          this.sendUnderToDeckBottom(task.iid, need);
+          return false;
+        }
         case 'unflip': {
           // 解除・龍回避：裏面の時だけ。表面に裏返してバトルゾーンにとどまる
           if (!inst.flipped) {
@@ -2565,14 +2579,16 @@ export class Ctx {
       case 'lookAtTop':
         return this.lookAtTop(controller, source, e);
       case 'powerMod': {
+        // 「自分の墓地にあるクリーチャー1体につき-1000」：使った時の数で決める
+        const amount = e.perCount ? e.amount * countQuantity(s, this.reg, controller, e.perCount, true, source) : e.amount;
         const apply = (iid: string) => {
           const inst = s.cards[iid];
-          if (e.untilLeave) inst.powerModLasting = (inst.powerModLasting ?? 0) + e.amount;
+          if (e.untilLeave) inst.powerModLasting = (inst.powerModLasting ?? 0) + amount;
           else if (e.untilNextTurn) {
             const prev = inst.powerModUntil?.player === controller ? inst.powerModUntil.amount : 0;
-            inst.powerModUntil = { amount: prev + e.amount, player: controller };
-          } else inst.powerModTurn += e.amount;
-          this.log(`${this.name(iid)} のパワー${e.amount >= 0 ? '+' : ''}${e.amount}`, controller);
+            inst.powerModUntil = { amount: prev + amount, player: controller };
+          } else inst.powerModTurn += amount;
+          this.log(`${this.name(iid)} のパワー${amount >= 0 ? '+' : ''}${amount}`, controller);
         };
         if (e.target === 'self') {
           if (s.cards[source]?.zone === 'battle') apply(source);
@@ -3332,12 +3348,14 @@ export class Ctx {
           const owner = s.cards[e.iid].owner;
           if (s.players[owner].zones.battle.some((b) => s.cards[b].seals?.length)) this.addTrigger(owner, e.iid, [{ kind: 'commandUnseal', player: owner, command: e.iid }]);
         }
+        // 相手の《ブラキオ龍樹》：相手のクリーチャーが出て、その相手のクリーチャーの能力がトリガーする時、かわりにトリガーしない
+        const suppressed = activeStatics(s, this.reg).some((a) => a.static.type === 'suppressEnterTriggers' && a.controller === other(e.player));
         // 「自分のパワー6000以上のクリーチャーが出た時」は、条件に合えばこのクリーチャー自身にも誘発する
-        this.triggerFrom(e.iid, 'onSummon', (ab) => !ab.filter || matchFilter(s, this.reg, e.iid, ab.filter, e.iid));
+        if (!suppressed) this.triggerFrom(e.iid, 'onSummon', (ab) => !ab.filter || matchFilter(s, this.reg, e.iid, ab.filter, e.iid));
         // 「相手のターンに相手のクリーチャーが出て、その能力がトリガーした時、自分もその能力を使ってもよい」
         {
           const summoner = s.cards[e.iid]?.owner;
-          if (summoner !== undefined && s.activePlayer === summoner) {
+          if (summoner !== undefined && s.activePlayer === summoner && !suppressed) {
             const copier = s.players[other(summoner)].zones.battle.find((x) => !isIgnored(s, this.reg, x) && keywords(s, this.reg, x).mimicEnemySummon);
             if (copier) {
               for (const ab of def(s, this.reg, e.iid).abilities ?? []) {
@@ -3349,11 +3367,16 @@ export class Ctx {
           }
         }
         for (const other_ of battleAll()) {
-          if (other_ === e.iid) continue;
+          if (other_ === e.iid || (suppressed && s.cards[other_].owner === e.player)) continue;
           this.triggerFrom(other_, 'onOtherSummon', (ab) => this.whoMatches(ab.who, s.cards[other_].owner, e.player) && (!ab.byEffect || !e.summoned) && matchFilter(s, this.reg, e.iid, ab.filter), e.iid);
         }
         s.players[e.player].creaturesThisTurn = (s.players[e.player].creaturesThisTurn ?? 0) + 1;
         (s.players[e.player].enteredNamesThisTurn ??= []).push(def(s, this.reg, e.iid).name);
+        // 「各ターン、自分のN体目のクリーチャーが出た時」（出たクリーチャー自身の能力も含む）
+        {
+          const count = s.players[e.player].creaturesThisTurn ?? 0;
+          for (const b of s.players[e.player].zones.battle) this.triggerFrom(b, 'onOwnNthEnter', (ab) => ab.nthEnter === count, e.iid);
+        }
         if (e.summoned) s.players[e.player].summonsThisTurn = (s.players[e.player].summonsThisTurn ?? 0) + 1;
         break;
       case 'CREATURE_DESTROYED':
@@ -3687,7 +3710,7 @@ export class Ctx {
     const s = this.s;
     if (s.gameOverReason !== null) return;
     // 鬼S-MAX進化：「自分がゲームに負ける時、かわりに自分の表向きのカードを3枚破壊してもよい」（投了は除く）
-    if (winner !== null && reason !== '投了' && this.avertLoss(other(winner))) return;
+    if (winner !== null && reason !== '投了' && (this.avertLoss(other(winner)) || this.avertLossUnder(other(winner)))) return;
     s.winner = winner;
     s.gameOverReason = reason;
     s.pending = null;
@@ -3696,6 +3719,31 @@ export class Ctx {
     s.combat = null;
     this.log(winner === null ? `引き分け（${reason}）` : `${s.players[winner].name} の勝利！（${reason}）`, winner);
     this.emit({ type: 'GAME_OVER', winner, reason });
+  }
+
+  /** このクリーチャーの下に重ねたカードを、古い順に count 枚、山札の下に置く */
+  private sendUnderToDeckBottom(iid: string, count: number): void {
+    const inst = this.s.cards[iid];
+    const moved = inst.under.splice(0, count);
+    for (const u of moved) {
+      this.s.cards[u].zone = 'battle';
+      this.moveCard(u, 'deck', { toTop: false });
+      this.emit({ type: 'UNDER_LEFT', iid, card: u });
+    }
+    this.log(`${this.name(iid)} の下のカードを${moved.length}枚、山札の下に置いた`, inst.owner);
+  }
+
+  /** 《大魔王 ウラギリダムス》：自分がゲームに負ける時、かわりに下に重ねたカードを山札の下に置く */
+  private avertLossUnder(loser: PlayerId): boolean {
+    const s = this.s;
+    for (const iid of battleCards(s, this.reg, loser)) {
+      const rep = (def(s, this.reg, iid).replacements ?? []).find((r) => r.instead === 'underToDeckBottom' && r.alsoLose && s.cards[iid].under.length >= (r.count ?? 5));
+      if (!rep) continue;
+      this.log(`${this.name(iid)} の能力：ゲームに負けるかわりに`, loser);
+      this.sendUnderToDeckBottom(iid, rep.count ?? 5);
+      return true;
+    }
+    return false;
   }
 
   /**

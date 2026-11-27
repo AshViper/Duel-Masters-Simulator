@@ -281,6 +281,8 @@ export interface TurnStatic {
 export interface GameState {
   /** 手動処理の能力の途中で手動移動をした時、再び入力待ちに戻る（ログの「要手動処理」を重ねて出さない） */
   /** 攻撃の後に出す手札のカード（「攻撃の後、このクリーチャーをバトルゾーンに出してもよい」） */
+  /** 進化クリーチャーを使う時に選んだ進化元の数（「進化元1体につきコストを少なくする」の計算に使う。使う処理の間だけ入る） */
+  evolveCountHint?: number;
   afterAttackPlays?: { player: PlayerId; iid: string }[];
   manualResume?: boolean;
   config: GameConfig;

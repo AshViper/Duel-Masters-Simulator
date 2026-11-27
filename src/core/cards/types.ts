@@ -320,7 +320,7 @@ export type EffectDef =
    */
   | { type: 'selfAction'; action: 'destroy' | 'tap' | 'untap' | 'toHand' | 'toMana' | Exclude<MoveDest, 'battle' | 'under' | 'shieldTop'>; tapped?: boolean }
   /** ターン終了時まで、パワーを変更する */
-  | { type: 'powerMod'; target: TargetSpec | 'self'; amount: number; untilNextTurn?: boolean; untilLeave?: boolean }
+  | { type: 'powerMod'; target: TargetSpec | 'self'; amount: number; untilNextTurn?: boolean; untilLeave?: boolean; perCount?: Quantity }
   /** ターン終了時まで、キーワード能力を与える */
   /** untilNextTurn: 次の自分のターンのはじめまで（省略時はこのターン） */
   | { type: 'grantKeyword'; target: TargetSpec | 'self'; keywords: Keywords; untilNextTurn?: boolean }
@@ -407,6 +407,8 @@ export type EffectDef =
 
 export const TRIGGER_EVENTS = [
   'onSummon',
+  /** 各ターン、自分のN体目のクリーチャー（このクリーチャー自身を含む）が出た時 */
+  'onOwnNthEnter',
   /** 自分（または相手）の他のクリーチャーがバトルに勝った時 */
   'onOtherBattleWin',
   'onDestroyed',
@@ -485,6 +487,8 @@ export interface TriggeredAbility {
   oncePerTurn?: boolean;
   /** onDraw：そのターンに引いた枚数がこれ以上の時だけ（「2枚目以降のカードを引いた時」） */
   minDrawCount?: number;
+  /** onOwnNthEnter：そのターンの何体目のクリーチャーが出た時か */
+  nthEnter?: number;
   /** 発動条件（「〜なら」） */
   condition?: Condition;
   /** onSelfMoved：移る前・移った後のゾーン（どちらも省略できる） */
@@ -525,6 +529,10 @@ export type StaticAbility = (
    * firstPerTurn: 各ターン、条件に合うカードを使うまでの1枚目だけ（「各ターン、自分の闇のクリーチャー1体目の」）
    */
   | { type: 'costMod'; amount: number; appliesTo: Applies; minCost?: number; firstPerTurn?: boolean }
+  /** 相手のクリーチャーが出て、相手のクリーチャーの能力がトリガーする時、かわりにその能力はトリガーしない */
+  | { type: 'suppressEnterTriggers' }
+  /** 自分は、このクリーチャーよりパワーが小さいクリーチャーに攻撃されない（プレイヤーへの攻撃を防ぐ） */
+  | { type: 'protectFromWeaker' }
   | { type: 'cannotSummon'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
   | { type: 'cannotCast'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
   /** カードをマナゾーンにタップして置く（「相手はカードをマナゾーンに置く時、タップして置く」） */
@@ -576,7 +584,7 @@ export interface ReplacementAbility {
   /** shedTop: かわりに一番上のカードが離れる（スター進化。下のカードがクリーチャーとして残る） */
   /** faceUpShieldToGrave: かわりにいずれかのシールドゾーンにある表向きのカードを1枚、持ち主の墓地に置く */
   /** avertCost: かわりに自分の表向きのカードを count 枚破壊するか、自分のシールドを shieldAlt 個墓地に置く（CRY-S-MAX進化） */
-  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'toDeckTop' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther' | 'shedTop' | 'unflip' | 'faceUpShieldToGrave' | 'avertCost';
+  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'toDeckTop' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther' | 'shedTop' | 'unflip' | 'faceUpShieldToGrave' | 'avertCost' | 'underToDeckBottom';
   /** avertCost：かわりに墓地に置いてもよいシールドの数 */
   shieldAlt?: number;
   optional?: boolean;
@@ -584,6 +592,8 @@ export interface ReplacementAbility {
   count?: number;
   /** destroyOther：クリーチャー以外の自分のカード（タマシード・フィールドなど）も選べる（「自分の表向きのカード」） */
   anyCard?: boolean;
+  /** underToDeckBottom：自分がゲームに負ける時にも、かわりに使う（《大魔王 ウラギリダムス》） */
+  alsoLose?: boolean;
   /** この条件を満たす時だけ置換する（マナ武装：「自分のマナゾーンに光のカードが5枚以上あれば」） */
   condition?: Condition;
 }
@@ -869,7 +879,7 @@ export interface CardDefinition {
   /** 条件を満たしていれば、シールドゾーンにあるこのカードは「S・トリガー」を持つ */
   shieldTriggerIf?: Condition;
   /** このカード自身の召喚コストを「〜1枚につきN」少なくする。コストは min 未満にならない */
-  selfCost?: { amount: number; per: Quantity; unit: number; min: number };
+  selfCost?: { amount: number; per: Quantity; unit: number; min: number; /** 進化元にするカードの数を数える（「進化元クリーチャー1体につき」） */ perEvolve?: boolean };
   /** 条件を満たす時、このカード自身のコストを amount 少なくする（「〜があれば、このクリーチャーの召喚コストを3少なくする」） */
   condCost?: { amount: number; condition: Condition };
   /** ハイパー化：自分のクリーチャーを count 体タップして、次の自分のターンのはじめまでハイパーモードになる */
