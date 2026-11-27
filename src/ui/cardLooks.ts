@@ -1,3 +1,4 @@
+import { createContext } from 'react';
 import { create } from 'zustand';
 import { deleteImages, saveImage } from '../db/imageCache';
 
@@ -35,8 +36,50 @@ function read(): Record<string, CardLook> {
   }
 }
 
+/**
+ * 表示中のカードの持ち主（席）。オンライン対戦で相手の席のカードは、相手が選んだ見た目（remoteLooks）で描く。
+ * null（対戦画面の外など）は自分の見た目。
+ */
+export const LookOwnerContext = createContext<number | null>(null);
+
+const FOILS = new Set<string>(Object.keys(FOIL_LABEL));
+
+/** 相手から届いた見た目を確かめ、使える欄（art・foil）だけ残す */
+export function sanitizeLooks(raw: unknown): Record<string, CardLook> {
+  const out: Record<string, CardLook> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [name, v] of Object.entries(raw as Record<string, unknown>)) {
+    const o = v as Record<string, unknown> | null;
+    if (!o || typeof o !== 'object') continue;
+    const look: CardLook = {};
+    if (typeof o.art === 'string' && o.art) look.art = o.art;
+    if (typeof o.foil === 'string' && FOILS.has(o.foil) && o.foil !== 'none') look.foil = o.foil as Foil;
+    if (look.art || look.foil) out[name] = look;
+  }
+  return out;
+}
+
+/** 相手に送る見た目：デッキに入っているカード名の分だけ（追加画像の一覧は送らない） */
+export function looksForNames(names: Iterable<string>): Record<string, CardLook> {
+  const all = useCardLooks.getState().looks;
+  const out: Record<string, CardLook> = {};
+  for (const n of names) {
+    const l = all[n];
+    if (!l) continue;
+    const look: CardLook = {};
+    if (l.art) look.art = l.art;
+    if (l.foil && l.foil !== 'none') look.foil = l.foil;
+    if (look.art || look.foil) out[n] = look;
+  }
+  return out;
+}
+
 interface LooksState {
   looks: Record<string, CardLook>;
+  /** オンライン対戦の相手の見た目と、その席（対戦していなければ null） */
+  remoteLooks: Record<string, CardLook> | null;
+  remoteSeat: number | null;
+  setRemote: (seat: number | null, looks: Record<string, CardLook> | null) => void;
   setArt: (name: string, art: string | undefined) => void;
   setFoil: (name: string, foil: Foil) => void;
   addUpload: (name: string, file: File) => Promise<void>;
@@ -57,6 +100,9 @@ export const useCardLooks = create<LooksState>((set, get) => {
   };
   return {
     looks: read(),
+    remoteLooks: null,
+    remoteSeat: null,
+    setRemote: (seat, looks) => set({ remoteSeat: seat, remoteLooks: looks }),
     setArt: (name, art) => patch(name, { art }),
     setFoil: (name, foil) => patch(name, { foil }),
     addUpload: async (name, file) => {

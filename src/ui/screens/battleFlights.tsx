@@ -4,6 +4,7 @@ import { def as cardDef } from '../../core/engine/queries';
 import type { CardInstance, GameState, PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { CardView } from '../components/CardView';
+import { LookOwnerContext } from '../cardLooks';
 
 /**
  * カードが動いた時の演出：盤面が変わるたびに、ゾーンが変わったカードを、元の場所から行き先まで飛ばして見せる。
@@ -24,6 +25,8 @@ interface Box {
 interface Flight {
   id: number;
   iid: string;
+  /** 行き先での持ち主（オンラインで相手のカードの見た目を使うため） */
+  owner: number;
   card?: CardDefinition;
   from: Box;
   to: Box;
@@ -109,6 +112,7 @@ export function CardFlights({ g, canSee }: { g: GameState; canSee: (p: PlayerId)
       out.push({
         id: ++seq,
         iid: c.iid,
+        owner: c.owner,
         card: show && registry[c.cardId] ? cardDef(g, registry, c.iid) : undefined,
         from,
         to,
@@ -185,7 +189,9 @@ function FlyingCard({ f, onDone }: { f: Flight; onDone: () => void }) {
   }, [f]);
   return (
     <div ref={ref} className="fx-fly" style={{ left: f.from.x, top: f.from.y, ['--gw' as string]: `${f.from.w}px` }}>
-      <CardView card={f.card} faceDown={!f.card} size="fd" />
+      <LookOwnerContext.Provider value={f.owner}>
+        <CardView card={f.card} faceDown={!f.card} size="fd" />
+      </LookOwnerContext.Provider>
       {f.label && <span className="fx-fly-label">{f.label}</span>}
     </div>
   );

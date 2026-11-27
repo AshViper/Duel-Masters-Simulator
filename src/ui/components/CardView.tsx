@@ -1,7 +1,7 @@
-import type { CSSProperties, DragEvent, MouseEvent, PointerEvent, ReactNode } from 'react';
+import { useContext, type CSSProperties, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, type CardDefinition, type Civilization } from '../../core/cards/types';
 import { useCachedImage } from '../../db/imageCache';
-import { useCardLooks } from '../cardLooks';
+import { LookOwnerContext, useCardLooks } from '../cardLooks';
 
 export const CIV_COLOR: Record<Civilization, string> = {
   light: '#f4d35e',
@@ -55,7 +55,9 @@ export function CardView({ card, faceDown, tapped, size = 'md', power, cost, sel
   const cls = ['card', `card-${size}`, className, tapped && 'tapped', dimmed && 'dimmed', selected && 'selected', highlight && `hl-${highlight}`, onClick && 'clickable'].filter(Boolean).join(' ');
   // 保存済みの画像（公式カードなど）。ブラウザ内の IndexedDB から読むので通信しない
   // カード名ごとに選んだイラスト・キラ加工（cardLooks.ts）
-  const look = useCardLooks((s) => (faceDown || !card ? undefined : s.looks[card.name]));
+  // オンライン対戦の相手のカードは、相手が選んだ見た目で描く
+  const owner = useContext(LookOwnerContext);
+  const look = useCardLooks((s) => (faceDown || !card ? undefined : owner !== null && owner === s.remoteSeat ? s.remoteLooks?.[card.name] : s.looks[card.name]));
   const chosenImg = useCachedImage(faceDown ? undefined : look?.art);
   const ownImg = useCachedImage(faceDown ? undefined : card?.imageRef);
   // 選んだ画像が消えていたら本来の画像に戻す

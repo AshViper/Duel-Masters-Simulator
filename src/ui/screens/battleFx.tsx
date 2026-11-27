@@ -4,6 +4,7 @@ import { def as cardDef } from '../../core/engine/queries';
 import type { GameEvent, GameState, PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { CardView } from '../components/CardView';
+import { LookOwnerContext } from '../cardLooks';
 
 /**
  * 行動の演出。盤面が変わるたびに、直前の行動で起きたイベント（GameState.lastEvents）を読んで
@@ -309,14 +310,22 @@ export function ActionFx({ g, me, solo }: { g: GameState; me: PlayerId; solo: bo
       ))}
       {spot && (
         <div key={spot.id} className={'fx-spot ' + side(spot.player)}>
-          <CardView card={spot.card} size="md" />
+          <LookOwnerContext.Provider value={spot.player}>
+            <CardView card={spot.card} size="md" />
+          </LookOwnerContext.Provider>
           <span className="fx-spot-label">{spot.label}</span>
         </div>
       )}
       <ol className="fx-feed" data-testid="action-feed">
         {feed.map((it) => (
           <li key={it.id} className={`fx-item tone-${it.tone} ${side(it.player)}`}>
-            {it.card ? <CardView card={it.card} size="xs" /> : <span className="fx-item-icon" />}
+            {it.card ? (
+              <LookOwnerContext.Provider value={it.player}>
+                <CardView card={it.card} size="xs" />
+              </LookOwnerContext.Provider>
+            ) : (
+              <span className="fx-item-icon" />
+            )}
             <div className="fx-item-body">
               <b>{it.title}</b>
               {it.text && <span>{it.text}</span>}

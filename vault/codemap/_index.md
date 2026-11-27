@@ -72,15 +72,15 @@ generated: 2026-11-27
 | `src/store/appStore.ts` | 195 | 保存済みの公式カードは、読み込むたびに能力テキストを読み直す（読み取りの改良を反映するため） |  |
 | `src/store/battleStore.ts` | 199 | BattleMode, NetBridge, setNetBridge, isCpuTurnPlayer, useBattle |  |
 | `src/store/officialCards.ts` | 146 | isOfficialSaved, saveOfficialCard, repairBackImages, saveOfficialCards, deleteAllOfficialC |  |
-| `src/store/onlineStore.ts` | 307 | OnlineRole, OnlineStatus, useOnline | [[codemap/src-store-onlineStore\|地図]] |
+| `src/store/onlineStore.ts` | 327 | OnlineRole, OnlineStatus, useOnline | [[codemap/src-store-onlineStore\|地図]] |
 | `src/ui/App.tsx` | 87 | App |  |
 | `src/ui/battleBackground.ts` | 56 | 対戦画面の背景画像（ユーザーが選んだ画像）。IndexedDB の images テーブルに Blob で保存する。 |  |
-| `src/ui/cardLooks.ts` | 91 | カードの見た目の好み（カード名ごと）：どのイラストで表示するか、キラ加工をかけるか。 |  |
+| `src/ui/cardLooks.ts` | 137 | カードの見た目の好み（カード名ごと）：どのイラストで表示するか、キラ加工をかけるか。 |  |
 | `src/ui/components/AppShell.tsx` | 48 | アプリ全体の枠組み（design/app-ui.md）：左ナビ 64px ＋ 上部バー 48px ＋ メイン。対戦画面だけは枠なしの全画面。 |  |
 | `src/ui/components/BridgeImport.tsx` | 55 | ブックマークレット（またはユーザースクリプトの「DMシミュへ保存」）を押したページ（公式の検索結果・カード詳細）に出ていたカードを、自動で保存する。 |  |
 | `src/ui/components/CardDetail.tsx` | 180 | manualLines, Modal, CardDetail, CardInfoPanel |  |
 | `src/ui/components/CardFilter.tsx` | 62 | カード検索フォーム（デッキ構築・図鑑で共用）。2列にまとめて縦に伸ばさない |  |
-| `src/ui/components/CardView.tsx` | 120 | CIV_COLOR, civGradient, CardSize, CardView |  |
+| `src/ui/components/CardView.tsx` | 122 | CIV_COLOR, civGradient, CardSize, CardView |  |
 | `src/ui/components/DeckPicker.tsx` | 94 | デッキの代表カード（指定したカード、なければコストが一番高いカード）と文明ごとの枚数 |  |
 | `src/ui/components/DeckTextImport.tsx` | 235 | DeckTextImport |  |
 | `src/ui/components/OfficialBridgePanel.tsx` | 87 | 中継サーバーのない版（GitHub Pages）で、公式サイトとつなぐ手順とブックマークレットを出す。 |  |
@@ -90,7 +90,7 @@ generated: 2026-11-27
 | `src/ui/officialApi.ts` | 45 | 公式カード検索の中継（/dm-api/*）を呼ぶ小さなヘルパー |  |
 | `src/ui/officialBridge.ts` | 259 | 中継サーバーのない環境（GitHub Pages 版）で公式カード検索を使うための「ブリッジ」。 | [[codemap/src-ui-officialBridge\|地図]] |
 | `src/ui/proxyPrint.ts` | 204 | デッキからプロキシ印刷用の A4 PDF を作る。 |  |
-| `src/ui/screens/Battle.tsx` | 1115 | BattleScreen | [[codemap/src-ui-screens-Battle\|地図]] |
+| `src/ui/screens/Battle.tsx` | 1122 | BattleScreen | [[codemap/src-ui-screens-Battle\|地図]] |
 | `src/ui/screens/BattleSetup.tsx` | 103 | BattleSetupScreen |  |
 | `src/ui/screens/DeckBuilder.tsx` | 391 | DeckBuilderScreen | [[codemap/src-ui-screens-DeckBuilder\|地図]] |
 | `src/ui/screens/Home.tsx` | 245 | HomeScreen, DeckListScreen |  |
@@ -99,6 +99,6 @@ generated: 2026-11-27
 | `src/ui/screens/OfficialSearch.tsx` | 294 | OfficialSearchScreen | [[codemap/src-ui-screens-OfficialSearch\|地図]] |
 | `src/ui/screens/Online.tsx` | 133 | OnlineScreen |  |
 | `src/ui/screens/battleDrag.ts` | 101 | ドラッグの落とし先。盤面の要素に data-drop="zone:0:mana" / "card:<iid>" / "plate:1" で付ける |  |
-| `src/ui/screens/battleFlights.tsx` | 193 | CardFlights |  |
-| `src/ui/screens/battleFx.tsx` | 330 | ActionFx | [[codemap/src-ui-screens-battleFx\|地図]] |
+| `src/ui/screens/battleFlights.tsx` | 199 | CardFlights |  |
+| `src/ui/screens/battleFx.tsx` | 339 | ActionFx | [[codemap/src-ui-screens-battleFx\|地図]] |
 | `src/ui/sleeves.ts` | 97 | スリーブ（カードの裏面の見た目）。 |  |

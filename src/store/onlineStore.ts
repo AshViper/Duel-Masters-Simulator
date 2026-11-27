@@ -18,6 +18,7 @@ import {
 import { setBattleCards, useApp } from './appStore';
 import { setNetBridge, useBattle } from './battleStore';
 import { isSleeveImage, useSleeves } from '../ui/sleeves';
+import { looksForNames, sanitizeLooks, useCardLooks, type CardLook } from '../ui/cardLooks';
 
 export type OnlineRole = 'host' | 'guest';
 export type OnlineStatus =
@@ -59,6 +60,20 @@ let guestSleeve: string | undefined;
 
 /** 相手に見せる自分のスリーブ（デッキの指定、なければ全体の標準） */
 const mySleeve = (deck: Deck): string => deck.sleeve ?? useSleeves.getState().current;
+
+/** ホストが覚えておく相手のカードの見た目 */
+let guestLooks: Record<string, CardLook> = {};
+
+/** 相手に見せる自分のカードの見た目（デッキのカード名の分だけ） */
+const myLooks = (deck: Deck, registry: Record<string, CardDefinition>) => looksForNames(new Set(deckCardDefs(deck, registry).map((c) => c.name)));
+
+/** 相手の見た目を表示に使い、絵が手元になければ送ってもらう */
+async function applyRemoteLooks(seat: number, looks: Record<string, CardLook>): Promise<void> {
+  useCardLooks.getState().setRemote(seat, looks);
+  const keys: string[] = [];
+  for (const k of new Set(Object.values(looks).flatMap((l) => (l.art ? [l.art] : [])))) if (!(await canShowImage(k))) keys.push(k);
+  if (keys.length) link?.send({ t: 'needImages', keys });
+}
 
 /** 相手のスリーブが自分の画像なら、手元にない時だけ送ってもらう */
 async function requestSleeveImage(sleeve: string | undefined): Promise<void> {
@@ -122,7 +137,7 @@ export const useOnline = create<OnlineState>((set, get) => {
     const cards = [...guestCards, ...deckCardDefs(deck, registry)];
     const deckNames: [string, string] = [deck.name, guestDeck.name];
     const sleeves: [string, string | undefined] = [mySleeve(deck), guestSleeve];
-    link.send({ t: 'start', state: game, cards, deckNames, sleeves });
+    link.send({ t: 'start', state: game, cards, deckNames, sleeves, looks: [myLooks(deck, buildRegistry(useApp.getState().cards)), guestLooks] });
     useBattle.getState().startOnline(game, deckNames, 0, sleeves);
   };
 
@@ -153,9 +168,11 @@ export const useOnline = create<OnlineState>((set, get) => {
         set({ opponentName: m.name, status: 'playing', message: '' });
         void requestMissingImages(m.cards);
         void requestSleeveImage(guestSleeve);
+        guestLooks = sanitizeLooks(m.looks);
+        void applyRemoteLooks(1, guestLooks);
         // 対戦中の再接続なら続きから
         if (battle.mode === 'online' && battle.game && battle.game.gameOverReason === null) {
-          link?.send({ t: 'start', state: battle.game, cards: [...m.cards, ...hostCards], deckNames: battle.deckNames, sleeves: battle.sleeves });
+          link?.send({ t: 'start', state: battle.game, cards: [...m.cards, ...hostCards], deckNames: battle.deckNames, sleeves: battle.sleeves, looks: [myLooks(deck, buildRegistry(base.cards)), guestLooks] });
           return;
         }
         startHostGame();
@@ -181,6 +198,7 @@ export const useOnline = create<OnlineState>((set, get) => {
         useBattle.getState().startOnline(m.state, m.deckNames, 1, m.sleeves);
         void requestMissingImages(m.cards);
         void requestSleeveImage(m.sleeves?.[0]);
+        void applyRemoteLooks(0, sanitizeLooks(m.looks?.[0]));
         return;
       case 'state':
         useBattle.getState().setRemoteState(m.state);
@@ -222,7 +240,7 @@ export const useOnline = create<OnlineState>((set, get) => {
       peer = r.peer;
       link = wrapConnection(r.conn, { onMessage: guestMessage, onClose: onLinkClosed });
       const registry = buildRegistry(useApp.getState().cards);
-      link.send({ t: 'hello', v: PROTOCOL_VERSION, name: myName('ゲスト'), deck, cards: deckCardDefs(deck, registry), sleeve: mySleeve(deck) });
+      link.send({ t: 'hello', v: PROTOCOL_VERSION, name: myName('ゲスト'), deck, cards: deckCardDefs(deck, registry), sleeve: mySleeve(deck), looks: myLooks(deck, registry) });
     } catch (e) {
       // 対戦中の再接続に失敗したら、対戦画面のまま再接続をやり直せるようにする
       set({ status: before === 'disconnected' ? 'disconnected' : 'error', message: (e as Error).message });
@@ -299,6 +317,8 @@ export const useOnline = create<OnlineState>((set, get) => {
       guestDeck = null;
       guestCards = [];
       guestSleeve = undefined;
+      guestLooks = {};
+      useCardLooks.getState().setRemote(null, null);
       if (get().role) restoreRegistry();
       set({ role: null, status: 'idle', code: '', message: '', opponentName: '' });
     },

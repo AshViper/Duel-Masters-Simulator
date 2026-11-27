@@ -9,6 +9,7 @@ import { useOnline } from '../../store/onlineStore';
 import { CardDetail, Modal } from '../components/CardDetail';
 import { CardView, CIV_COLOR, type CardSize } from '../components/CardView';
 import { useDeckSleeve } from '../sleeves';
+import { LookOwnerContext } from '../cardLooks';
 import { create } from 'zustand';
 import '../battle.css';
 import { useBattleBackground } from '../battleBackground';
@@ -438,21 +439,23 @@ export function BattleScreen() {
       </div>
     );
     return (
-      <div className={'side ' + (top ? 'top' : 'bottom')} style={{ ['--sleeve' as string]: sleeveCss[p] }}>
-        {top ? (
-          <>
-            {hand}
-            {row}
-            {field}
-          </>
-        ) : (
-          <>
-            {field}
-            {row}
-            {hand}
-          </>
-        )}
-      </div>
+      <LookOwnerContext.Provider value={p}>
+        <div className={'side ' + (top ? 'top' : 'bottom')} style={{ ['--sleeve' as string]: sleeveCss[p] }}>
+          {top ? (
+            <>
+              {hand}
+              {row}
+              {field}
+            </>
+          ) : (
+            <>
+              {field}
+              {row}
+              {hand}
+            </>
+          )}
+        </div>
+      </LookOwnerContext.Provider>
     );
   };
 
@@ -894,7 +897,9 @@ function HoverPreview({ g, canControl }: { g: GameState; canControl: (p: PlayerI
   const p = inst!.zone === 'battle' && !isIgnored(g, registry, hover!) ? power(g, registry, hover!) : undefined;
   return (
     <div className="preview" data-testid="preview">
-      <CardView card={d} size="md" power={p} />
+      <LookOwnerContext.Provider value={inst!.owner}>
+        <CardView card={d} size="md" power={p} />
+      </LookOwnerContext.Provider>
       <div className="preview-info">
         <div className="preview-head">
           <div className="preview-name">{d.name}</div>
@@ -938,7 +943,9 @@ function DragLayer({ g, drag, result, attackMode }: { g: GameState; drag: DragSt
       })()}
       {!attackMode && (
         <div className="drag-ghost" style={{ left: x, top: y, transform: `translate(-50%, -60%) rotate(${tilt}deg)` }}>
-          <CardView card={d} size="hd" faceDown={inst.zone === 'shield' && !inst.faceUp} />
+          <LookOwnerContext.Provider value={inst.owner}>
+            <CardView card={d} size="hd" faceDown={inst.zone === 'shield' && !inst.faceUp} />
+          </LookOwnerContext.Provider>
         </div>
       )}
       <div className="drag-chip" style={{ left: x, top: y }}>

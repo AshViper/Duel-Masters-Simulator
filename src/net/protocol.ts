@@ -11,9 +11,9 @@ export const PROTOCOL_VERSION = 1;
 
 export type NetMessage =
   /** ゲスト → ホスト：参加。自分のデッキとそのカード定義を送る */
-  | { t: 'hello'; v: number; name: string; deck: Deck; cards: CardDefinition[]; /** 使うスリーブ（ui/sleeves.ts の id。画像なら needImages で取りに来る）。古い版は送らない */ sleeve?: string }
+  | { t: 'hello'; v: number; name: string; deck: Deck; cards: CardDefinition[]; /** 使うスリーブ（ui/sleeves.ts の id。画像なら needImages で取りに来る）。古い版は送らない */ sleeve?: string; /** カード名ごとの見た目（ui/cardLooks.ts の CardLook）。古い版は送らない */ looks?: Record<string, { art?: string; foil?: string }> }
   /** ホスト → ゲスト：対戦開始（再接続時の再開も兼ねる）。両デッキのカード定義を送る */
-  | { t: 'start'; state: GameState; cards: CardDefinition[]; deckNames: [string, string]; /** 各プレイヤーのスリーブ。古い版は送らない */ sleeves?: [string | undefined, string | undefined] }
+  | { t: 'start'; state: GameState; cards: CardDefinition[]; deckNames: [string, string]; /** 各プレイヤーのスリーブ。古い版は送らない */ sleeves?: [string | undefined, string | undefined]; /** 各プレイヤーのカードの見た目。古い版は送らない */ looks?: [Record<string, { art?: string; foil?: string }>, Record<string, { art?: string; foil?: string }>] }
   /** ゲスト → ホスト：操作 */
   | { t: 'action'; action: Action }
   /** ホスト → 両者：最新の状態 */
