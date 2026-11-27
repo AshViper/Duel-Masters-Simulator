@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/types.ts（1241行）
+# src/core/cards/types.ts（1257行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -24,28 +24,28 @@ generated: 2026-11-27
 - L139 **export** interface `TargetSpec`
 - L179 **export** interface `Quantity`
 - L193 **export** type `Condition`
-- L274 **export** type `EndOfTurnLeave`
-- L279 **export** type `MoveDest`
-- L282 **export** type `EffectDef`
-- L549 **export** const `TRIGGER_EVENTS`
-- L638 **export** type `TriggerEvent`
-- L640 **export** interface `TriggeredAbility`
-- L681 **export** interface `Applies`
-- L692 **export** type `StaticAbility`
-- L784 **export** interface `ReplacementAbility`
-- L819 **export** interface `Keywords`
-- L992 **export** interface `ForbiddenSide`
-- L999 **export** interface `TwinSide`
-- L1011 **export** interface `AttackSwap`
-- L1024 **export** interface `AltPlay`
-- L1075 **export** interface `ZoneGate`
-- L1087 **export** interface `HandTrigger`
-- L1117 **export** interface `EvolveSpec`
-- L1134 **export** interface `CardDefinition`
-- L1205 **export** interface `PsychicSide`
-- L1211 **export** fn `isCreatureType`
-- L1216 **export** fn `isNonCreaturePermanent`
-- L1221 **export** fn `manaCivilizations`
-- L1226 **export** interface `PlayFace`
-- L1235 **export** fn `playFace`
+- L276 **export** type `EndOfTurnLeave`
+- L281 **export** type `MoveDest`
+- L284 **export** type `EffectDef`
+- L557 **export** const `TRIGGER_EVENTS`
+- L646 **export** type `TriggerEvent`
+- L648 **export** interface `TriggeredAbility`
+- L689 **export** interface `Applies`
+- L700 **export** type `StaticAbility`
+- L793 **export** interface `ReplacementAbility`
+- L830 **export** interface `Keywords`
+- L1003 **export** interface `ForbiddenSide`
+- L1010 **export** interface `TwinSide`
+- L1022 **export** interface `AttackSwap`
+- L1035 **export** interface `AltPlay`
+- L1086 **export** interface `ZoneGate`
+- L1098 **export** interface `HandTrigger`
+- L1128 **export** interface `EvolveSpec`
+- L1145 **export** interface `CardDefinition`
+- L1221 **export** interface `PsychicSide`
+- L1227 **export** fn `isCreatureType`
+- L1232 **export** fn `isNonCreaturePermanent`
+- L1237 **export** fn `manaCivilizations`
+- L1242 **export** interface `PlayFace`
+- L1251 **export** fn `playFace`
 

@@ -62,6 +62,8 @@ export interface ParsedAbilities {
   evolveSpec?: EvolveSpec;
   /** NEO進化クリーチャーとして召喚する時のコスト軽減 */
   neoCostReduce?: number;
+  /** タマシード/クリーチャー：この条件を満たさなければ、バトルゾーンでクリーチャーとして扱わない */
+  creatureIf?: { civilization: Civilization; min: number };
   /** 手札にある間の誘発 */
   handTriggers?: HandTrigger[];
   /** 手札・墓地にある間の誘発でバトルゾーンに出る（無月の門など） */
@@ -239,7 +241,7 @@ export function normalizeText(s: string): string {
     .replace(/各プレイヤーは、?それぞれ(\d+)枚ずつ自身の手札を選び/g, '各プレイヤーは自身の手札を$1枚ずつ選び')
     .replace(/カードをさらに(\d+)枚引/g, 'カードを$1枚引')
     // 「相手のシールドが2枚以下ならば」＝「相手のシールドが2つ以下なら」
-    .replace(/シールドが(\d+)枚(以下|以上)/g, 'シールドが$1つ$2')
+    .replace(/シールドが(\d+)(?:枚)?(以下|以上)/g, 'シールドが$1つ$2')
     // 「相手のシールドが5つ以上あれば」＝5つ以上なら
     .replace(/(自分|相手)のシールドが(\d+)つ以上あれば、/g, '$1のシールドが$2つ以上なら、')
     .replace(/ならば、/g, 'なら、')
@@ -477,7 +479,7 @@ const TURN_EVENTS: [RegExp, TriggerEvent][] = [
 ];
 
 /** subject: 誘発の原因になったカードがある（本文の「そのクリーチャー」で指せる） */
-type ParsedTrigger = { when: TriggerEvent[]; who?: TriggeredAbility['who']; filter?: CardFilter; minDrawCount?: number; nthEnter?: number; oncePerTurn?: boolean; subject?: boolean; duringTurn?: 'self' | 'opponent'; rest: string };
+type ParsedTrigger = { when: TriggerEvent[]; who?: TriggeredAbility['who']; filter?: CardFilter; minDrawCount?: number; nthEnter?: number; oncePerTurn?: boolean; subject?: boolean; duringTurn?: 'self' | 'opponent'; rest: string; /** 「このクリーチャーまたは自分の他の〜」：filter は他のクリーチャーの誘発（when の2つ目）だけにかける */ orSelf?: boolean };
 
 /**
  * プレイヤーが主語の誘発：「相手がカードを実行した時」「相手が自身の手札を1枚捨てた時」「カードが自分のシールドゾーンに置かれた時」。
@@ -521,7 +523,7 @@ function parseOtherTrigger(t: string): ParsedTrigger | null {
     if (head[2]) filter.excludeSelf = true;
     const who: TriggeredAbility['who'] = owner === '自分' ? 'self' : owner === '相手' ? 'opponent' : 'any';
     const f = Object.keys(filter).length ? { filter } : {};
-    if (orSelf) return { when: [ev.self!, ev.other!], who, ...f, subject: true, rest: rest.slice(1) };
+    if (orSelf) return { when: [ev.self!, ev.other!], who, ...f, subject: true, orSelf: true, rest: rest.slice(1) };
     // 「自分のクリーチャーが出た時」：このクリーチャー自身も含む。条件つきだと自身が合うか分からないので読まない
     if (ev.ownIncludesSelf && owner !== '相手' && !head[2]) {
       return { when: [ev.self!, ev.other!], who, ...f, subject: true, rest: rest.slice(1) };
@@ -3708,6 +3710,12 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     out.statics.push({ type: 'ignoreAttackLocks', appliesTo: { owner: 'self' } });
     return true;
   }
+  // タマシード/クリーチャー：「自分の自然のクリーチャーまたは自然のタマシードが合計4つ以上なければ、バトルゾーンにあるこのタマシードはクリーチャーとして扱わない」
+  const tc = t.match(/^自分の(光|水|闇|火|自然)のクリーチャーまたは(光|水|闇|火|自然)のタマシードが合計(\d+)つ以上なければ、バトルゾーンにあるこのタマシードはクリーチャーとして扱わない。?$/);
+  if (tc && tc[1] === tc[2] && kind === 'creature') {
+    out.creatureIf = { civilization: CIV[tc[1]], min: n(tc[3]) };
+    return true;
+  }
   const neoCost = t.match(/^NEO進化クリーチャーとして召喚するなら、このクリーチャーの召喚コストを(\d+)少なくする。?$/);
   if (neoCost && kind === 'creature') {
     out.neoCostReduce = n(neoCost[1]);
@@ -4043,6 +4051,12 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
       out.replacements.push({ event: 'leaveBattle', subject: 'self', instead: 'destroyOther', count: n(sm[1]), anyCard: true, optional: true });
       return true;
     }
+    // 「自分がゲームに負ける時、かわりにこのクリーチャーを破壊するか、自分の手札から《名》を1枚捨てる」（《MAX・ザ・ジョニー》）
+    const sj = t.match(/^[^:：]{0,6}S-MAX進化[:：]自分がゲームに負ける時、かわりにこのクリーチャーを破壊するか、自分の手札から《([^》]+)》を1枚捨てる。?$/);
+    if (sj) {
+      out.replacements.push({ event: 'lose', subject: 'self', instead: 'destroySelf', orDiscardName: sj[1] });
+      return true;
+    }
   }
   // エターナル・Ω：離れる時、かわりに手札に戻す
   if (/^エターナル・[ΩΩ]。?$/.test(t) && kind === 'creature') {
@@ -4147,15 +4161,17 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     const groups = parsedGroups && parsedGroups.some((g) => g.effects.some(hasRealEffect)) ? parsedGroups : null;
     refCtx.event = false;
     for (const when of whens) {
+      // 「このクリーチャーまたは自分の他のパワー12000以上のクリーチャーが出た時」：このクリーチャー自身の誘発には条件をかけない
+      const ex = trig?.orSelf && when === whens[0] ? (({ filter: _f, ...rest }) => rest)(extra as typeof extra & { filter?: CardFilter }) : extra;
       if (!groups) {
         // タイミングは分かるので、その時にログで手動処理を促す
         const text = [line, ...options.map((o) => `▶${o}`)].join(' ').replace(/\s+/g, ' ');
-        out.abilities.push({ when, effects: [{ type: 'manual', text }], ...extra });
+        out.abilities.push({ when, effects: [{ type: 'manual', text }], ...ex });
         continue;
       }
       // カードに書かれた1つの能力は、1つの誘発にまとめる（「Aしてもよい。その後、Bしてもよい」は書かれた順に処理する）
       const merged: Group[] = groups.length > 1 ? [{ optional: false, effects: flattenGroups(groups) }] : groups;
-      for (const g of merged) out.abilities.push({ when, effects: g.effects, ...(g.optional ? { optional: true } : {}), ...(condition ? { condition } : {}), ...extra });
+      for (const g of merged) out.abilities.push({ when, effects: g.effects, ...(g.optional ? { optional: true } : {}), ...(condition ? { condition } : {}), ...ex });
     }
     return !!groups;
   }
@@ -4358,7 +4374,8 @@ function evolveFilter(text: string): CardFilter | null {
   // 「デモニオ、闇、または自然の、クリーチャー」：種族か文明のどれかに合うもの
   const list = w.match(/^(.+?)の?、?クリーチャー$/);
   if (list && /、|または/.test(list[1])) {
-    const items = list[1].split(/、(?:または)?|または/).map((x) => x.replace(/の$/, '')).filter(Boolean);
+    // 「レクスターズ、光のクリーチャー、または火のクリーチャー」：「光のクリーチャー」は文明
+    const items = list[1].split(/、(?:または)?|または/).map((x) => x.replace(/の?クリーチャー$/, '').replace(/の$/, '')).filter(Boolean);
     if (items.every((x) => /^[^、のをにがで「」]+$/.test(x))) return { anyOf: items.map((x) => (CIV[x] ? { civilization: CIV[x] } : { race: x })) };
   }
   return parseSwapCondition(w);
@@ -4442,7 +4459,8 @@ function parseSwapCondition(text: string): CardFilter | null {
   const tail = k >= 0 ? t.slice(k + 1) : t;
   // 「ジョーカーズまたはレクスターズの、クリーチャー」
   const racesOnly = mods.match(/^([^のをにがで「」光水闇火自然]+)の$/);
-  if (racesOnly && (!tail || tail === 'クリーチャー')) {
+  // 「パワー12000以上の」はパワーの条件（種族ではない）
+  if (racesOnly && (!tail || tail === 'クリーチャー') && !/^(?:パワー|コスト)\d/.test(racesOnly[1])) {
     setRaces(filter, racesOnly[1]);
     return filter;
   }

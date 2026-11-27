@@ -298,6 +298,7 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
     altPlays: main.altPlays?.length ? main.altPlays : undefined,
     galaxyReturn: main.galaxyReturn,
     neoCostReduce: main.neoCostReduce,
+    creatureIf: main.creatureIf,
     evolveSpec: main.evolveSpec,
     handTriggers: main.handTriggers?.length ? main.handTriggers : undefined,
     zoneGates: main.zoneGates?.length ? main.zoneGates : undefined,

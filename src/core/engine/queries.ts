@@ -48,7 +48,9 @@ export function def(state: GameState, reg: CardRegistry, iid: string): CardDefin
   const d = inst && reg[inst.cardId];
   if (!d) throw new Error(`unknown card ${iid}`);
   if (inst.flipped && d.forbidden) return forbiddenDef(d);
-  const base = inst.flipped && d.psychic ? psychicBackDef(d) : inst.hyper && d.hyperForm ? hyperDef(d) : d;
+  let base = inst.flipped && d.psychic ? psychicBackDef(d) : inst.hyper && d.hyperForm ? hyperDef(d) : d;
+  // タマシード/クリーチャー：条件を満たさなければ、バトルゾーンではタマシードとして扱う
+  if (inst.zone === 'battle' && base.creatureIf && !creatureIfMet(state, reg, inst.owner, base.creatureIf)) base = asTamaseed(base);
   // 超魂X：下にあるカードの能力も持つ
   if (inst.zone === 'battle' && inst.under.length) {
     const souls = inst.under.map((u) => state.cards[u] && reg[state.cards[u].cardId]).filter((u): u is CardDefinition => !!u?.soul);
@@ -56,6 +58,27 @@ export function def(state: GameState, reg: CardRegistry, iid: string): CardDefin
   }
   if (inst.zone === 'battle' && inst.godLinks?.length) return withSurvivors(state, reg, iid, withGodLinks(base, inst.godLinks.map((x) => state.cards[x] && reg[state.cards[x].cardId]).filter((x): x is CardDefinition => !!x)));
   return inst.zone === 'battle' ? withSurvivors(state, reg, iid, base) : base;
+}
+
+/**
+ * 「自分の自然のクリーチャーまたは自然のタマシードが合計4つ以上」：バトルゾーンのカードを元のカード定義で数える
+ * （def を通すと、数える中にこのカード自身があって循環するため。このカードはクリーチャーでもタマシードでも数に入る）
+ */
+function creatureIfMet(state: GameState, reg: CardRegistry, owner: PlayerId, c: NonNullable<CardDefinition['creatureIf']>): boolean {
+  let count = 0;
+  for (const x of state.players[owner].zones.battle) {
+    const xd = reg[state.cards[x]?.cardId];
+    if (xd && xd.civilizations.includes(c.civilization) && (isCreatureType(xd.type) || xd.type === 'tamaseed')) count++;
+  }
+  return count >= c.min;
+}
+
+const tamaseedCache = new WeakMap<CardDefinition, CardDefinition>();
+/** タマシード/クリーチャーを、クリーチャーとして扱わない時の定義 */
+function asTamaseed(d: CardDefinition): CardDefinition {
+  let t = tamaseedCache.get(d);
+  if (!t) tamaseedCache.set(d, (t = { ...d, type: 'tamaseed' }));
+  return t;
 }
 
 const godCache = new WeakMap<CardDefinition, Map<string, CardDefinition>>();
@@ -339,7 +362,7 @@ export function gearsOn(state: GameState, reg: CardRegistry, iid: string): strin
 }
 
 /** 使う面（ツインパクトの呪文側を含む）が条件に合うか */
-function matchFace(face: PlayFace, d: CardDefinition, f: CardFilter | undefined): boolean {
+export function matchFace(face: PlayFace, d: CardDefinition, f: CardFilter | undefined): boolean {
   if (!f) return true;
   if (f.not && matchFace(face, d, f.not)) return false;
   if (f.anyOf && !f.anyOf.some((x) => matchFace(face, d, x))) return false;
@@ -565,7 +588,9 @@ function effectiveCostImpl(state: GameState, reg: CardRegistry, player: PlayerId
     if (s.firstPerTurn && (state.players[player].playedThisTurn ?? []).some((x) => state.cards[x] && matchFace(playFace(def(state, reg, x)), def(state, reg, x), s.appliesTo.filter))) continue;
     // 「各ターンに一度」：この能力をこのターンにまだ使っていない時だけ
     if (s.oncePerTurn && (state.usedThisTurn ?? []).includes(`cmod:${a.source}`)) continue;
-    cost += s.amount;
+    if (s.handOnly && state.cards[iid]?.zone !== 'hand') continue;
+    // 「〜1体につき2少なくなる」（与えた W・シンパシー）
+    cost += s.perCount ? s.amount * countQuantity(state, reg, a.controller, s.perCount, true, a.source) : s.amount;
     if (s.minCost !== undefined) floor = Math.min(face.cost, Math.max(floor, s.minCost));
   }
   // 「このターン、次に召喚する自分のクリーチャーのコストをN少なくする」
@@ -972,6 +997,10 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       return (state.players[c.who === 'self' ? controller : other(controller)].battleWinsThisTurn ?? 0) > 0;
     case 'selfEnteredThisTurn':
       return !!source && state.cards[source]?.zone === 'battle' && state.cards[source].enteredTurn === state.turn;
+    case 'attackedWithPower': {
+      const p = c.who === 'self' ? controller : other(controller);
+      return (state.usedThisTurn ?? []).some((k) => k.startsWith(`atkpow:${p}:`) && Number(k.split(':')[2]) >= c.min);
+    }
     case 'subjectEnteredFree':
       return !!c.iid && state.cards[c.iid]?.zone === 'battle' && !!state.cards[c.iid].enteredFree;
     case 'enteredThisTurn': {

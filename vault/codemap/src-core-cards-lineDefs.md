@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/lineDefs.ts（620行）
+# src/core/cards/lineDefs.ts（766行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -12,8 +12,8 @@ generated: 2026-11-27
 
 - L7 **export** interface `LineDef`
 - L20 **export** type `LineDefs`
-- L54 **export** const `BUILT_IN_LINE_DEFS`
-- L578 **export** fn `setUserLineDefs`
-- L583 **export** fn `allLineDefs`
-- L588 **export** fn `validateLineDefs`
+- L62 **export** const `BUILT_IN_LINE_DEFS`
+- L724 **export** fn `setUserLineDefs`
+- L729 **export** fn `allLineDefs`
+- L734 **export** fn `validateLineDefs`
 

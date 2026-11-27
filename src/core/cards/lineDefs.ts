@@ -29,6 +29,14 @@ const ownCiv = (civilization: 'water' | 'darkness'): Condition => ({
   ],
 });
 
+/** シビルカウント：自分のその文明のクリーチャーまたはタマシードが合計 n 以上 */
+const civilCount = (civilization: 'water' | 'darkness' | 'nature', n: number): Condition => ({
+  type: 'compare',
+  left: { who: 'self', zone: 'battle', withPermanents: true, filter: { civilization, anyOf: [{ cardType: 'creature' }, { cardType: 'tamaseed' }] } },
+  op: '>=',
+  right: n,
+});
+
 /** 自分のシールドが1つもない */
 const noShield: Condition = { type: 'compare', left: { who: 'self', zone: 'shield' }, op: '<=', right: 0 };
 
@@ -567,6 +575,144 @@ export const BUILT_IN_LINE_DEFS: LineDefs = {
   '「気に入らねぇやつは消す」と言ってもよい。そうしたら、このターン、相手のクリーチャーの能力すべてを無視する。': {
     note: 'ケッシング・ゼロ（めっちゃ！デンヂャラスG3 の呪文側。元から持つ能力を無視する。他のカードから与えられた効果は残る）',
     abilities: [{ when: 'onCast', effects: [{ type: 'optional', effects: [{ type: 'turnStatic', static: { type: 'ignoreAbilities', who: 'opponent' } }] }] }],
+  },
+  // ── SD1その5 ──
+  '相手のクリーチャーが自分を攻撃する時、自分のシールドが1つもなく、自分のマナゾーンに光と自然のカードがあれば、このクリーチャーを手札から出してもよい。': {
+    note: 'MMM-ジョーキング（手札にある間の誘発。光のカードと自然のカードがそれぞれ1枚以上）',
+    handTriggers: [
+      {
+        when: 'attackedPlayer',
+        condition: {
+          type: 'and',
+          conditions: [
+            noShield,
+            { type: 'compare', left: { who: 'self', zone: 'mana', filter: { civilization: 'light' } }, op: '>=', right: 1 },
+            { type: 'compare', left: { who: 'self', zone: 'mana', filter: { civilization: 'nature' } }, op: '>=', right: 1 },
+          ],
+        },
+      },
+    ],
+  },
+  'このタマシードが出た時、各プレイヤーは自身のクリーチャーとタマシードを最大1つずつ選び、残りをすべて山札に加えてシャッフルする。その後、各プレイヤーは、こうして山札に加えたカード1枚につき、自身の山札の上から1枚目をシールド化する。': {
+    note: 'ジョーカーズの心絵（ターンプレイヤーから選ぶ。重なっている下のカードも山札に加わった枚数に数える）',
+    abilities: [{ when: 'onSummon', effects: [{ type: 'keepOneEachToDeck' }] }],
+  },
+  'このタマシードが出た時、クリーチャー1体またはタマシードを1枚選ぶ。その持ち主は、それを山札の下に置き、カードを1枚引く。': {
+    note: 'コーライルの海幻（自分・相手のどちらのものも選べる。このタマシード自身も選べる）',
+    abilities: [
+      {
+        when: 'onSummon',
+        effects: [
+          { type: 'move', target: { owner: 'any', zone: 'battle', count: 1, element: true, filter: { anyOf: [{ cardType: 'creature' }, { cardType: 'tamaseed' }] } }, to: 'deckBottom' },
+          { type: 'draw', count: 1, who: 'chosenOwner' },
+        ],
+      },
+    ],
+  },
+  'プレイヤーを1人選ぶ。そのプレイヤーは、自身の墓地のカードをすべてシャッフルし、山札の下に置く。': {
+    note: '♪なぜ離れ どこへ行くのか 君は今',
+    abilities: [{ when: 'onCast', effects: [{ type: 'graveToDeckBottom', who: 'choose' }] }],
+  },
+  'このタマシードが出た時、プレイヤーを1人選ぶ。そのプレイヤーは、自身の墓地をシャッフルし、山札の下に置く。': {
+    note: '環嵐！ホールインワン・ヘラクレス',
+    abilities: [{ when: 'onSummon', effects: [{ type: 'graveToDeckBottom', who: 'choose' }] }],
+  },
+  'このクリーチャーが出た時、コスト5以下のタマシードを1枚またはコスト5以下の呪文を1枚、自分の手札からコストを支払わずに使ってもよい。': {
+    note: 'AQ NETWORK',
+    abilities: [{ when: 'onSummon', effects: [{ type: 'playFromHandFree', filter: { maxCost: 5, anyOf: [{ cardType: 'tamaseed' }, { cardType: 'spell' }] } }] }],
+  },
+  'シビルカウント3：自分の水のクリーチャーまたは水のタマシードが合計3つ以上あれば、このクリーチャーに「ブロッカー」を与え、破壊される時、墓地に置くかわりに手札に戻す。': {
+    note: 'AQ NETWORK',
+    statics: [{ type: 'grantKeyword', keywords: { blocker: true }, appliesTo: { owner: 'self', onlySelf: true }, condition: civilCount('water', 3) }],
+    replacements: [{ event: 'destroyed', subject: 'self', instead: 'toHand', condition: civilCount('water', 3) }],
+  },
+  '次の中から2回選ぶ。（同じものを選んでもよい）▶自分の山札の上から2枚を表向きにする。その中の光と水のカードをすべて手札に加え、残りを好きな順序で山札の下に置く。▶自分の山札の上から1枚目をシールド化する。▶コスト3以下のエレメントを1つ選び、シールド化する。': {
+    note: '理想と平和の決断（「光と水のカード」は光のカードと水のカード。エレメントはどちらのプレイヤーのものも選べる）',
+    abilities: [
+      {
+        when: 'onCast',
+        effects: [
+          {
+            type: 'chooseOne',
+            times: 2,
+            options: [
+              {
+                label: '山札の上から2枚を表向きにし、光と水のカードをすべて手札に加え、残りを山札の下に置く',
+                effects: [{ type: 'lookAtTop', count: 2, pickCount: 2, pickAll: true, pickFilter: { civilizations: ['light', 'water'] }, pickTo: 'hand', restTo: 'deckBottom' }],
+              },
+              { label: '山札の上から1枚目をシールド化する', effects: [{ type: 'deckTopTo', count: 1, to: 'shield' }] },
+              { label: 'コスト3以下のエレメントを1つ選び、シールド化する', effects: [{ type: 'move', target: { owner: 'any', zone: 'battle', count: 1, element: true, filter: { maxCost: 3 } }, to: 'shield' }] },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  '各ターン、はじめて出る相手のクリーチャーは、タップして出る。': {
+    note: 'アルカディアス・モモキング（ボルシャック・フレアと同じ。このクリーチャーが出る前に出た相手のクリーチャーも数える）',
+    statics: [{ type: 'opponentEntersTapped', firstPerTurn: true }],
+  },
+  '自分の手札にあるクリーチャーすべてに、「W・シンパシー：パワー12000以上のクリーチャー」を与える。': {
+    note: '天風のゲイル・ヴェスパー（元から W・シンパシーを持つカードは、もう1つ得て2つとも効く）',
+    statics: [
+      { type: 'costMod', amount: -2, appliesTo: { owner: 'self', filter: { cardType: 'creature' } }, perCount: { who: 'self', zone: 'battle', filter: { minPower: 12000 } }, handOnly: true, minCost: 1 },
+    ],
+  },
+  '自分のターンのはじめに、このクリーチャーを自分のマナゾーンから手札に戻してもよい。': {
+    note: 'ジーク・ナハトファルター（マナゾーンにある間の誘発）',
+    handTriggers: [{ when: 'ownTurnStart', zones: ['mana'], effects: [{ type: 'selfAction', action: 'hand' }] }],
+  },
+  'このクリーチャーまたは自分の他のパワー12000以上のクリーチャーがバトルゾーンに出た時、自分の山札の上から2枚をマナゾーンに置く。そうしたら、クリーチャーを1体、自分のマナゾーンから手札に戻す。': {
+    note: 'ジーク・ナハトファルター',
+    abilities: (['onSummon', 'onOtherSummon'] as const).map(
+      (when): TriggeredAbility => ({
+        when,
+        ...(when === 'onOtherSummon' ? { who: 'self' as const, filter: { minPower: 12000 } } : {}),
+        effects: [
+          { type: 'deckTopTo', count: 2, to: 'mana' },
+          { type: 'move', target: { owner: 'self', zone: 'mana', count: 1, filter: { cardType: 'creature' } }, to: 'hand' },
+        ],
+      }),
+    ),
+  },
+  'このターン、パワー12000以上で攻撃していた自分のクリーチャーがいなければ、このクリーチャーは攻撃できない。': {
+    note: 'ヴァム・ウィングダム（攻撃した時のパワーで数える）',
+    statics: [
+      { type: 'grantKeyword', keywords: { cannotAttack: true }, appliesTo: { owner: 'self', onlySelf: true }, condition: { type: 'not', condition: { type: 'attackedWithPower', who: 'self', min: 12000 } } },
+    ],
+  },
+  '相手は、自身のマナゾーンにあるカードの枚数よりコストが大きいクリーチャーをすべて、自身のマナゾーンに置く。': {
+    note: 'ジュラスティック・ハウル（マナゾーンの枚数は効果を使う前に数える）',
+    abilities: [{ when: 'onCast', effects: [{ type: 'move', target: { owner: 'opponent', zone: 'battle', count: 'all', filter: { costAboveOwnerMana: true } }, to: 'mana' }] }],
+  },
+  '相手のターン中に、相手がコストを支払わずにクリーチャーをバトルゾーンに出した時、このクリーチャーとそのクリーチャーをバトルさせてもよい。': {
+    note: 'デスマッチ・ビートル（召喚・効果のどちらでも、コストを支払わずに出たもの）',
+    abilities: [
+      {
+        when: 'onOtherSummon',
+        who: 'opponent',
+        duringTurn: 'opponent',
+        condition: { type: 'subjectEnteredFree' },
+        optional: true,
+        effects: [{ type: 'fight', target: { owner: 'opponent', zone: 'battle', count: 'all', ref: 'event' } }],
+      },
+    ],
+  },
+  'このクリーチャーがバトルゾーンに出た時あるいは自分が名前に《トラップ》とある呪文を唱えた時、自然のコスト6以下のクリーチャーを1体、自分の手札またはマナゾーンからバトルゾーンに出してもよい。': {
+    note: 'ナ・チュラルゴ・デンジャー（呪文側の《ナチュラル・トラップ》を唱えた時も）',
+    abilities: (['onSummon', 'onSpellCast'] as const).map(
+      (when): TriggeredAbility => ({
+        when,
+        ...(when === 'onSpellCast' ? { who: 'self' as const, filter: { nameIncludes: 'トラップ' } } : {}),
+        effects: [
+          {
+            type: 'move',
+            target: { owner: 'self', zone: 'hand', extraZones: ['mana'], count: 1, upTo: true, filter: { civilization: 'nature', maxCost: 6, cardType: 'creature' } },
+            to: 'battle',
+          },
+        ],
+      }),
+    ),
   },
 };
 

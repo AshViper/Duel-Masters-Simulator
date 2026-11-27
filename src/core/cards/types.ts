@@ -268,7 +268,9 @@ export type Condition =
   /** 直前に選んだ（動かした）カードが条件に合う（「自分の山札の上から1枚目をマナゾーンに置く。それがドラゴンなら、〜」） */
   | { type: 'chosenMatches'; filter: CardFilter }
   /** このターンにタップした自分の（filter に合う）クリーチャーが、いまタップしたものだけ（「各ターン、はじめて自分の〜をタップした時」） */
-  | { type: 'firstTapThisTurn'; filter?: CardFilter };
+  | { type: 'firstTapThisTurn'; filter?: CardFilter }
+  /** このターン、そのプレイヤーのクリーチャーがパワー min 以上で攻撃していた（攻撃した時のパワー。《ヴァム・ウィングダム》） */
+  | { type: 'attackedWithPower'; who: 'self' | 'opponent'; min: number };
 
 /** バトルゾーンに出したカードを、このターンの終わりにどうするか（deckBottomIfAttacked: そのターン中に攻撃していれば山札の下へ） */
 export type EndOfTurnLeave = 'destroy' | 'deckBottom' | 'deckBottomDraw' | 'deckBottomIfAttacked';
@@ -281,7 +283,8 @@ export type MoveDest = 'hand' | 'mana' | 'graveyard' | 'shield' | 'deckTop' | 'd
 /** 構造化された効果定義 */
 export type EffectDef =
   /** upTo: 0〜count 枚の範囲で引く枚数を選ぶ（「N枚まで引く」） */
-  | { type: 'draw'; count: number; upTo?: boolean }
+  /** who: chosenOwner は直前に選んだカードの持ち主が引く（「その持ち主は、それを山札の下に置き、カードを1枚引く」） */
+  | { type: 'draw'; count: number; upTo?: boolean; who?: 'chosenOwner' }
   | { type: 'addManaFromDeck'; count: number }
   | { type: 'addShieldFromDeck'; count: number }
   /** 山札の上から N 枚を指定ゾーンへ（墓地肥やし・マナ加速など） */
@@ -374,6 +377,11 @@ export type EffectDef =
    * 置いたカードは後の文の「こうして山札の下に置かれたカード」で指せる（lastChosen）
    */
   | { type: 'graveToDeckBottom'; who: 'self' | 'opponent' | 'choose' }
+  /**
+   * 各プレイヤーは自身のクリーチャーとタマシードを最大1つずつ選び、残りをすべて山札に加えてシャッフルする。その後、こうして山札に加えたカード1枚につき、
+   * 自身の山札の上から1枚目をシールド化する（《ジョーカーズの心絵》）。step・kept・moved はエンジン内部用
+   */
+  | { type: 'keepOneEachToDeck'; step?: number; kept?: string[]; moved?: string[] }
   /** 山札の上から1枚目を公開し、クリーチャーなら出してもよい／呪文なら唱えてもよい／それ以外は otherwise へ */
   /** mustPlay: クリーチャーなら確認せずに出す（「それがクリーチャーなら、バトルゾーンに出す」） */
   | { type: 'revealTopCard'; ifCreature?: 'battle'; ifSpell?: 'cast'; otherwise?: 'mana'; mustPlay?: boolean }
@@ -700,7 +708,8 @@ export type StaticAbility = (
   /**
    * oncePerTurn: 各ターンに一度（この能力ごと）。使った（そのカードのコストが少なくなった）時に数える（「各ターンに一度、自分のアーマードを使うコストを1少なくしてもよい」）
    */
-  | { type: 'costMod'; amount: number; appliesTo: Applies; minCost?: number; firstPerTurn?: boolean; oncePerTurn?: boolean }
+  /** perCount: amount を数えた数だけ掛ける。handOnly: 手札にあるカードだけ（与えた「W・シンパシー」。《天風のゲイル・ヴェスパー》） */
+  | { type: 'costMod'; amount: number; appliesTo: Applies; minCost?: number; firstPerTurn?: boolean; oncePerTurn?: boolean; perCount?: Quantity; handOnly?: boolean }
   /** 自分のターンに1枚目のカードを引く時、もう1枚余分に引いてもよい */
   | { type: 'extraTurnDraw' }
   /** 誰も、自身のマナゾーンの呪文カードをアンタップできない */
@@ -814,6 +823,8 @@ export interface ReplacementAbility {
   alsoLose?: boolean;
   /** この条件を満たす時だけ置換する（マナ武装：「自分のマナゾーンに光のカードが5枚以上あれば」） */
   condition?: Condition;
+  /** event: lose・instead: destroySelf：このクリーチャーを破壊するかわりに、手札からこの名前のカードを1枚捨ててもよい（《MAX・ザ・ジョニー》） */
+  orDiscardName?: string;
 }
 
 export interface Keywords {
@@ -1093,7 +1104,7 @@ export interface HandTrigger {
   condition?: Condition;
   filter?: CardFilter;
   /** 手札のほかに使えるゾーン（アタック・チャンスR は墓地からも） */
-  zones?: ('hand' | 'graveyard')[];
+  zones?: ('hand' | 'graveyard' | 'mana')[];
   /** 出したクリーチャーを、そのターンの終わりに山札の下に置く（ニンジャ・ストライク） */
   endOfTurn?: 'deckBottom';
   /** 攻撃の後（攻撃の終わりに）出す。攻撃の最中には出さない */
@@ -1178,6 +1189,11 @@ export interface CardDefinition {
   evolveSpec?: EvolveSpec;
   /** NEO進化クリーチャーとして召喚する（重ねて召喚する）なら、召喚コストをこの数だけ少なくする */
   neoCostReduce?: number;
+  /**
+   * タマシード/クリーチャー：自分のその文明のクリーチャーまたはタマシードが合計 min 以上なければ、バトルゾーンにあるこのカードはクリーチャーとして扱わない（タマシードとして扱う）。
+   * 「自分の自然のクリーチャーまたは自然のタマシードが合計4つ以上なければ、バトルゾーンにあるこのタマシードはクリーチャーとして扱わない」
+   */
+  creatureIf?: { civilization: Civilization; min: number };
   /** NEO進化：このクリーチャーを、条件に合う自分のクリーチャーの上に重ねて召喚してもよい */
   neoEvolution?: CardFilter;
   /** 禁断の鼓動：ゲーム開始時に封印を付けてバトルゾーンに置き、封印がすべてなくなったら creature 側に裏返す（禁断解放） */

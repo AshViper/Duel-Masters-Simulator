@@ -75,6 +75,7 @@ import {
   battleCards,
   isIgnored,
   keywords,
+  matchFace,
   matchFilter,
   playLimitReached,
   playRestriction,
@@ -730,6 +731,8 @@ export class Ctx {
     s.cards[attacker].attackedTurn = s.turn;
     // このクリーチャーがこのターンに攻撃した回数（「最初の攻撃の終わりに」）
     (s.usedThisTurn ??= []).push(`atk:${attacker}`);
+    // 攻撃した時のパワー（「このターン、パワー12000以上で攻撃していた自分のクリーチャーがいなければ」）
+    s.usedThisTurn.push(`atkpow:${player}:${power(s, this.reg, attacker)}`);
     s.players[player].attacksThisTurn = (s.players[player].attacksThisTurn ?? 0) + 1;
     this.emit({ type: 'CREATURE_TAPPED', iid: attacker });
     const sClass = sClassCards(s, this.reg, player);
@@ -812,7 +815,7 @@ export class Ctx {
   /** 手札（墓地）にある間の誘発：条件に合うカードごとに、使うか聞く処理を解決待ちに加える */
   private offerHandTriggers(player: PlayerId, match: (ht: HandTrigger, iid: string) => boolean): void {
     const s = this.s;
-    for (const z of ['hand', 'graveyard'] as const) {
+    for (const z of ['hand', 'graveyard', 'mana'] as const) {
       for (const h of [...s.players[player].zones[z]]) {
         for (const ht of def(s, this.reg, h).handTriggers ?? []) {
           if (!(ht.zones ?? ['hand']).includes(z) || !match(ht, h)) continue;
@@ -2328,6 +2331,14 @@ export class Ctx {
     switch (e.type) {
       case 'draw': {
         let count = e.count;
+        // 「その持ち主は、カードを1枚引く」：直前に選んだカードの持ち主が引く（選んでいなければ何もしない）
+        if (e.who === 'chosenOwner') {
+          const owner = (s.lastChosen ?? []).map((x) => s.cards[x]?.owner).find((x) => x !== undefined);
+          if (owner === undefined) return false;
+          this.draw(owner, count);
+          this.log(`${s.players[owner].name} はカードを${count}枚引く`, controller);
+          return false;
+        }
         if (e.upTo) {
           const r = this.takeResponse();
           if (!r) {
@@ -2769,6 +2780,12 @@ export class Ctx {
         if (inst?.zone === 'mana' && e.action === 'untap') {
           inst.tapped = false;
           this.log(`${this.name(source)} をアンタップ`, controller);
+          return false;
+        }
+        // 「自分のターンのはじめに、このクリーチャーを自分のマナゾーンから手札に戻してもよい」：マナゾーンにあるこのカードを動かす
+        if (inst?.zone === 'mana' && (e.action === 'hand' || e.action === 'toHand')) {
+          this.moveCard(source, 'hand');
+          this.log(`${this.name(source)} をマナゾーンから手札に戻した`, controller);
           return false;
         }
         if (inst?.zone !== 'battle') return false;
@@ -3335,6 +3352,51 @@ export class Ctx {
         // 後の文の「こうして山札の下に置かれたカードの枚数」で数える
         s.lastChosen = grave;
         this.log(`${s.players[who].name} の墓地のカード${grave.length}枚をシャッフルして山札の下に置いた`, controller);
+        return false;
+      }
+      case 'keepOneEachToDeck': {
+        // 《ジョーカーズの心絵》：各プレイヤーは自身のクリーチャーとタマシードを最大1つずつ選び、残りをすべて山札に加えてシャッフルする。
+        // その後、各プレイヤーは、こうして山札に加えたカード1枚につき、自身の山札の上から1枚目をシールド化する
+        const isCre = (x: string) => isCreatureType(def(s, this.reg, x).type);
+        const isTama = (x: string) => def(s, this.reg, x).type === 'tamaseed';
+        const step = e.step ?? 0;
+        if (step < 2) {
+          // ターンプレイヤーから順に選ぶ
+          const p: PlayerId = step === 0 ? s.activePlayer : other(s.activePlayer);
+          const cands = battleAndFields(s, this.reg, p).filter((x) => isCre(x) || isTama(x));
+          let picks: string[] = [];
+          if (cands.length) {
+            const r = this.takeResponse();
+            if (!r) {
+              s.pending = { kind: 'selectCards', player: p, source, prompt: `${this.name(source)}：残すクリーチャーとタマシードを1つずつまで選んでください（残りは山札に加えてシャッフルし、その数だけシールド化する）`, candidates: cands, min: 0, max: 2, harmful: false };
+              return true;
+            }
+            const sel = (r.selected ?? []).filter((x) => cands.includes(x));
+            picks = [sel.find(isCre), sel.find(isTama)].filter((x): x is string => !!x);
+          }
+          this.insertFront({ kind: 'effect', controller, source, effect: { ...e, step: step + 1, kept: [...(e.kept ?? []), ...picks] } });
+          return false;
+        }
+        if (step === 2) {
+          const kept = new Set(e.kept ?? []);
+          const leaving = [...battleAndFields(s, this.reg, s.activePlayer), ...battleAndFields(s, this.reg, other(s.activePlayer))].filter((x) => (isCre(x) || isTama(x)) && !kept.has(x));
+          // 重なっている下のカードも一緒に山札に加わる
+          const moved = leaving.flatMap((x) => [x, ...s.cards[x].under]);
+          this.insertFront(...leaving.map((iid): Task => ({ kind: 'leave', iid, to: 'deck', cause: 'effect' })), { kind: 'effect', controller, source, effect: { ...e, step: 3, moved } });
+          return false;
+        }
+        for (const p of [s.activePlayer, other(s.activePlayer)]) {
+          const n = (e.moved ?? []).filter((x) => s.cards[x]?.owner === p && s.cards[x].zone === 'deck').length;
+          this.shuffle(p);
+          let added = 0;
+          for (let i = 0; i < n; i++) {
+            const top = this.topOfDeck(p);
+            if (!top) break;
+            this.moveCard(top, 'shield');
+            added++;
+          }
+          this.log(`${s.players[p].name} は${n}枚を山札に加えてシャッフルし、山札の上から${added}枚をシールド化した`, controller);
+        }
         return false;
       }
       case 'graveyardToDeck': {
@@ -4371,7 +4433,11 @@ export class Ctx {
       case 'SPELL_CAST': {
         const P = s.players[e.player];
         P.spellsThisTurn = (P.spellsThisTurn ?? 0) + 1;
-        for (const iid of battleAll()) this.triggerFrom(iid, 'onSpellCast', (ab) => this.whoMatches(ab.who, s.cards[iid].owner, e.player) && (!ab.castFrom || ab.castFrom === e.from), e.iid);
+        // 唱えた呪文の条件（「名前に《トラップ》とある呪文を唱えた時」）は、唱えた面（ツインパクトなら呪文側）で調べる
+        const sd = def(s, this.reg, e.iid);
+        const face = playFace(sd, sd.twin && sd.type !== 'spell' ? 'twin' : 'main');
+        for (const iid of battleAll())
+          this.triggerFrom(iid, 'onSpellCast', (ab) => this.whoMatches(ab.who, s.cards[iid].owner, e.player) && (!ab.castFrom || ab.castFrom === e.from) && matchFace(face, sd, ab.filter), e.iid);
         // 虚無月の門など：「自分の魔導具呪文を唱えた時」
         this.fireZoneGates(e.player, 'spell', e.iid);
         break;
@@ -4692,9 +4758,21 @@ export class Ctx {
     const used = (s.usedThisTurn ?? []).filter((k) => k.startsWith(`diehard:${loser}:`)).map((k) => k.split(':')[2]);
     if (used.some((iid) => queued.has(iid) || s.cards[iid]?.zone !== 'battle')) return true;
     for (const iid of battleCards(s, this.reg, loser)) {
-      if (queued.has(iid) || abilitiesIgnored(s, this.reg, iid) || !(def(s, this.reg, iid).replacements ?? []).some((r) => r.event === 'lose' && r.instead === 'destroySelf')) continue;
+      const rep = queued.has(iid) || abilitiesIgnored(s, this.reg, iid) ? undefined : (def(s, this.reg, iid).replacements ?? []).find((r) => r.event === 'lose' && r.instead === 'destroySelf');
+      if (!rep) continue;
+      // 《MAX・ザ・ジョニー》：「かわりにこのクリーチャーを破壊するか、自分の手札から《MAX・ザ・ジョニー》を1枚捨てる」。
+      // バトルゾーンのクリーチャーを残せるので、捨てられるなら手札から捨てる
+      const nm = rep.orDiscardName?.replace(/\s/g, '');
+      const copy = nm ? s.players[loser].zones.hand.find((h) => def(s, this.reg, h).name.replace(/\s/g, '') === nm) : undefined;
+      if (copy) {
+        this.log(`${this.name(iid)} の能力：ゲームに負けるかわりに、手札から ${this.name(copy)} を捨てる`, loser);
+        this.moveCard(copy, 'graveyard');
+        this.emit({ type: 'CARD_DISCARDED', player: loser, iid: copy });
+        return true;
+      }
       this.log(`${this.name(iid)} の能力：ゲームに負けるかわりに、このクリーチャーを破壊する`, loser);
-      (s.usedThisTurn ??= []).push(`diehard:${loser}:${iid}`);
+      // 「そのターン負けない」を持つ《ダイハード・リュウセイ》だけ、破壊を待つ間・破壊した後も負けないようにする（ジョニーは記録しない）
+      if (!rep.orDiscardName) (s.usedThisTurn ??= []).push(`diehard:${loser}:${iid}`);
       this.insertFront({ kind: 'leave', iid, to: 'graveyard', cause: 'destroy' });
       return true;
     }
