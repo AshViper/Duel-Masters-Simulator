@@ -98,6 +98,14 @@ export function normalizeText(s: string): string {
     .replace(/バトルで勝った時/g, 'バトルに勝った時')
     .replace(/相手がこのクリーチャーを選んだ時/g, 'このクリーチャーが相手に選ばれた時')
     .replace(/パワーは、?([+-]\d+)される/g, 'パワーを$1する')
+    .replace(/パワーは、?([^。]+?につき)、?([+-]\d+)される/g, 'パワーを、$1$2する')
+    .replace(/全て/g, 'すべて')
+    .replace(/(下にあるカードを\d+枚)、墓地に/g, '$1墓地に')
+    // 「相手のクリーチャーを1体選ぶ。（このターン、）その（選んだ）クリーチャーのパワーを〜」＝1つの文
+    .replace(/を(\d+)体選ぶ。(このターン、)?その(?:選んだ)?クリーチャーの/g, 'を$1体選び、$2その')
+    .replace(/^(鬼タイム|メテオバーン)[:：]/, '$1：')
+    .replace(/真上の[▪■▫□◼◾・]+能力/g, '真上の能力')
+    .replace(/^このクリーチャーを召喚するコストは、/, 'このクリーチャーの召喚コストは、')
     .replace(/(クリーチャーを\d+体)、バトルゾーンから(?:自分の)?手札に戻/g, '$1、手札に戻')
     .replace(/(\d+)(体|枚|つ)でもあれば/g, '$1$2以上あれば')
     .replace(/クリーチャー(\d+)体選び/g, 'クリーチャーを$1体選び')
@@ -1761,10 +1769,10 @@ function parsePer(t: string): { per: Quantity; unit: number } | null {
 function parseSelfCost(t: string): ParsedAbilities['selfCost'] | null {
   const m =
     t.match(/^この(?:クリーチャー|カード)の(?:召喚|実行)コスト(?:を|は)、(.+?につき)(\d+)少なく(?:する|なる)(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/) ??
-    t.match(/^(.+?につき)、?このクリーチャーの召喚コストは(\d+)少なくなる(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/);
+    t.match(/^(.+?につき)、?このクリーチャーの召喚コスト(?:は|を)(\d+)少なく(?:なる|する)(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/);
   if (!m) return null;
   const min = m[3] === undefined ? 1 : m[4] === '以下' ? n(m[3]) + 1 : n(m[3]);
-  const pe = m[1].match(/^進化元(?:クリーチャー|カード)(\d+)(?:体|枚)につき$/);
+  const pe = m[1].match(/^(?:このクリーチャーの)?進化元(?:クリーチャー|カード)(\d+)(?:体|枚)につき$/);
   if (pe) return { amount: n(m[2]), per: { who: 'self', zone: 'battle' }, unit: n(pe[1]), min, perEvolve: true };
   const p = parsePer(m[1]);
   if (!p) return null;
@@ -2734,7 +2742,7 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     return true;
   }
   // 鬼タイム：「自分と相手のシールドの数が合計6つ以下なら、真上の能力を無視する」＝直前の能力は、合計が7つ以上の時だけ働く
-  const oniIgnore = t.match(/^鬼タイム[:：]自分と相手のシールドの数が合計(\d+)つ以下なら、真上の能力を無視する$/);
+  const oniIgnore = t.match(/^鬼タイム[:：]自分と相手のシールドの数が合計(\d+)つ以下なら、真上の能力を無視する。?$/);
   if (oniIgnore && out.abilities.length) {
     const last = out.abilities[out.abilities.length - 1];
     const active: Condition = { type: 'not', condition: { type: 'compare', left: { who: 'any', zone: 'shield' }, op: '<=', right: n(oniIgnore[1]) } };
