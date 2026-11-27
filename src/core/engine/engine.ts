@@ -661,6 +661,8 @@ export class Ctx {
     const tasks: Task[] = [];
     // フシギバース：自分のクリーチャーを1体タップしてマナゾーンに置く
     if (alt.fushigi && sacrifice[0]) tasks.push({ kind: 'leave', iid: sacrifice[0], to: 'mana', cause: 'effect', tapped: true });
+    // マナのかわりのコスト：カードを動かしてから出す（唱える）
+    if (alt.payFirst) tasks.push(...this.effectTasks(player, iid, alt.payFirst));
     this.emit({ type: 'CARD_PLAYED', player, iid });
     if (alt.toShield) {
       // ギャラクシールド：表向きでシールドゾーンに置く
@@ -986,6 +988,26 @@ export class Ctx {
         return waiting;
       }
 
+      case 'denyTriggers': {
+        const keep = () => (s.waiting ??= []).push(...task.groups);
+        const src = s.cards[task.source];
+        if (!src || src.zone !== 'battle' || src.owner !== task.player) {
+          keep();
+          return false;
+        }
+        const r = this.takeResponse();
+        if (!r) {
+          s.pending = { kind: 'confirm', player: task.player, source: task.source, prompt: `${this.name(task.source)} を破壊して、${this.name(task.subject)} の能力をトリガーさせませんか？` };
+          return true;
+        }
+        if (!r.accept) {
+          keep();
+          return false;
+        }
+        this.log(`「ノーン!!」${this.name(task.source)} を破壊して、${this.name(task.subject)} の能力をトリガーさせない`, task.player);
+        this.insertFront({ kind: 'leave', iid: task.source, to: 'graveyard', cause: 'destroy' });
+        return false;
+      }
       case 'confirmOptional': {
         const r = this.takeResponse();
         if (!r) {
@@ -3343,6 +3365,7 @@ export class Ctx {
           // ドラグハート・ウエポン：クリーチャーの能力で出した時は、そのクリーチャーに装備して出す
           const host = s.cards[source];
           if (t && t.kind === 'enterBattle' && /ウエポン/.test(def(s, this.reg, iid).typeLabel ?? '') && host?.zone === 'battle' && isCreatureType(def(s, this.reg, source).type)) t = { ...t, equipTo: source };
+          if (t && t.kind === 'enterBattle' && e.endOfTurn) t = { ...t, endOfTurn: e.endOfTurn };
           return t && e.grant && t.kind === 'enterBattle' ? { ...t, grant: { ...e.grant, by: controller } } : t;
         }
         case 'under':
@@ -3941,9 +3964,23 @@ export class Ctx {
           if (s.players[owner].zones.battle.some((b) => s.cards[b].seals?.length)) this.addTrigger(owner, e.iid, [{ kind: 'commandUnseal', player: owner, command: e.iid }]);
         }
         // 相手の《ブラキオ龍樹》：相手のクリーチャーが出て、その相手のクリーチャーの能力がトリガーする時、かわりにトリガーしない
-        const suppressed = activeStatics(s, this.reg).some((a) => a.static.type === 'suppressEnterTriggers' && a.controller === other(e.player));
+        const suppressed = activeStatics(s, this.reg).some((a) => a.static.type === 'suppressEnterTriggers' && !a.static.destroySelf && a.controller === other(e.player));
         // 「自分のパワー6000以上のクリーチャーが出た時」は、条件に合えばこのクリーチャー自身にも誘発する
+        const before = s.waiting?.length ?? 0;
         if (!suppressed) this.triggerFrom(e.iid, 'onSummon', (ab) => !ab.filter || matchFilter(s, this.reg, e.iid, ab.filter, e.iid));
+        // 《消王ケシカス》：出た相手のクリーチャー自身の能力が誘発したら、このクリーチャーを破壊してトリガーさせないか聞く
+        {
+          const owner = s.cards[e.iid]?.owner;
+          const groups = (s.waiting ?? []).slice(before).filter((g) => g.source === e.iid);
+          const denier =
+            owner !== undefined && groups.length
+              ? activeStatics(s, this.reg).find((a) => a.static.type === 'suppressEnterTriggers' && a.static.destroySelf && a.controller === other(owner) && s.cards[a.source]?.zone === 'battle')
+              : undefined;
+          if (denier) {
+            s.waiting = (s.waiting ?? []).filter((g) => !groups.includes(g));
+            this.insertFront({ kind: 'denyTriggers', player: denier.controller, source: denier.source, subject: e.iid, groups });
+          }
+        }
         // 「相手のターンに相手のクリーチャーが出て、その能力がトリガーした時、自分もその能力を使ってもよい」
         {
           const summoner = s.cards[e.iid]?.owner;

@@ -179,6 +179,8 @@ export interface Quantity {
   who: 'self' | 'opponent' | 'any';
   /** under: 効果の発生源（このクリーチャー）の下にあるカード */
   zone: 'battle' | 'mana' | 'shield' | 'graveyard' | 'hand' | 'deck' | 'under';
+  /** zone のほかに合わせて数えるゾーン（「バトルゾーンまたはマナゾーンに自分のジョーカーズが4枚以上」「ジョーカーズとマナゾーンにあるジョーカーズ・カードが合計7つ以上」） */
+  extraZones?: Array<'battle' | 'mana' | 'shield' | 'graveyard' | 'hand' | 'deck'>;
   filter?: CardFilter;
   /** バトルゾーンを数える時、クリーチャー以外（タマシード・フィールド）も数える */
   withPermanents?: boolean;
@@ -292,7 +294,8 @@ export type EffectDef =
    * tapped: タップして置く。faceUp: 表向きで置く（シールドゾーン）。grant: バトルゾーンに出したクリーチャーに与える能力
    */
   /** withGears: そのクリーチャーにクロスされているクロスギアも同じところへ（「そのクリーチャーとそれにクロスされているクロスギアをすべて」） */
-  | { type: 'move'; target: TargetSpec; to: MoveDest; tapped?: boolean; faceUp?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean }; withGears?: boolean }
+  /** endOfTurn: バトルゾーンに出したクリーチャーを、このターンの終わりに破壊する／山札の下に置く／山札の下に置いて1枚引く（「このターンの終わりに、それらを山札の下に置き、〜1体につき、カードを1枚引く」） */
+  | { type: 'move'; target: TargetSpec; to: MoveDest; tapped?: boolean; faceUp?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean }; withGears?: boolean; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw' }
   /**
    * 選んだクロスギアを、コストを支払わずにクロスする。to: self はこのクリーチャーに、choose は自分のクリーチャーを1つずつ選んで。
    * iids: エンジン内部用（クロス先を聞いているクロスギア）
@@ -654,7 +657,11 @@ export type StaticAbility = (
   /** 誰も、自身のマナゾーンの呪文カードをアンタップできない */
   | { type: 'manaSpellsStayTapped' }
   /** 相手のクリーチャーが出て、相手のクリーチャーの能力がトリガーする時、かわりにその能力はトリガーしない */
-  | { type: 'suppressEnterTriggers' }
+  /**
+   * destroySelf: このクリーチャーを破壊してもよい。そうしたら、出たクリーチャー自身の能力（出たことで誘発したもの）だけがトリガーしない（《消王ケシカス》）。
+   * 指定がなければ、出たクリーチャーの持ち主のクリーチャーの能力すべてが、かわりにトリガーしない（《ブラキオ龍樹》）
+   */
+  | { type: 'suppressEnterTriggers'; destroySelf?: boolean }
   /** 自分は、このクリーチャーよりパワーが小さいクリーチャーに攻撃されない（プレイヤーへの攻撃を防ぐ） */
   | { type: 'protectFromWeaker' }
   | { type: 'cannotSummon'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
@@ -960,6 +967,8 @@ export interface AltPlay {
   speed?: boolean;
   /** 使った後に行う効果（「そうしたら、〜」） */
   then?: EffectDef[];
+  /** 出す（唱える）前に支払う、マナのかわりのコスト（「コストを支払うかわりに、クリーチャー1体とシールド1つ、そして手札1枚を自分の山札の一番下に置いて」） */
+  payFirst?: EffectDef[];
   /** フシギバース：自分のクリーチャーを1体タップしてマナゾーンに置き、そのコストだけ少なくする（min より少なくならない） */
   fushigi?: { min: number };
   /** 使えるタイミング（省略時は自分のメインステップ）。attackEndBreak: 自分のクリーチャーの攻撃の終わりに、その攻撃でシールドをブレイクしていれば（キリフダッシュ） */

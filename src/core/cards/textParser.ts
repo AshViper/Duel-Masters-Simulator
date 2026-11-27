@@ -168,6 +168,8 @@ export function normalizeText(s: string): string {
     .replace(/^(?!この)([^、。]*?クリーチャー)の攻撃の終わりに、/, '$1が攻撃を終えた時、')
     // 「相手が自分のクリーチャーを選ぶ時、そのクリーチャーは選べない」＝そのクリーチャーは相手に選ばれない
     .replace(/相手が(?:自分の)?クリーチャーを選ぶ時、そのクリーチャーは選べない/g, 'そのクリーチャーは相手に選ばれない')
+    // 《消王ケシカス》「相手のクリーチャーが出て、その能力がトリガーする時、「ノーン!!」と叫びながらこのクリーチャーを破壊してもよい。そうしたら、その能力はトリガーしない」：叫ぶのは演出なので読まない
+    .replace(/相手のクリーチャーが(?:バトルゾーンに)?出て、その能力がトリガーする時、(?:「[^」]*」と叫びながら、?)?このクリーチャーを破壊してもよい。そうしたら、その能力はトリガーしない。?(?:[（(]例えば[^）)]*[）)])?/g, '相手のクリーチャーが出て、その能力がトリガーする時、このクリーチャーを破壊して、その能力をトリガーさせなくてもよい')
     // 「このクリーチャーに含まれるカードが10枚以上あれば」＝このクリーチャーにカードが10枚以上含まれていれば
     .replace(/このクリーチャーに含まれるカードが(\d+)枚以上あれば/g, 'このクリーチャーにカードが$1枚以上含まれていれば')
     // オーラ：「これをクリーチャーに付けた時」「このオーラが離れた時」
@@ -1028,6 +1030,19 @@ function parseSentence(s: string): EffectDef[] | null {
   let m: RegExpMatchArray | null;
   s = s.replace(/^(一番パワーが(?:大きい|小さい)|このクリーチャーより(?:パワー|コスト)が(?:小さい|大きい)|(?:その捨てたカード|そのクリーチャー|それ)(?:と同じコストの|以下のコストの|と同じ文明を持つ、?))(相手|自分)の/, '$2の$1');
   s = s.replace(/^そのターン、/, 'このターン、');
+  // 「相手はバトルゾーン、マナゾーン、手札から自身のカードを1枚ずつ選び、好きな順序で山札の一番下に置く」：ゾーンごとに持ち主が選んで動かす
+  if ((m = s.match(/^(相手|自分)は、?((?:(?:バトルゾーン|マナゾーン|手札|墓地|シールドゾーン)(?:、|と|または)?)+)から自身の(カード|クリーチャー)を(\d+)(?:枚|体|つ)ずつ選び、(?:好きな順序で)?(山札の(?:一番)?下|山札の(?:一番)?上|墓地|手札|マナゾーン)に(?:置く|加える|戻す)$/))) {
+    const zoneOf: Record<string, TargetSpec['zone']> = { バトルゾーン: 'battle', マナゾーン: 'mana', 手札: 'hand', 墓地: 'graveyard', シールドゾーン: 'shield' };
+    const zones = m[2].split(/、|と|または/).filter(Boolean).map((z) => zoneOf[z]);
+    const to: MoveDest = /下/.test(m[5]) ? 'deckBottom' : /上/.test(m[5]) ? 'deckTop' : (({ 墓地: 'graveyard', 手札: 'hand', マナゾーン: 'mana' }) as Record<string, MoveDest>)[m[5]];
+    const owner = m[1] === '相手' ? 'opponent' : 'self';
+    if (zones.every(Boolean) && new Set(zones).size === zones.length && !zones.includes(to as TargetSpec['zone']))
+      return zones.map((zone) => ({
+        type: 'move' as const,
+        target: { owner, zone, count: n(m![4]), ...(m![3] === 'クリーチャー' ? { filter: { cardType: 'creature' as const } } : zone === 'battle' ? { element: true } : {}), ...(owner === 'opponent' ? { chooser: 'owner' as const } : {}) },
+        to,
+      }));
+  }
   // 「AすべてとBをすべて〜する」：それぞれを読む
   if ((m = s.match(/^([^、]+?)すべてと、?(.+?)をすべて、?(.+)$/))) {
     const one = (x: string): EffectDef[] | null => {
@@ -1559,6 +1574,8 @@ function parseBody(body: string, options: string[], allowPartial = false): Group
     )
     // 「AすべてとBをすべてタップする。次の相手のターンのはじめに、それらはアンタップしない」：それぞれに分ける
     .replace(/([^。]+?)すべてと、?([^。]+?)をすべて、?([^。]+?)。(次の相手のターンのはじめに、それら?はアンタップしない)/g, '$1をすべて$3。$4。$2をすべて$3。$4')
+    // 「〜を2体まで自分の手札から出し、それらに「スピードアタッカー」を与える」：出す文と与える文に分ける
+    .replace(/([^。]+?から(?:バトルゾーンに)?出)し、(?:それら|そのクリーチャー|それ)に(「[^」]+」(?:と「[^」]+」)*を与える)/g, '$1す。このターン、そのクリーチャーに$2')
     // 「クリーチャーを5体自分の墓地から選び」→「自分の墓地からクリーチャーを5体選び」
     .replace(/([^、。]+?)を(\d+(?:体|枚))((?:自分|相手)の(?:墓地|マナゾーン|手札|シールド))から選び/g, '$3から$1を$2選び')
     .split('。')
@@ -1877,6 +1894,12 @@ function parseBody(body: string, options: string[], allowPartial = false): Group
       const kw = parseGrant(give[2]);
       if (!kw) return null;
       lastE.grant = { keywords: kw, ...(give[1] !== 'このターン' ? { untilNextTurn: true } : {}) };
+      continue;
+    }
+    // 「〜を出す。このターンの終わりに、それらを好きな順序で山札の下に置き、こうして下に置いたクリーチャー1体につき、カードを1枚引く」
+    const eot = s.match(/^このターンの終わりに、(?:それら|その(?:\d+体の)?クリーチャー|それ)を(?:(?:好きな順序で)?(?:自分の)?山札の(?:一番)?下に置(く|き、こうして(?:山札の)?下に置いたクリーチャー1体につき、カードを1枚引く)|(破壊する))$/);
+    if (eot && lastE?.type === 'move' && lastE.to === 'battle' && !lastE.endOfTurn) {
+      lastE.endOfTurn = eot[2] ? 'destroy' : eot[1] === 'く' ? 'deckBottom' : 'deckBottomDraw';
       continue;
     }
     // 途中の文の条件：「その後、これが進化クリーチャーなら、〜する」
@@ -2324,6 +2347,7 @@ function parseStatic(t: string): StaticAbility[] | null {
   }
   if (/^自分は、?このクリーチャーよりパワーが小さいクリーチャーに攻撃されない$/.test(t)) return [{ type: 'protectFromWeaker' }];
   if (/^相手のクリーチャーが(?:バトルゾーンに)?出て、相手のクリーチャーの能力がトリガーする時、かわりにその能力はトリガーしない$/.test(t)) return [{ type: 'suppressEnterTriggers' }];
+  if (/^相手のクリーチャーが出て、その能力がトリガーする時、このクリーチャーを破壊して、その能力をトリガーさせなくてもよい$/.test(t)) return [{ type: 'suppressEnterTriggers', destroySelf: true }];
   // 「すべてのプレイヤーは、パワー5000以下のクリーチャーを召喚できず、サイキック・クリーチャーを出すことができない」
   const noSummonEnter = t.match(/^(誰も|すべてのプレイヤーは|相手は|自分は)、?(.+?)を召喚できず、(.+?)を(?:バトルゾーンに)?出す(?:こと)?ができない$/);
   if (noSummonEnter) {
@@ -3057,6 +3081,26 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
       body: civil[3],
       condition: { type: 'compare', left: { who: 'self', zone: 'battle', withPermanents: true, filter: { civilization: CIV[civil[1]], anyOf: [{ cardType: 'creature' }, { cardType: 'tamaseed' }] } }, op: '>=', right: n(civil[2]) },
     };
+  // 2つのゾーンを合わせて数える：「バトルゾーンまたはマナゾーンに自分のジョーカーズが4枚以上あれば、」
+  // 「自分の、ジョーカーズとマナゾーンにあるジョーカーズ・カードが合計7つ以上なら、」（はじめの名詞はバトルゾーンにあるもの）
+  const zw = (z: string) => (z === 'バトルゾーン' ? 'battle' : ZONE_WORD[z]) as Exclude<Quantity['zone'], 'under'>;
+  const zpair = body.match(/^(バトルゾーン|マナゾーン|墓地|手札)または(バトルゾーン|マナゾーン|墓地|手札)に(自分|相手)の([^、。]+?)が(?:合計)?(\d+)(?:枚|体|つ)以上(あれば|なければ)、(.+)$/);
+  const zsum = body.match(/^(自分|相手)の、?([^、。]+?)と(マナゾーン|墓地|手札)にある([^、。]+?)が合計(\d+)(?:枚|体|つ)以上(?:あれば|なら)、(.+)$/);
+  if (zpair || zsum) {
+    const [zones, w, nouns, count, neg, rest] = zpair
+      ? [[zw(zpair[1]), zw(zpair[2])], zpair[3], [zpair[4]], zpair[5], zpair[6] === 'なければ', zpair[7]]
+      : [['battle', zw(zsum![3])], zsum![1], [zsum![2], zsum![4]], zsum![5], false, zsum![6]];
+    const filters = nouns.map((x) => {
+      const f: CardFilter = {};
+      return parseSubject(x.replace(/・?カード$/, ''), f) ? f : null;
+    });
+    if (filters.every((f) => f) && filters.every((f) => JSON.stringify(f) === JSON.stringify(filters[0]))) {
+      const f = filters[0]!;
+      const left: Quantity = { who: who(w as string), zone: zones[0] as Quantity['zone'], extraZones: zones.slice(1) as Quantity['extraZones'], withPermanents: true, ...(Object.keys(f).length ? { filter: f } : {}) };
+      const cond: Condition = { type: 'compare', left, op: '>=', right: n(count as string) };
+      return { body: rest as string, condition: neg ? { type: 'not', condition: cond } : cond };
+    }
+  }
   // 水晶武装：「自分のマナゾーンに裏向きのカードが4枚以上あれば、」
   const crystal = body.match(/^(自分|相手)のマナゾーンに裏向きのカードが(\d+)枚以上あれば、(.+)$/);
   if (crystal) return { body: crystal[3], condition: { type: 'compare', left: { who: who(crystal[1]), zone: 'mana', filter: { faceDown: true } }, op: '>=', right: n(crystal[2]) } };
@@ -3981,6 +4025,24 @@ const ALT_PLAYS: { re: RegExp; kinds: ('creature' | 'spell')[]; build: (m: RegEx
     kinds: ['spell'],
     // この呪文を、コストをN少なくして唱えてもよい。そうしたら、自分の手札を1枚捨てる
     build: (m) => ({ name: 'B・A・D・S', reduce: n(m[1]), then: [{ type: 'move', target: { owner: 'self', zone: 'hand', count: 1 }, to: 'graveyard' }] }),
+  },
+  // 「コストを支払うかわりに、クリーチャー1体とシールド1つ、そして手札1枚を自分の山札の一番下に置いて、このクリーチャーを召喚してもよい」
+  {
+    re: /^コストを支払うかわりに、?((?:(?:クリーチャー|シールド|手札|マナゾーンのカード|墓地のカード)\d+(?:体|つ|枚)(?:、そして|、|と|そして)?)+)を自分の山札の(?:一番)?(下|上)に置いて、?この(?:呪文を唱え|クリーチャーを召喚し|カードを使っ)てもよい$/,
+    kinds: ['creature', 'spell'],
+    build: (m) => {
+      const zoneOf: Record<string, Quantity['zone']> = { クリーチャー: 'battle', シールド: 'shield', 手札: 'hand', マナゾーンのカード: 'mana', 墓地のカード: 'graveyard' };
+      const items = [...m[1].matchAll(/(クリーチャー|シールド|手札|マナゾーンのカード|墓地のカード)(\d+)/g)].map((x) => ({ zone: zoneOf[x[1]] as Exclude<Quantity['zone'], 'under' | 'deck'>, count: n(x[2]) }));
+      const to: MoveDest = m[2] === '下' ? 'deckBottom' : 'deckTop';
+      return {
+        name: `${m[1]}を山札の${m[2]}に置く`,
+        cost: 0,
+        civilizations: [],
+        // 手札から置くカードには、このカード自身を含めない
+        condition: { type: 'and', conditions: items.map((it) => ({ type: 'compare' as const, left: { who: 'self' as const, zone: it.zone }, op: '>=' as const, right: it.count + (it.zone === 'hand' ? 1 : 0) })) },
+        payFirst: items.map((it) => ({ type: 'move' as const, target: { owner: 'self' as const, zone: it.zone, count: it.count, ...(it.zone === 'hand' ? { filter: { excludeSelf: true } } : {}) }, to })),
+      };
+    },
   },
   // 「コストを支払うかわりに、自分の手札からスノーフェアリーを5体捨て、この呪文を唱えてもよい」
   {

@@ -187,6 +187,8 @@ export interface TriggerGroup {
 
 export type Task =
   | { kind: 'effect'; controller: PlayerId; source: string; effect: EffectDef }
+  /** 《消王ケシカス》：source を破壊して、subject（出た相手のクリーチャー）の誘発した能力 groups をトリガーさせないか聞く。使わなければ groups は解決を待つ */
+  | { kind: 'denyTriggers'; player: PlayerId; source: string; subject: string; groups: TriggerGroup[] }
   /** 任意効果の実行確認（承認されたら effects をキュー先頭に積む） */
   | { kind: 'confirmOptional'; controller: PlayerId; source: string; effects: EffectDef[]; otherwise?: EffectDef[] }
   | { kind: 'blockStep'; attacker: string; defender: PlayerId }

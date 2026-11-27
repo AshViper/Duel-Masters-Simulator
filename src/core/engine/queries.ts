@@ -818,8 +818,8 @@ export function countQuantity(state: GameState, reg: CardRegistry, controller: P
   const inBattle = (p: PlayerId) => (q.withPermanents || (q.filter?.cardType && isNonCreaturePermanent(q.filter.cardType)) ? battleAndFields(state, reg, p) : battleCards(state, reg, p));
   // 「このクリーチャーの下にあるカード」
   if (q.zone === 'under') return source && state.cards[source] ? state.cards[source].under.filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)).length : 0;
-  const zone = q.zone;
-  const hits = players.flatMap((p) => (zone === 'battle' ? inBattle(p) : state.players[p].zones[zone]).filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)));
+  const zones = [q.zone, ...(q.extraZones ?? [])].filter((z, i, a) => a.indexOf(z) === i) as Exclude<Quantity['zone'], 'under'>[];
+  const hits = players.flatMap((p) => zones.flatMap((zone) => (zone === 'battle' ? inBattle(p) : state.players[p].zones[zone]).filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower))));
   // 「コストが異なる〜1体につき」：コストの種類の数
   if (q.distinctCost) return new Set(hits.map((iid) => def(state, reg, iid).cost)).size;
   return hits.length;
