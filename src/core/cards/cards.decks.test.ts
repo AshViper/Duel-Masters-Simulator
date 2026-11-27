@@ -21,6 +21,7 @@ const CARDS = {
   darts: spell('d-1', 'ダーツ', ['自分のシールドを１枚相手に選ばせ、見る。それが呪文であればコストを支払わずにすぐ唱えてもよい 。唱えない場合やそのカードが呪文でない場合、元の場所に戻す。']),
   life: spell('d-2', 'ライフ', ['S(シールド)・トリガー(この呪文をシールドゾーンから手札に加えるとき、コストを支払わずにすぐ唱えてよい)\n\n自分の山札の上から１枚目を、自分のマナゾーンに置く。']),
   storm: spell('d-3', 'ストーム', ['カードを３枚まで引く。その後、自分の手札を２枚、好きな順序で自分の山札の上に置く。']),
+  topOrBottom: spell('d-15', '上か下', ['カードを３枚引き、自分の手札を２枚、好きな順序で山札の上か下に置く。']),
   cube: spell('d-4', 'キューブ', ['S(シールド)・トリガー(このカードをシールドゾーンから手札に戻すとき、コストを支払わずにすぐに使ってよい。)\n\n自分の山札から呪文を１枚さがして相手に見せ、自分の手札に加える。そのあと、山札をシャッフルする。']),
   shaper: spell('d-5', 'シェイパー', ['自分の山札のカードを、上から４枚表向きにする。その中の水のカードをすべて自分の手札に加え、それ以外のカードを自分の墓地に置く。']),
   energy: spell('d-6', 'ライト', ['カードを２枚引く。']),
@@ -76,6 +77,20 @@ describe('デッキのカードがすべて自動処理になる', () => {
     const back = s.players[0].zones.hand.slice(0, 2);
     s = act(s, { type: 'RESPOND', player: 0, selected: back });
     expect(s.players[0].zones.deck.slice(-2).sort()).toEqual([...back].sort());
+  });
+
+  it('カードを3枚引き、手札を2枚好きな順序で山札の上か下に置く：選んだカードは下、残りは上', () => {
+    let { s } = cast(newGame(), 'dm:d-15');
+    const hand = s.players[0].zones.hand.length;
+    expect(hand).toBeGreaterThanOrEqual(3);
+    expect(s.pending).toMatchObject({ kind: 'selectCards', min: 2, max: 2 });
+    const [a, b] = s.players[0].zones.hand.slice(0, 2);
+    s = act(s, { type: 'RESPOND', player: 0, selected: [a, b] });
+    expect(s.players[0].zones.hand).toHaveLength(hand - 2);
+    s = act(s, { type: 'RESPOND', player: 0, selected: [a] }); // a を下へ
+    expect(s.players[0].zones.deck[0]).toBe(a);
+    expect(s.players[0].zones.deck.at(-1)).toBe(b);
+    expect(s.pending).toBeNull();
   });
 
   it('山札から呪文を探す・山札の上4枚の水のカードをすべて手札に', () => {

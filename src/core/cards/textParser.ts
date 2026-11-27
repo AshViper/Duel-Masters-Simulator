@@ -1336,6 +1336,9 @@ function parseSentence(s: string): EffectDef[] | null {
     return rest && [draw(m[1], m[2]), ...rest];
   }
   if ((m = s.match(/^自分の手札を(\d+)枚、?(?:好きな順序で)?(?:自分の)?山札の上に(?:置く|戻す)$/))) return [move({ owner: 'self', zone: 'hand', count: n(m[1]) }, 'deckTop')];
+  // 「自分の手札を2枚、好きな順序で山札の上か下に置く」：いったん山札の上に置き、そのうち下に置くカードを選ぶ（残りは上）
+  if ((m = s.match(/^自分の手札を(\d+)枚、?好きな順序で(?:自分の)?山札の上(?:または|か)下に(?:置く|戻す)$/)))
+    return [move({ owner: 'self', zone: 'hand', count: n(m[1]) }, 'deckTop'), { type: 'lookAtTop', count: n(m[1]), pickCount: n(m[1]), pickTo: 'deckBottom', restTo: 'top' }];
   if (/^自分の墓地にある(?:カードを)?すべて(?:の)?(?:カードを)?(?:自分の)?山札に(?:加え|戻し)、(?:山札を)?シャッフルする$/.test(s) || s === '自分の墓地にあるカードをすべて山札に加え、シャッフルする')
     return [{ type: 'graveyardToDeck' }];
   if ((m = s.match(/^自分の手札を(\d+)枚捨て、(.+)$/))) {
