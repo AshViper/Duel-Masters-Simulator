@@ -184,6 +184,10 @@ export type Condition =
   | { type: 'enteredFreeThisTurn'; who: 'self' | 'opponent' }
   /** いまの攻撃が、このターン最初の攻撃（ターンプレイヤーのクリーチャーによる攻撃の1回目） */
   | { type: 'firstAttackThisTurn' }
+  /** いまの攻撃が、このターンのN回目の攻撃（ターンプレイヤーのクリーチャーによる） */
+  | { type: 'nthAttackThisTurn'; n: number }
+  /** このターン、そのプレイヤーが名前に name を含むクリーチャーをバトルゾーンに出した */
+  | { type: 'enteredNamedThisTurn'; who: 'self' | 'opponent'; name: string }
   /** このクリーチャーにクロスギアがクロスされている（any: 自分のクリーチャーのどれかにクロスされている） */
   | { type: 'crossed'; any?: boolean }
   /** このクリーチャーがタップしている */
@@ -208,7 +212,7 @@ export type Condition =
 /** 効果でカードを動かす先（deckTop / deckBottom は山札の上 / 下） */
 /** under: 効果の発生源（このクリーチャー）の下に置く */
 /** shieldTop: 表向きにして、持ち主のシールド1つの上に置く（シールドがなければ表向きの新しいシールドにする） */
-export type MoveDest = 'hand' | 'mana' | 'graveyard' | 'shield' | 'deckTop' | 'deckBottom' | 'battle' | 'under' | 'shieldTop';
+export type MoveDest = 'hand' | 'mana' | 'graveyard' | 'shield' | 'deckTop' | 'deckBottom' | 'battle' | 'under' | 'shieldTop' | 'hyperspatial';
 
 /** 構造化された効果定義 */
 export type EffectDef =
@@ -300,6 +304,8 @@ export type EffectDef =
   /** self: 自分のシールドをブレイクする（G・ブレイカーの「その攻撃の後、自分のシールドをすべてブレイクする」） */
   | { type: 'breakShields'; count: number; self?: boolean }
   | { type: 'extraTurn' }
+  /** ターンの残りをとばす（攻撃・ターンの終わりの処理をせず、すぐに次のターンを始める） */
+  | { type: 'skipRestOfTurn' }
   /** そのプレイヤー（効果の持ち主）がゲームに勝つ */
   | { type: 'winGame' }
   /** Dスイッチ：このD2フィールドを上下逆さまにする（ゲーム中に一度） */
@@ -461,6 +467,8 @@ export const TRIGGER_EVENTS = [
   'onBeforeBreak',
   /** このクリーチャーの「EXライフ」シールドが離れた時 */
   'onExLifeLeft',
+  /** このカード自身がゾーンを移った時（movedFrom → movedTo。「手札からマナゾーンに置いた時」「超次元ゾーンに置かれた時」）。移った先のゾーンにある間に誘発する */
+  'onSelfMoved',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
@@ -479,6 +487,11 @@ export interface TriggeredAbility {
   minDrawCount?: number;
   /** 発動条件（「〜なら」） */
   condition?: Condition;
+  /** onSelfMoved：移る前・移った後のゾーン（どちらも省略できる） */
+  movedFrom?: ZoneName;
+  movedTo?: ZoneName;
+  /** onOtherSummon：召喚以外の方法（効果など）で出た時だけ（「相手が召喚以外の方法でクリーチャーを出した時」） */
+  byEffect?: boolean;
   /** onSummon：進化ではないクリーチャーの上に置いた（進化した）時だけ */
   evolvedOnNonEvolution?: boolean;
   /** Dスイッチ：ゲーム中に一度だけ（使ったら二度と聞かない） */
@@ -740,6 +753,8 @@ export interface AltPlay {
   spellAfter?: 'deckBottom';
   /** ギャラクシールド：出す（唱える）かわりに、表向きでシールドゾーンに置く */
   toShield?: boolean;
+  /** パンドラ・シフト：出す（唱える）かわりに、自分の超次元ゾーンに置く */
+  toHyperspatial?: boolean;
   /** このターンの終わりに：破壊する／山札の下に置く／山札の下に置いてカードを1枚引く */
   endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw';
   /** 出したターンにも攻撃できる（アビスラッシュ） */
@@ -788,6 +803,8 @@ export interface HandTrigger {
   zones?: ('hand' | 'graveyard')[];
   /** 出したクリーチャーを、そのターンの終わりに山札の下に置く（ニンジャ・ストライク） */
   endOfTurn?: 'deckBottom';
+  /** 攻撃の後（攻撃の終わりに）出す。攻撃の最中には出さない */
+  afterAttack?: boolean;
   /** 1回の攻撃につき、1人1回だけ（「その攻撃中にニンジャ・ストライクを使っていなければ」） */
   oncePerAttack?: boolean;
   /** 唱えた呪文を墓地のかわりに置く場所 */
@@ -870,7 +887,7 @@ export interface CardDefinition {
   /** 禁断の鼓動：ゲーム開始時に封印を付けてバトルゾーンに置き、封印がすべてなくなったら creature 側に裏返す（禁断解放） */
   forbidden?: ForbiddenSide;
   /** 手札以外から召喚できる（「このクリーチャーを自分の墓地から召喚してもよい」）。condition を満たす時だけ */
-  summonFrom?: { zones: Array<'graveyard' | 'mana'>; condition?: Condition };
+  summonFrom?: { zones: Array<'graveyard' | 'mana' | 'hyperspatial'>; condition?: Condition };
   /** 超魂X：これがクリーチャーの下にあれば、そのクリーチャーにも与える能力 */
   soul?: Pick<CardDefinition, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
   /** 別のコストでの使い方 */

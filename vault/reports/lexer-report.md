@@ -6,11 +6,11 @@ generated: 2026-11-27
 
 > 自動生成（`npm run lexer:report`）。大きいので Claude は grep で引く。
 
-- テストに書かれたカードの文 399 行・17167 文字のうち、辞書にない文字 424（2.5%）
+- テストに書かれたカードの文 409 行・17717 文字のうち、辞書にない文字 411（2.3%）
 
 ## 辞書にない語（多い順）
 
-...(9) · ff(8) · ドラゴン(7) · 魔導具(7) · コマンド(6) · ハンター(5) · じゃんけん(4) · アビス(3) · ディスペクター(3) · S(3) · サイキック(3) · ジョーカーズ(2) · ビートジョッキー(2) · リキッド・ピープル(2) · ジャイアント(2) · 補足(2) · エグザイル(2) · テスト(2) · ▼(2) · ―(2) · 束(2) · シノビ(2) · 紅蓮族(2) · 手動(2) · そ(1) · サムライ(1) · ミステリー・トーテム(1) · スノーフェアリー(1) · アースイーター(1) · マフィ・ギャング(1) · ナイト(1) · 逆(1) · さま(1) · さ(1) · あ(1) · よる(1) · ハイパーモード(1) · ブルー・インパルス(1) · 真実(1) · 極(1) · めよ(1) · ジョニー(1) · !(1) · 正(1) · 文(1) · 無限大(1) · 級(1) · 謎(1) · レクスターズ(1) · ゼニス(1) · エイリアン(1) · エンジェル・コマンド(1) · **(1) · ?(1) · 表(1) · 裏(1) · 者(1) · 龍(1) · そこ(1) · す(1) · 現在(1) · 支払(1) · え(1)
+...(9) · ドラゴン(7) · 魔導具(7) · コマンド(6) · ハンター(5) · じゃんけん(4) · アビス(3) · ディスペクター(3) · S(3) · サイキック(3) · ジョーカーズ(2) · ビートジョッキー(2) · リキッド・ピープル(2) · ジャイアント(2) · 補足(2) · エグザイル(2) · テスト(2) · ▼(2) · エイリアン(2) · ―(2) · 束(2) · シノビ(2) · 紅蓮族(2) · 手動(2) · そ(1) · サムライ(1) · ミステリー・トーテム(1) · スノーフェアリー(1) · アースイーター(1) · マフィ・ギャング(1) · ナイト(1) · 逆(1) · さま(1) · さ(1) · あ(1) · ハイパーモード(1) · ブルー・インパルス(1) · 真実(1) · 極(1) · めよ(1) · ジョニー(1) · !(1) · 正(1) · 文(1) · 無限大(1) · 級(1) · 謎(1) · レクスターズ(1) · ゼニス(1) · エンジェル・コマンド(1) · **(1) · ?(1) · 表(1) · 裏(1) · 者(1) · 龍(1) · そこ(1) · す(1) · 現在(1) · 支払(1) · え(1)
 
 ## 例文集（src/core/testing/abilitySamples.ts）
 
@@ -120,6 +120,42 @@ generated: 2026-11-27
   - `この[demo:this] クリーチャー[noun:creature] が[p] 出た[verb:出る/ta] 時[aux:when] 、 自分[player:self] の[p] 山札[zone:deck] の[p] 上[rel:top] から[p] 1枚目[count:1枚目] を[p] タップして[verb:タップする/te] 自分[player:self] の[p] マナゾーン[zone:mana] に[p] 置き[verb:置く/renyo] 、 その後[conj:then] 、 ドラゴン[?katakana] ・ クリーチャー[noun:creature] を[p] 1体[count:1体] 、 自分[player:self] の[p] マナゾーン[zone:mana] から[p] 手札[zone:hand] に[p] 戻す[verb:戻す/plain] 。 その[demo:that] ドラゴン[?katakana] 以下[cmp:<=] の[p] コスト[stat:cost] を[p] 持つ[verb:持つ/plain] 相手[player:opponent] の[p] クリーチャー[noun:creature] を[p] 1体[count:1体] 選び[verb:選ぶ/renyo] 、 持ち主[player:holder] の[p] 手札[zone:hand] に[p] 戻す[verb:戻す/plain] 。`
 - このクリーチャーが出た時、自分の山札の上から１枚目をタップしてマナゾーンに置く。それがドラゴンなら、自分の山札の上からさらにもう１枚、タップしてマナゾーンに置く。
   - `この[demo:this] クリーチャー[noun:creature] が[p] 出た[verb:出る/ta] 時[aux:when] 、 自分[player:self] の[p] 山札[zone:deck] の[p] 上[rel:top] から[p] 1枚目[count:1枚目] を[p] タップして[verb:タップする/te] マナゾーン[zone:mana] に[p] 置く[verb:置く/plain] 。 それ[demo:it] が[p] ドラゴン[?katakana] なら[aux:if] 、 自分[player:self] の[p] 山札[zone:deck] の[p] 上[rel:top] から[p] さらに[conj:also] もう[adv:more] 1枚[count:1枚] 、 タップして[verb:タップする/te] マナゾーン[zone:mana] に[p] 置く[verb:置く/plain] 。`
+- 相手がクリーチャーを選ぶ時、このクリーチャーは選べない。（ただし、このクリーチャーを攻撃またはブロックしてもよい）
+  - `相手[player:opponent] が[p] クリーチャー[noun:creature] を[p] 選ぶ[verb:選ぶ/plain] 時[aux:when] 、 この[demo:this] クリーチャー[noun:creature] は[p] 選べない[verb:選ぶ/cannot] 。 (ただし[conj:however] 、 この[demo:this] クリーチャー[noun:creature] を[p] 攻撃[verb:攻撃する/stem] または[conj:or] ブロックして[verb:ブロックする/te] もよい[aux:may])`
+- 相手のターン中に、相手が召喚以外の方法でクリーチャーをバトルゾーンに出した時、そのクリーチャーを持ち主の手札に戻してもよい。
+  - `相手[player:opponent] の[p] ターン[noun:turn] 中[rel:in] に[p] 、 相手[player:opponent] が[p] 召喚[verb:召喚する/stem] 以外[cmp:except] の[p] 方法[noun:way] で[p] クリーチャー[noun:creature] を[p] バトルゾーン[zone:battle] に[p] 出した[verb:出す/ta] 時[aux:when] 、 その[demo:that] クリーチャー[noun:creature] を[p] 持ち主[player:holder] の[p] 手札[zone:hand] に[p] 戻して[verb:戻す/te] もよい[aux:may] 。`
+- {GS} G・ストライク
+  - `{GS}[icon] G・ストライク[kw]`
+- シンカライズ：このタマシードがクリーチャーであるかのように、この上に進化クリーチャーを置いてもよい。
+  - `シンカライズ[kw] : この[demo:this] タマシード[noun:tamaseed] が[p] クリーチャー[noun:creature] で[p] ある[verb:ある/plain] か[p] の[p] ように[aux:manner] 、 この[demo:this] 上[rel:top] に[p] 進化クリーチャー[noun:evolution] を[p] 置いて[verb:置く/te] もよい[aux:may] 。`
+- このタマシードが出た時、自分の手札を１枚捨て、カードを３枚まで引き、もう一度自分の手札を１枚捨てる。
+  - `この[demo:this] タマシード[noun:tamaseed] が[p] 出た[verb:出る/ta] 時[aux:when] 、 自分[player:self] の[p] 手札[zone:hand] を[p] 1枚[count:1枚] 捨て[verb:捨てる/renyo] 、 カード[noun:card] を[p] 3枚[count:3枚] まで[aux:until] 引き[verb:引く/renyo] 、 もう[adv:more] 1度[count:1度] 自分[player:self] の[p] 手札[zone:hand] を[p] 1枚[count:1枚] 捨てる[verb:捨てる/plain] 。`
+- このタマシードを自分の手札からマナゾーンに置いた時、アンタップする。
+  - `この[demo:this] タマシード[noun:tamaseed] を[p] 自分[player:self] の[p] 手札[zone:hand] から[p] マナゾーン[zone:mana] に[p] 置いた[verb:置く/ta] 時[aux:when] 、 アンタップする[verb:アンタップする/plain] 。`
+- S・トリガー（このクリーチャーをシールドゾーンから手札に加える時、コストを支払わずにすぐ召喚してもよい）
+  - `S・トリガー[kw] (この[demo:this] クリーチャー[noun:creature] を[p] シールドゾーン[zone:shield] から[p] 手札[zone:hand] に[p] 加える[verb:加える/plain] 時[aux:when] 、 コスト[stat:cost] を[p] 支払わず[verb:支払う/nu] に[p] すぐ[adv:immediately] 召喚して[verb:召喚する/te] もよい[aux:may])`
+- このクリーチャーをバトルゾーンに出した時、ターンの残りをとばす。（次のプレイヤーのターンをすぐに始める）
+  - `この[demo:this] クリーチャー[noun:creature] を[p] バトルゾーン[zone:battle] に[p] 出した[verb:出す/ta] 時[aux:when] 、 ターン[noun:turn] の[p] 残り[rel:rest] を[p] とばす[verb:とばす/plain] 。 (次[time:next] の[p] プレイヤー[noun:player] の[p] ターン[noun:turn] を[p] すぐに[adv:immediately] 始める[verb:始める/plain])`
+- ジャストダイバー
+  - `ジャストダイバー[kw]`
+- スピードアタッカー
+  - `スピードアタッカー[kw]`
+- 自分のターンのはじめに、このクリーチャーを自分の超次元ゾーンに置いてもよい。そうしたら、《再興王女プリン》ではないエイリアン・クリーチャーを１体、自分の超次元ゾーンから出す。
+  - `自分[player:self] の[p] ターン[noun:turn] の[p] はじめ[time:start] に[p] 、 この[demo:this] クリーチャー[noun:creature] を[p] 自分[player:self] の[p] 超次元ゾーン[zone:hyperspatial] に[p] 置いて[verb:置く/te] もよい[aux:may] 。 そうしたら[conj:ifDone] 、 《再興王女プリン》[name] で[p] は[p] ない[aux:not] エイリアン[?katakana] ・ クリーチャー[noun:creature] を[p] 1体[count:1体] 、 自分[player:self] の[p] 超次元ゾーン[zone:hyperspatial] から[p] 出す[verb:出す/plain] 。`
+- パンドラ・シフト：（このカードを使うコストの代わりに、 [wf02]を支払ってもよい。そうしたら、このカードを自分の超次元ゾーンに置く。
+  - `パンドラ・シフト[kw] : (この[demo:this] カード[noun:card] を[p] 使う[verb:使う/plain] コスト[stat:cost] の[p] 代わりに[conj:instead] 、 [wf02][icon] を[p] 支払って[verb:支払う/te] もよい[aux:may] 。 そうしたら[conj:ifDone] 、 この[demo:this] カード[noun:card] を[p] 自分[player:self] の[p] 超次元ゾーン[zone:hyperspatial] に[p] 置く[verb:置く/plain] 。)`
+- このクリーチャーを自分の超次元ゾーンから召喚してもよい。
+  - `この[demo:this] クリーチャー[noun:creature] を[p] 自分[player:self] の[p] 超次元ゾーン[zone:hyperspatial] から[p] 召喚して[verb:召喚する/te] もよい[aux:may] 。`
+- スピードアタッカー
+  - `スピードアタッカー[kw]`
+- W・ブレイカー
+  - `W・ブレイカー[kw]`
+- このクリーチャーが出た時または自分の超次元ゾーンに置かれた時、カードを２枚引く。その後、自分の手札を１枚捨てる。
+  - `この[demo:this] クリーチャー[noun:creature] が[p] 出た[verb:出る/ta] 時[aux:when] または[conj:or] 自分[player:self] の[p] 超次元ゾーン[zone:hyperspatial] に[p] 置かれた[verb:置く/passiveTa] 時[aux:when] 、 カード[noun:card] を[p] 2枚[count:2枚] 引く[verb:引く/plain] 。 その後[conj:then] 、 自分[player:self] の[p] 手札[zone:hand] を[p] 1枚[count:1枚] 捨てる[verb:捨てる/plain] 。`
+- 自分のクリーチャーが攻撃する時、このクリーチャーが自分の手札にあり、その攻撃がこのターン２度目のクリーチャーによる攻撃で、このターン自分の《龍装者 バルチュリス》をバトルゾーンに出していなければ、攻撃の後、このクリーチャーをバトルゾーンに出してもよい。
+  - `自分[player:self] の[p] クリーチャー[noun:creature] が[p] 攻撃する[verb:攻撃する/plain] 時[aux:when] 、 この[demo:this] クリーチャー[noun:creature] が[p] 自分[player:self] の[p] 手札[zone:hand] に[p] あり[verb:ある/renyo] 、 その[demo:that] 攻撃[verb:攻撃する/stem] が[p] この[demo:this] ターン[noun:turn] 2度[count:2度] 目[p] の[p] クリーチャー[noun:creature] に[p] よる[verb:よる/plain] 攻撃[verb:攻撃する/stem] で[p] 、 この[demo:this] ターン[noun:turn] 自分[player:self] の[p] 《龍装者バルチュリス》[name] を[p] バトルゾーン[zone:battle] に[p] 出して[verb:出す/te] いなければ[verb:いる/nakereba] 、 攻撃[verb:攻撃する/stem] の[p] 後[rel:after] 、 この[demo:this] クリーチャー[noun:creature] を[p] バトルゾーン[zone:battle] に[p] 出して[verb:出す/te] もよい[aux:may] 。`
+- スピードアタッカー（このクリーチャーは召喚酔いしない）
+  - `スピードアタッカー[kw] (この[demo:this] クリーチャー[noun:creature] は[p] 召喚酔い[noun:sickness] しない[verb:する/nai])`
 
 ## 未対応の能力語の文の分かれ方（design/ability-coverage.md の「未対応」）
 

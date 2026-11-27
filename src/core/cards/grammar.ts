@@ -232,6 +232,14 @@ function parseNP(c: Cur): NP | null {
         np.filter.nonEvolution = true;
         continue;
       }
+      const notName = c.try(() => {
+        const w = c.kind('cardName');
+        return w && c.lit('で', 'は', 'ない') ? w : null;
+      });
+      if (notName) {
+        np.filter.not = { nameIncludes: notName.name };
+        continue;
+      }
       const notRace = c.try(() => {
         const w = c.kind('word', (t) => t.script === 'katakana' || t.script === 'kanji');
         return w && c.lit('で', 'は', 'ない') ? w : null;
@@ -255,6 +263,16 @@ function parseNP(c: Cur): NP | null {
         continue;
       }
       break;
+    }
+    // 「自分の手札を1枚捨てる」：手札そのもの（カードの名詞がない）
+    const bareHand = c.try(() => {
+      const z = c.kind('zone', (t) => t.zone === 'hand');
+      return z && c.peek()?.text === 'を' ? z : null;
+    });
+    if (bareHand) {
+      np.zone = 'hand';
+      np.noun = 'card';
+      return np;
     }
     // 名詞
     const n = c.kind('noun', (t) => ['creature', 'card', 'element', 'shield', 'spell', 'player', 'evolution'].includes(t.noun));
@@ -376,7 +394,7 @@ function parseDest(c: Cur): { to: MoveDest; faceDown?: boolean } | null {
         return null;
       }
       if (!c.lit('に')) return null;
-      const map: Record<string, MoveDest> = { hand: 'hand', mana: 'mana', graveyard: 'graveyard', shield: 'shield', battle: 'battle' };
+      const map: Record<string, MoveDest> = { hand: 'hand', mana: 'mana', graveyard: 'graveyard', shield: 'shield', battle: 'battle', hyperspatial: 'hyperspatial' };
       return map[z.zone] ? { to: map[z.zone] } : null;
     }
     // 「シールドに加える」
@@ -429,6 +447,17 @@ function parseVerbPhrase(c: Cur, target: TargetSpec | 'self', ctx: Ctx): VerbPhr
       const optional = endMay(c);
       if (target === 'self') return null;
       return { effects: [{ type: 'playFree', target }], optional };
+    }
+    // 「〜を1体、自分の超次元ゾーン（手札・墓地）から出す」：移動先を言わずに「出す」
+    if (target !== 'self' && c.try(() => c.verb('出す', ['plain', 'te']))) {
+      const optional = endMay(c);
+      return { effects: [free ? { type: 'playFree', target } : { type: 'move', target, to: 'battle' }], optional };
+    }
+    // 「自分の手札を1枚捨てる」
+    if (c.verb('捨てる')) {
+      const optional = endMay(c);
+      if (target === 'self') return { effects: [{ type: 'selfAction', action: 'graveyard' }], optional };
+      return { effects: [{ type: 'move', target, to: 'graveyard' }], optional };
     }
     if (c.verb('破壊する')) {
       const optional = endMay(c);
@@ -570,6 +599,17 @@ function parseDeckTopClause(c: Cur): VerbPhrase | null {
 /** 節：目的語＋動詞句、または目的語のない動詞句（「持ち主の手札に戻す」「表向きにして〜置く」） */
 function parseClause(c: Cur, ctx: Ctx): (VerbPhrase & { implicit: boolean }) | null {
   return c.try(() => {
+    // 「もう一度自分の手札を1枚捨てる」：「もう一度」は読み飛ばす（同じ動作をもう一度行うだけ）
+    c.try(() => (c.kind('adv', (t) => t.adv === 'more') && c.kind('count', (t) => t.unit === '度') ? true : null));
+    // 「カードを3枚まで引き、」：つながった節の中のドロー
+    const drawClause = c.try(() => {
+      if (!c.lit('カード', 'を')) return null;
+      const n = c.kind('count', (t) => t.unit === '枚');
+      const upTo = c.lit('まで');
+      if (!n || !c.verb('引く', ['plain', 'te', 'renyo'])) return null;
+      return { effects: [{ type: 'draw', count: n.n, ...(upTo ? { upTo: true } : {}) }] as EffectDef[], optional: endMay(c), implicit: false };
+    });
+    if (drawClause) return drawClause;
     const deckTop = parseDeckTopClause(c);
     if (deckTop) {
       ctx.chosen = true;
@@ -634,6 +674,8 @@ function parseSpecialSentence(c: Cur, ctx: Ctx): VerbPhrase | null {
       return c.verb(['行う', '追加する'], ['plain']) ? { effects: [{ type: 'extraTurn' }] as EffectDef[], optional: false } : null;
     });
     if (extra) return extra;
+    // 「ターンの残りをとばす」
+    if (c.try(() => c.lit('ターン', 'の', '残り', 'を') && c.verb('とばす', ['plain']))) return { effects: [{ type: 'skipRestOfTurn' }], optional: false };
     // 「相手とガチンコ・ジャッジする」（勝った時の文は後で then に入れる）
     if (c.try(() => c.lit('相手', 'と', 'ガチンコ・ジャッジ') && c.verb('する', ['plain']))) return { effects: [{ type: 'gachinko', then: [] }], optional: false };
     // 「そのプレイヤーは自身の山札の上から1枚目を裏向きのまま、新しいシールドとしてシールドゾーンに置く」
@@ -818,6 +860,12 @@ interface Trig {
   event?: boolean;
   /** 手札にある間の誘発にもなる時の種類 */
   hand?: HandTrigger['when'];
+  byEffect?: boolean;
+  duringTurn?: 'self' | 'opponent';
+  movedFrom?: Zone;
+  movedTo?: Zone;
+  /** 「〜出た時または〜超次元ゾーンに置かれた時」：同じ効果の2つ目の誘発 */
+  alsoMovedTo?: Zone;
 }
 
 /** 文頭の誘発（「〜時、」「〜に、」まで）を読む */
@@ -844,9 +892,19 @@ function parseTrigger(c: Cur): Trig | null {
       return { when, ...(who === 'opponent' ? { who } : {}), ...(when === 'onTurnEnd' ? { hand: who === 'opponent' ? 'opponentTurnEnd' : 'ownTurnEnd' } : {}) } as Trig;
     }) ??
     c.try((): Trig | null => {
-      // 「このクリーチャーが（バトルゾーンに）出た時」「このクリーチャーをバトルゾーンに出した時」「このクリーチャーが「革命チェンジ」によって出た時」「このクリーチャーが攻撃する時」
-      if (!c.lit('この', 'クリーチャー')) return null;
+      // 「このクリーチャー（タマシード）が（バトルゾーンに）出た時」「〜をバトルゾーンに出した時」「〜が「革命チェンジ」によって出た時」
+      // 「このタマシードを自分の手札からマナゾーンに置いた時」「〜出た時または自分の超次元ゾーンに置かれた時」
+      if (!c.lit('この') || !c.kind('noun', (t) => t.noun === 'creature' || t.noun === 'tamaseed')) return null;
       if (c.lit('を')) {
+        const moved = c.try(() => {
+          if (!c.lit('自分', 'の')) return null;
+          const from = c.kind('zone');
+          if (!from || !c.lit('から')) return null;
+          const to = c.kind('zone');
+          if (!to || !c.lit('に') || !c.verb('置く', ['ta']) || !c.lit('時', '、')) return null;
+          return { from: ZONE_OF[from.zone], to: ZONE_OF[to.zone] };
+        });
+        if (moved?.from && moved.to) return { when: 'onSelfMoved', movedFrom: moved.from, movedTo: moved.to };
         c.lit('バトルゾーン', 'に');
         return c.verb('出す', ['ta']) && c.lit('時', '、') ? { when: 'onSummon' } : null;
       }
@@ -859,8 +917,28 @@ function parseTrigger(c: Cur): Trig | null {
         condition = { type: 'enteredByRevolution' };
       }
       c.lit('バトルゾーン', 'に');
-      if (!c.verb('出る', ['ta']) || !c.lit('時', '、')) return null;
-      return { when: 'onSummon', ...(condition ? { condition } : {}) };
+      if (!c.verb('出る', ['ta']) || !c.lit('時')) return null;
+      const also = c.try(() => {
+        if (!c.kind('conj', (t) => t.conj === 'or')) return null;
+        c.lit('自分', 'の');
+        const z = c.kind('zone');
+        if (!z || !c.lit('に') || !c.verb('置く', ['passiveTa']) || !c.lit('時')) return null;
+        return ZONE_OF[z.zone] ?? null;
+      });
+      if (!c.lit('、')) return null;
+      return { when: 'onSummon', ...(condition ? { condition } : {}), ...(also ? { alsoMovedTo: also } : {}) };
+    }) ??
+    c.try((): Trig | null => {
+      // 「（相手のターン中に、）相手が召喚以外の方法でクリーチャーをバトルゾーンに出した時」
+      const turn = c.try(() => {
+        const p = c.kind('player', (x) => x.player === 'self' || x.player === 'opponent');
+        return p && c.lit('の', 'ターン', '中', 'に', '、') ? PLAYER[p.text] : null;
+      });
+      const p = c.kind('player', (x) => x.player === 'self' || x.player === 'opponent');
+      if (!p || !c.lit('が')) return null;
+      if (!c.verb('召喚する', ['stem']) || !c.kind('compare', (t) => t.op === 'except') || !c.lit('の', '方法', 'で')) return null;
+      if (!c.lit('クリーチャー', 'を') || !c.lit('バトルゾーン', 'に') || !c.verb('出す', ['ta']) || !c.lit('時', '、')) return null;
+      return { when: 'onOtherSummon', who: PLAYER[p.text], event: true, byEffect: true, ...(turn ? { duringTurn: turn } : {}) } as Trig;
     }) ??
     c.try((): Trig | null => {
       // 「相手のクリーチャーが出た時」「クリーチャーが攻撃する時」
@@ -1357,14 +1435,17 @@ function readAbility(ts: Token[], kind: Kind, label: string | null): GrammarResu
   const when: TriggerEvent = trig?.when ?? 'onCast';
   const filter = trig?.filter || cond?.eventFilter ? { ...(trig?.filter ?? {}), ...(cond?.eventFilter ?? {}) } : undefined;
   const condition = andCond(trig?.condition, cond?.condition);
-  out.abilities.push({
-    when,
+  const base = {
     effects,
     ...(optional ? { optional: true } : {}),
     ...(trig?.who ? { who: trig.who } : {}),
+    ...(trig?.byEffect ? { byEffect: true } : {}),
+    ...(trig?.duringTurn ? { duringTurn: trig.duringTurn } : {}),
     ...(filter ? { filter } : {}),
     ...(condition ? { condition } : {}),
-  });
+  };
+  out.abilities.push({ when, ...base, ...(trig?.movedFrom ? { movedFrom: trig.movedFrom } : {}), ...(trig?.movedTo ? { movedTo: trig.movedTo } : {}) });
+  if (trig?.alsoMovedTo) out.abilities.push({ when: 'onSelfMoved', ...base, movedTo: trig.alsoMovedTo });
   void label;
   return out;
 }

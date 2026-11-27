@@ -49,7 +49,7 @@ export interface ParsedAbilities {
   /** 条件つきの自分のコスト軽減 */
   condCost?: { amount: number; condition: Condition };
   /** 手札以外から召喚できる */
-  summonFrom?: { zones: Array<'graveyard' | 'mana'>; condition?: Condition };
+  summonFrom?: { zones: Array<'graveyard' | 'mana' | 'hyperspatial'>; condition?: Condition };
   /** 超魂X：このカードが下にあるクリーチャーにも与える能力 */
   soul?: Pick<ParsedAbilities, 'keywords' | 'abilities' | 'statics' | 'replacements'>;
   /** サバイバー：自分の他のサバイバーにも与える能力（{S} の付いた能力） */
@@ -214,7 +214,7 @@ const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArr
   ['G・ストライク', { gStrike: true }],
   ['このクリーチャーはブロックできない', { cannotBlock: true }],
   ['このクリーチャーは攻撃されない', { cannotBeAttacked: true }],
-  [['相手はこのクリーチャーを選べない', 'このクリーチャーは相手に選ばれない'], { untargetable: true }],
+  [['相手はこのクリーチャーを選べない', 'このクリーチャーは相手に選ばれない', '相手がクリーチャーを選ぶ時、このクリーチャーは選べない'], { untargetable: true }],
   ['このクリーチャーは攻撃もブロックもできない', { cannotAttack: true, cannotBlock: true }],
   ['このクリーチャーがシールドをブレイクする時、相手はそのシールドを手札に加えるかわりに墓地に置く', { shieldBurn: true }],
   [
@@ -495,7 +495,9 @@ function parseMods(mods: string, filter: CardFilter): boolean {
     // 「闇ではない」「多色ではない」「ドラゴンではない」：その条件に合わないもの
     [/^クリーチャーではない/, () => (filter.not = { cardType: 'creature' })],
     [/^(光|水|闇|火|自然|無色|多色)ではない/, (x) => (filter.not = x[1] === '多色' ? { multicolor: true } : { civilization: x[1] === '無色' ? 'zero' : CIV[x[1]] })],
-    [/^([^、のをにがで「」]+?)ではない/, (x) => (filter.not = { race: x[1].replace(/・?クリーチャー$/, '') })],
+    // 「《再興王女プリン》ではない」：カード名で除く
+    [/^《([^》]+)》ではない/, (x) => (filter.not = { nameIncludes: x[1] })],
+    [/^([^、のをにがで「」《》]+?)ではない/, (x) => (filter.not = { race: x[1].replace(/・?クリーチャー$/, '') })],
     [/^種族に([^、のをにがで「」]+?)とある/, (x) => (filter.race = x[1])],
     [/^(?:その|選んだ)数字と同じコスト(?:の|を持つ)/, () => (filter.costIsChosenNumber = true)],
     [/^ツインパクト/, () => (filter.twinpact = true)],
@@ -2644,6 +2646,21 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     (out.handTriggers ??= []).push({ when: 'anyAttack', ...(condition ? { condition } : {}) });
     return true;
   }
+  // 「自分のクリーチャーが攻撃する時、このクリーチャーが自分の手札にあり、その攻撃がこのターンN度目のクリーチャーによる攻撃で、
+  // このターン自分の《名》をバトルゾーンに出していなければ、攻撃の後、このクリーチャーをバトルゾーンに出してもよい」
+  const afterAtk = t.match(/^自分の(.+?)が攻撃する時、このクリーチャーが自分の手札にあり、その攻撃がこのターン(\d+)度目のクリーチャーによる攻撃で(?:、(.+?)(?:出して)?いなければ)?、攻撃の後、このクリーチャーをバトルゾーンに出してもよい。?$/);
+  if (afterAtk && kind === 'creature') {
+    const filter: CardFilter = {};
+    if (!parseSubject(afterAtk[1], filter)) return false;
+    const conds: Condition[] = [{ type: 'nthAttackThisTurn', n: n(afterAtk[2]) }];
+    if (afterAtk[3]) {
+      const nm = afterAtk[3].match(/^このターン自分の《(.+?)》をバトルゾーンに$/);
+      if (!nm) return false;
+      conds.push({ type: 'not', condition: { type: 'enteredNamedThisTurn', who: 'self', name: nm[1] } });
+    }
+    (out.handTriggers ??= []).push({ when: 'ownAttack', ...(Object.keys(filter).length ? { filter } : {}), afterAttack: true, condition: conds.length === 1 ? conds[0] : { type: 'and', conditions: conds } });
+    return true;
+  }
   // アタック・チャンスR：自分の〜が攻撃する時、この呪文を手札または墓地からコストを支払わずに唱えてもよい。唱えた後は山札の下へ
   const acr = t.match(/^アタック・チャンスR[:：](.+?)。?$/);
   if (acr && kind === 'spell') {
@@ -2703,7 +2720,7 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     return true;
   }
   // 「バトルゾーンに自分のフィールドがあれば、このクリーチャーを自分の墓地から召喚してもよい」
-  const from = t.match(/^(?:(.+)、)?このクリーチャーを(?:自分の)?(墓地|マナゾーン)から召喚してもよい。?$/);
+  const from = t.match(/^(?:(.+)、)?このクリーチャーを(?:自分の)?(墓地|マナゾーン|超次元ゾーン)から召喚してもよい。?$/);
   if (from && kind === 'creature') {
     let condition: Condition | undefined;
     if (from[1]) {
@@ -2711,7 +2728,7 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
       if (!c.condition || c.body !== 'x') return false;
       condition = c.condition;
     }
-    const zone = from[2] === '墓地' ? 'graveyard' : 'mana';
+    const zone = from[2] === '墓地' ? 'graveyard' : from[2] === '超次元ゾーン' ? 'hyperspatial' : 'mana';
     out.summonFrom = { zones: [...(out.summonFrom?.zones ?? []), zone], ...(condition ? { condition } : {}) };
     return true;
   }
@@ -3015,6 +3032,15 @@ const ALT_PLAYS: { re: RegExp; kinds: ('creature' | 'spell')[]; build: (m: RegEx
       // 「ただし、コストは[dn02]より少なくならない」
       const min = raw.match(/コストは\[[a-z]+(\d+)\]より少なくならない/);
       return { name: 'フシギバース', ...parseMark(m[1], m[2]), from: 'graveyard', fushigi: { min: min ? n(min[1]) : 1 } };
+    },
+  },
+  // パンドラ・シフト：（このカードを使うコストの代わりに、[wf02]を支払ってもよい。そうしたら、このカードを自分の超次元ゾーンに置く。）
+  {
+    re: /^パンドラ・シフト(?:[:：].*)?$/,
+    kinds: ['creature', 'spell'],
+    build: (_, raw) => {
+      const mk = raw.match(/\[([a-z]+)(\d+)\]/);
+      return { name: 'パンドラ・シフト', ...(mk ? parseMark(mk[1], mk[2]) : { cost: 0 }), toHyperspatial: true };
     },
   },
   { re: /^D・D・D\[([a-z]+)(\d+)\]$/, kinds: ['creature', 'spell'], build: (m) => ({ name: 'D・D・D', ...parseMark(m[1], m[2]), timing: 'ownAttack' }) },

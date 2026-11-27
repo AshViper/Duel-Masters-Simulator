@@ -17,6 +17,7 @@ export const MOVE_DEST: Record<MoveDest, { verb: string; harmful: (from: TargetS
   battle: { verb: 'バトルゾーンに出す', harmful: () => false },
   under: { verb: 'クリーチャーの下に置く', harmful: () => false },
   shieldTop: { verb: '表向きにしてシールドの上に置く', harmful: (from) => from === 'battle' },
+  hyperspatial: { verb: '超次元ゾーンに置く', harmful: (from) => from === 'battle' },
 };
 
 /** 旧形式の移動系の効果 → move の移動先 */

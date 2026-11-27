@@ -716,6 +716,10 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       return !state.lastDid;
     case 'enteredFreeThisTurn':
       return (state.players[c.who === 'self' ? controller : other(controller)].freeEntriesThisTurn ?? 0) > 0;
+    case 'nthAttackThisTurn':
+      return (state.players[state.activePlayer].attacksThisTurn ?? 0) === c.n;
+    case 'enteredNamedThisTurn':
+      return (state.players[c.who === 'self' ? controller : other(controller)].enteredNamesThisTurn ?? []).some((nm) => nm.replace(/\s/g, '').includes(c.name.replace(/\s/g, '')));
     case 'firstAttackThisTurn':
       return (state.players[state.activePlayer].attacksThisTurn ?? 0) === 1;
     case 'crossed': {
@@ -914,7 +918,7 @@ export function altUsable(state: GameState, reg: CardRegistry, player: PlayerId,
   if (!alt || inst.zone !== (alt.from ?? 'hand') || d.type === 'evolution') return false;
   if (alt.condition && !evalCondition(state, reg, player, alt.condition, true, iid)) return false;
   // ギャラクシールドは出す（唱える）わけではないので、召喚・呪文の制限を受けない
-  if (!alt.toShield && playRestriction(state, reg, player, iid, 'main')) return false;
+  if (!alt.toShield && !alt.toHyperspatial && playRestriction(state, reg, player, iid, 'main')) return false;
   if (alt.fushigi && !(sacrifice[0] && battleCards(state, reg, player).includes(sacrifice[0]))) return false;
   return altPayment(state, reg, player, iid, alt, undefined, sacrifice) !== null;
 }

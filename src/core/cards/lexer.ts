@@ -142,7 +142,7 @@ const AUXES: [string, AuxWord][] = [
   ['こと', 'koto'], ['たび', 'eachTime'], ['まま', 'keep'], ['につき', 'per'], ['まで', 'until'], ['とき', 'when'], ['よい', 'may'],
   ['よう', 'manner'], ['ように', 'manner'],
 ];
-const PARTICLES = ['を', 'に', 'が', 'は', 'の', 'から', 'へ', 'と', 'で', 'も', 'や', 'より', 'ずつ', 'だけ', 'しか', 'など', 'か', 'として', 'のみ', 'によって', 'において', '付き', 'つき'];
+const PARTICLES = ['を', 'に', 'が', 'は', 'の', 'から', 'へ', 'と', 'で', 'も', 'や', 'より', 'ずつ', 'だけ', 'しか', 'など', 'か', 'として', 'のみ', 'によって', 'において', '付き', 'つき', '目'];
 
 type VerbClass = 'suru' | 'ichidan' | 'godan' | 'aru';
 /** 動詞の表：見出し語と活用の種類。活用形はすべて自動で作る（する動詞は語幹だけで書く） */
@@ -161,7 +161,7 @@ const VERBS: [string, VerbClass][] = [
     [
       '捨てる', '加える', '唱える', '見る', '見せる', '与える', '得る', '負ける', '離れる', '入れる', '入れ替える', '付ける', '置き換える', '続ける',
       '終える', '受ける', '変える', '決める', '数える', '比べる', '答える', '出る', '並べる', 'できる', 'いる', '超える', '揃える', '向ける',
-      '重ねる', '含める', '見つける', '止める', '求める',
+      '重ねる', '含める', '見つける', '止める', '求める', '始める',
     ] as const
   ).map((s): [string, VerbClass] => [s, 'ichidan']),
   // 五段動詞
@@ -169,7 +169,7 @@ const VERBS: [string, VerbClass][] = [
     [
       '引く', '置く', '戻す', '出す', '選ぶ', '支払う', '払う', '失う', '持つ', '勝つ', '残る', '外す', '裏返す', '減らす', '増やす', '行う', '使う',
       'なる', 'とどまる', '加わる', '足す', '言う', '抜く', '移す', '送る', '渡す', '続く', '変わる', '終わる', '始まる', '扱う', '従う', '向く',
-      '含む', '合う', '満たす', '取る', '取り除く', '入る', '決まる', '残す', '選び直す', '探す', '張る', 'みなす',
+      '含む', '合う', '満たす', '取る', '取り除く', '入る', '決まる', '残す', '選び直す', '探す', '張る', 'みなす', 'とばす', '飛ばす', 'よる',
     ] as const
   ).map((s): [string, VerbClass] => [s, 'godan']),
   ['ある', 'aru'],
@@ -226,7 +226,7 @@ export function conjugate(lemma: string, cls: VerbClass): [string, VerbForm][] {
 }
 
 /** 能力の頭に付くアイコン（{2W} など） */
-const ICON_RE = /^\{[^{}]{1,6}\}/;
+const ICON_RE = /^(?:\{[^{}]{1,6}\}|\[[a-z]{1,6}\d{1,2}\])/;
 
 /** 辞書：表記 → 値。同じ表記は先に入れたものを使う（名詞・動詞を能力語より優先する） */
 const DICT = new Map<string, Entry>();
@@ -316,6 +316,11 @@ function readAt(s: string, i: number, base: number): Token | null {
       if (c === '《') return { ...at, kind: 'cardName', name: inner };
       const children = tokenizeNormalized(inner, base + i + 1);
       return c === '(' ? { ...at, kind: 'reminder', children } : { ...at, kind: 'quote', children };
+    }
+    // 閉じ括弧のない注釈（公式の誤植）：文の終わりまでを注釈にする
+    if (c === '(') {
+      const inner = s.slice(i + 1);
+      return { text: s.slice(i), start: base + i, end: base + s.length, kind: 'reminder', children: tokenizeNormalized(inner, base + i + 1) };
     }
   }
   const icon = s.slice(i).match(ICON_RE);

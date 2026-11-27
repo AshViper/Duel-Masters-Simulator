@@ -434,6 +434,7 @@ export class Ctx {
       p.drawnThisTurn = 0;
       p.spellsThisTurn = 0;
       p.creaturesThisTurn = 0;
+      p.enteredNamesThisTurn = [];
       p.summonsThisTurn = 0;
       p.playedThisTurn = [];
       p.shieldsBrokenThisTurn = 0;
@@ -583,6 +584,10 @@ export class Ctx {
       this.moveCard(iid, 'shield');
       inst.faceUp = true;
       this.log(`${d.name} を表向きでシールドゾーンに置いた`, player);
+    } else if (alt.toHyperspatial) {
+      // パンドラ・シフト：超次元ゾーンに置く（「超次元ゾーンに置かれた時」の能力が誘発する）
+      this.moveCard(iid, 'hyperspatial');
+      this.log(`${d.name} を超次元ゾーンに置いた`, player);
     } else if (d.type === 'spell') {
       // 唱え終わったら墓地（または山札の下）へ置くため、いったん手札を経由する
       if (inst.zone !== 'hand') this.moveCard(iid, 'hand');
@@ -717,6 +722,11 @@ export class Ctx {
           if (ht.condition && !evalCondition(s, this.reg, player, ht.condition, false, h)) continue;
           if (ht.oncePerAttack && s.combat?.ninjaUsed?.includes(player)) continue;
           if (ht.onceKey && s.combat?.usedKeys?.includes(`${player}:${ht.onceKey}`)) continue;
+          if (ht.afterAttack) {
+            // 攻撃の後：その攻撃の「攻撃の終わり」のあとに、出す処理を積む
+            s.afterAttackPlays = [...(s.afterAttackPlays ?? []), { player, iid: h }];
+            continue;
+          }
           this.addTrigger(
             player,
             h,
@@ -1186,7 +1196,13 @@ export class Ctx {
         return false;
       }
 
-      case 'attackEnd':
+      case 'attackEnd': {
+        // 「攻撃の後、このクリーチャーをバトルゾーンに出してもよい」（手札にある間の誘発）
+        const afters = s.afterAttackPlays ?? [];
+        if (afters.length) {
+          s.afterAttackPlays = [];
+          for (const a of [...afters].reverse()) if (s.cards[a.iid]?.zone === 'hand') this.insertFront(...this.effectTasks(a.player, a.iid, [{ type: 'handPlay', iid: a.iid }]));
+        }
         if (task.broke) this.insertFront({ kind: 'kirifudash', player: s.cards[task.attacker]?.owner ?? s.activePlayer });
         // 「このクリーチャーの攻撃の終わりに」
         if (s.cards[task.attacker]?.zone === 'battle') {
@@ -1194,6 +1210,7 @@ export class Ctx {
           this.flushTriggers();
         }
         return false;
+      }
 
       case 'linkRelease': {
         const cells = task.cells.filter((c) => s.cards[c]?.zone === 'battle');
@@ -2174,6 +2191,15 @@ export class Ctx {
         s.players[controller].extraTurns += 1;
         this.log('このターンの後、もう一度自分のターンを行う', controller);
         return false;
+      case 'skipRestOfTurn': {
+        // 攻撃・フェイズの続きをやめて、ターンの終わりの処理をせずに次のターンを始める
+        this.log('ターンの残りをとばす', controller);
+        const stop = new Set(['phase', 'attackSwap', 'attackSwapOrder', 'kirifudash', 'blockStep', 'attackResolve', 'attackEnd', 'turnSwitch']);
+        s.queue = s.queue.filter((t) => !stop.has(t.kind));
+        s.combat = null;
+        s.queue.push({ kind: 'turnSwitch' });
+        return false;
+      }
       case 'useOnce':
         if (s.cards[source]) s.cards[source].usedOnce = true;
         return false;
@@ -2207,6 +2233,12 @@ export class Ctx {
           this.moveCard(source, 'shield');
           inst.faceUp = false;
           this.log(`${this.name(source)} を裏向きにしてシールドに加えた`, controller);
+          return false;
+        }
+        // 「このタマシードを手札からマナゾーンに置いた時、アンタップする」：マナゾーンにあるこのカードを動かす
+        if (inst?.zone === 'mana' && e.action === 'untap') {
+          inst.tapped = false;
+          this.log(`${this.name(source)} をアンタップ`, controller);
           return false;
         }
         if (inst?.zone !== 'battle') return false;
@@ -3318,9 +3350,10 @@ export class Ctx {
         }
         for (const other_ of battleAll()) {
           if (other_ === e.iid) continue;
-          this.triggerFrom(other_, 'onOtherSummon', (ab) => this.whoMatches(ab.who, s.cards[other_].owner, e.player) && matchFilter(s, this.reg, e.iid, ab.filter), e.iid);
+          this.triggerFrom(other_, 'onOtherSummon', (ab) => this.whoMatches(ab.who, s.cards[other_].owner, e.player) && (!ab.byEffect || !e.summoned) && matchFilter(s, this.reg, e.iid, ab.filter), e.iid);
         }
         s.players[e.player].creaturesThisTurn = (s.players[e.player].creaturesThisTurn ?? 0) + 1;
+        (s.players[e.player].enteredNamesThisTurn ??= []).push(def(s, this.reg, e.iid).name);
         if (e.summoned) s.players[e.player].summonsThisTurn = (s.players[e.player].summonsThisTurn ?? 0) + 1;
         break;
       case 'CREATURE_DESTROYED':
@@ -3340,6 +3373,10 @@ export class Ctx {
             this.addTrigger(e.player, h, this.effectTasks(e.player, h, [{ type: 'playRevealed', iid: h, as: 'creature' }]));
           }
         }
+        break;
+      case 'CARD_MOVED':
+        // このカード自身が移った時（「手札からマナゾーンに置いた時」「超次元ゾーンに置かれた時」）：移った先のゾーンにある間の誘発
+        if (s.cards[e.iid]?.zone === e.to) this.triggerFrom(e.iid, 'onSelfMoved', (ab) => (!ab.movedTo || ab.movedTo === e.to) && (!ab.movedFrom || ab.movedFrom === e.from));
         break;
       case 'CREATURE_LEFT': {
         // メガ・ラスト・バースト：呪文側をコストを支払わずに唱えてもよい

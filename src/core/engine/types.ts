@@ -72,6 +72,8 @@ export interface PlayerState {
   spellsThisTurn?: number;
   /** このターンに出したクリーチャーの数 */
   creaturesThisTurn?: number;
+  /** このターンにバトルゾーンに出したクリーチャーの名前 */
+  enteredNamesThisTurn?: string[];
   /** 次の自分のターンのはじめに支払うマナ（逆転撃。支払えなければ負ける） */
   debts?: { amount: number; source: string }[];
   /** このターンに召喚したクリーチャーの数 */
@@ -278,6 +280,8 @@ export interface TurnStatic {
 
 export interface GameState {
   /** 手動処理の能力の途中で手動移動をした時、再び入力待ちに戻る（ログの「要手動処理」を重ねて出さない） */
+  /** 攻撃の後に出す手札のカード（「攻撃の後、このクリーチャーをバトルゾーンに出してもよい」） */
+  afterAttackPlays?: { player: PlayerId; iid: string }[];
   manualResume?: boolean;
   config: GameConfig;
   rngState: number;

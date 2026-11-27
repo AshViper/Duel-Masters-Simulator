@@ -739,7 +739,7 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
         }
         return;
       }
-      const label = alt.name.startsWith('コスト') ? alt.name : `${alt.name}で${alt.toShield ? 'シールドゾーンに置く' : '使う'}（コスト${altCost(g, registry, owner, iid, alt)}）`;
+      const label = alt.name.startsWith('コスト') ? alt.name : `${alt.name}で${alt.toShield ? 'シールドゾーンに置く' : alt.toHyperspatial ? '超次元ゾーンに置く' : '使う'}（コスト${altCost(g, registry, owner, iid, alt)}）`;
       rule.push({ label, run: () => act({ type: 'PLAY_CARD', player: owner, iid, alt: idx }), disabled: !canPlayAlt(g, registry, owner, iid, idx) });
     });
   }
