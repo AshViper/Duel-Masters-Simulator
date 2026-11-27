@@ -433,6 +433,8 @@ export class Ctx {
         delete P.debts;
         this.log(`── ターン${s.turn}：${P.name} ──`, pl);
         this.emit({ type: 'TURN_STARTED', player: pl, turn: s.turn });
+        // 墓地にある間の誘発：「自分のターンのはじめに、〜あれば、このクリーチャーを自分の墓地から出してもよい」
+        this.offerHandTriggers(pl, (ht) => ht.when === 'ownTurnStart');
         // ギャラクシールド：表向きで自分のシールドゾーンにあれば、コストを支払ったものとして召喚する
         for (const sh of [...P.zones.shield]) {
           const sd = def(s, this.reg, sh);

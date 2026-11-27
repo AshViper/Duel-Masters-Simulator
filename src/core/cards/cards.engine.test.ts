@@ -1530,6 +1530,11 @@ const C = {
   deathKill: mk('b-172', ['このクリーチャーまたは他のクリーチャーが破壊された時、それよりパワーの小さい相手のクリーチャーを１体破壊してもよい。'], { power: '4000' }),
   kinBack: mk('b-173', ['自分のクリーチャーが出た時、そのクリーチャーと同じ種族を持つクリーチャーを１体、自分の墓地から手札に戻してもよい。'], { race: 'ゼニス' }),
   reviveAll: mk('b-174', ['自分のターンの終わりに、このターンに破壊された自分のエレメントをすべて、自分の墓地から出してもよい。']),
+  graveRiser: mk('b-180', ['自分のターンのはじめに、自分のクリーチャーの中に闇と火があり、自分のマナゾーンにカードが１枚以上あれば、このクリーチャーを自分の墓地から出してもよい。']),
+  spellFollow: mk('b-181', ['光または水の呪文を自分の手札から唱えた時、その呪文よりコストが小さいクリーチャーを１体、自分の手札からバトルゾーンに出してもよい。']),
+  waterSpell3: mk('b-182', ['カードを１枚引く。'], { type: '呪文', power: '', civ: '水', cost: '3' }),
+  buffDebuff: mk('b-183', ['このクリーチャーがバトルゾーンに出た時、他のクリーチャーを１体選ぶ。そのターン、そのクリーチャーはパワーを+2000され、相手プレイヤーを攻撃できない。']),
+  darkC: mk('b-184', [], { civ: '闇' }),
   discardJump: mk('b-117', ['相手のターンにこのクリーチャーが自分の手札から捨てられる時、墓地に置くかわりに出す。']),
   reanimSelf: mk('b-110', ['このクリーチャーが破壊された時、相手の手札が１枚もなければ、このクリーチャーを自分の墓地から出してもよい。']),
   kinDraw: mk('b-95', ['クロスギア', 'これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時、カードを１枚引いてもよい。'], { type: 'クロスギア', power: '' }),
@@ -2274,6 +2279,53 @@ describe('誘発の原因と比べる・このターンに破壊されたカー�
     s = resolve(act(s, { type: 'END_TURN', player: 0 }));
     expect(s.cards[a].zone).toBe('battle');
     expect(s.cards[old].zone).toBe('graveyard');
+  });
+});
+
+describe('墓地からターンのはじめに出る・呪文を唱えた時・選んだクリーチャーのパワーと能力', () => {
+  const resolve = (s: GameState, pick?: (cands: string[]) => string[]): GameState => {
+    let guard = 0;
+    while (s.pending && guard++ < 20) {
+      const p = s.pending;
+      if (p.kind === 'confirm') s = act(s, { type: 'RESPOND', player: p.player, accept: true });
+      else if (p.kind === 'selectCards') s = act(s, { type: 'RESPOND', player: p.player, selected: pick ? pick(p.candidates) : p.candidates.slice(0, Math.max(p.min, 1)) });
+      else s = act(s, { type: 'RESPOND', player: p.player, selected: ['0'] });
+    }
+    return s;
+  };
+  it('自分のターンのはじめに、条件を満たせば墓地から出られる', () => {
+    let s = newGame();
+    const g = put(s, 1, C.graveRiser.id, 'graveyard');
+    put(s, 1, C.vanilla.id, 'mana');
+    put(s, 1, C.vanilla.id, 'battle');
+    // 闇がいないので出られない
+    s = resolve(act(s, { type: 'END_TURN', player: 0 }));
+    expect(s.cards[g].zone).toBe('graveyard');
+    let s2 = newGame();
+    const g2 = put(s2, 1, C.graveRiser.id, 'graveyard');
+    put(s2, 1, C.vanilla.id, 'mana');
+    put(s2, 1, C.vanilla.id, 'battle');
+    put(s2, 1, C.darkC.id, 'battle');
+    s2 = resolve(act(s2, { type: 'END_TURN', player: 0 }));
+    expect(s2.cards[g2].zone).toBe('battle');
+  });
+  it('水の呪文を手札から唱えた時、それよりコストが小さいクリーチャーを手札から出す', () => {
+    let s = newGame();
+    put(s, 0, C.spellFollow.id, 'battle');
+    const small = put(s, 0, C.vanilla.id, 'hand');
+    const big = put(s, 0, C.big.id, 'hand');
+    const sp = put(s, 0, C.waterSpell3.id, 'hand');
+    for (let i = 0; i < 3; i++) put(s, 0, C.waterSpell.id, 'mana');
+    s = resolve(act(s, { type: 'PLAY_CARD', player: 0, iid: sp }), (c) => (c.includes(small) ? [small] : c.slice(0, 1)));
+    expect(s.cards[small].zone).toBe('battle');
+    expect(s.cards[big].zone).toBe('hand');
+  });
+  it('選んだクリーチャーはパワーが上がり、相手プレイヤーを攻撃できない', () => {
+    let s = newGame();
+    const v = put(s, 0, C.vanilla.id, 'battle');
+    s = resolve(play(s, C.buffDebuff.id).s, (c) => (c.includes(v) ? [v] : c.slice(0, 1)));
+    expect(power(s, reg, v)).toBe(7000);
+    expect(keywords(s, reg, v).cannotAttackPlayers).toBe(true);
   });
 });
 

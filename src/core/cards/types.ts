@@ -962,7 +962,7 @@ export interface HandTrigger {
    * opponentAttackOrBlock: 相手のクリーチャーが攻撃またはブロックした時（ニンジャ・ストライク）
    * anyAttack: クリーチャーが攻撃する時（鬼エンド）／ownAttack: 自分のクリーチャー（filter に合うもの）が攻撃する時（アタック・チャンスR）
    */
-  when: 'opponentTurnEnd' | 'ownTurnEnd' | 'anyTurnEnd' | 'ownDestroyed' | 'ownSummon' | 'opponentAttackOrBlock' | 'anyAttack' | 'ownAttack' | 'attackedPlayer';
+  when: 'opponentTurnEnd' | 'ownTurnEnd' | 'anyTurnEnd' | 'ownDestroyed' | 'ownSummon' | 'ownTurnStart' | 'opponentAttackOrBlock' | 'anyAttack' | 'ownAttack' | 'attackedPlayer';
   condition?: Condition;
   filter?: CardFilter;
   /** 手札のほかに使えるゾーン（アタック・チャンスR は墓地からも） */

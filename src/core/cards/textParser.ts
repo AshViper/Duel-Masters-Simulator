@@ -132,6 +132,10 @@ export function normalizeText(s: string): string {
     .replace(/((?:それ|その呪文|そのクリーチャー)より(?:パワー|コスト)(?:の|が)小さい)(相手|自分)の/g, '$2の$1')
     // 「それよりコストが小さいハンターを1体」：種族の後にクリーチャーを補う
     .replace(/((?:それ|その呪文|そのクリーチャー)より(?:パワー|コスト)(?:の|が)小さい)((?!クリーチャー|カード)[ァ-ヶー][ァ-ヶー・]*)を/g, '$1$2・クリーチャーを')
+    // 「相手の進化ではないクリーチャーを1体、表向きのまま、新しいシールドとして持ち主のシールドゾーンに置く」＝選び、表向きでシールド化する
+    .replace(/を(\d+)体、?表向きのまま、?新しいシールドとして(?:持ち主の|自分の)?シールドゾーンに置(く|いてもよい)/g, (_, c: string, e: string) => `を${c}体選び、表向きでシールド化${e === 'く' ? 'する' : 'してもよい'}`)
+    // 「進化元に含まれるカード1枚につき」＝進化元カード1枚につき
+    .replace(/進化元に含まれるカード(\d+)枚につき/g, '進化元カード$1枚につき')
     // 「革命2：〜」：本文に条件が書いてあるので、見出しは外して読む
     .replace(/^革命\d+[:：]/, '')
     // Jトルネード：自分の他のジョーカーズ・クリーチャーを1体、手札に戻す
@@ -525,6 +529,12 @@ function parseTrigger(t: string): ParsedTrigger | null {
     const r = parseTrigger(turnOf[2]);
     return r && { ...r, duringTurn: turnOf[1] === '自分' ? 'self' : 'opponent' };
   }
+  // 「光または水の呪文を自分の手札から唱えた時」：唱えた呪文の条件つき
+  const castMods = t.match(/^(?:(自分|相手)が)?、?(.+?)の呪文を(?:(自分|相手)の手札から)?唱えた時、(.+)$/);
+  if (castMods && (castMods[1] || castMods[3])) {
+    const filter: CardFilter = { cardType: 'spell' };
+    if (parseMods(`${castMods[2]}の`, filter)) return { when: ['onSpellCast'], who: (castMods[1] ?? castMods[3]) === '自分' ? 'self' : 'opponent', filter, subject: true, rest: castMods[4] };
+  }
   // 「自分が、コスト5以上の、クリーチャーではないカードを実行した時、」：使ったカードの条件つき
   const played = t.match(/^(自分|相手)が、?(.+?)(カード|クリーチャー|呪文)を(?:実行|使用)した時、(.+)$/);
   if (played && played[2] !== '') {
@@ -606,6 +616,8 @@ function parseMods(mods: string, filter: CardFilter): boolean {
     [/^コスト(\d+)以上の/, (x) => (filter.minCost = n(x[1]))],
     [/^コスト(\d+)の/, (x) => (filter.minCost = filter.maxCost = n(x[1]))],
     [/^タップしている/, () => (filter.tapped = true)],
+    // 「NEOクリーチャー」：カードの種類
+    [/^NEO(?=クリーチャー|$)/, () => (filter.typeLabelIncludes = 'NEO')],
     [/^クロスギアをクロス(?:している|されている|された)/, () => (filter.crossed = true)],
     [/^【選んだカードのコストの合計以下】の/, () => (filter.maxCostSumOfChosen = true)],
     // 誘発の原因と比べる：「こうして捨てたカード以下のコストの」「それよりパワーの小さい」「その呪文よりコストが小さい」「そのクリーチャーと同じ種族を持つ」
@@ -766,7 +778,7 @@ type VerbRule = { re: RegExp; zones: Zone[]; build: (t: TargetSpec, m: RegExpMat
  * （エンジンは move 1つで全部の移動を処理する）。
  * tapped: この言い方が「タップして置く」を含む。creatureOnly: クリーチャーだけが対象（「出す」）
  */
-const MOVE_VERBS: { re: RegExp; to: MoveDest; from: Zone[]; tapped?: RegExp; creatureOnly?: boolean }[] = [
+const MOVE_VERBS: { re: RegExp; to: MoveDest; from: Zone[]; tapped?: RegExp; faceUp?: RegExp; creatureOnly?: boolean }[] = [
   { re: /^手札に(?:戻す|加える)$/, to: 'hand', from: ['battle', 'shield', 'graveyard', 'mana'] },
   { re: /^(?:タップして)?マナゾーンに(?:タップして)?置く$/, to: 'mana', from: ['battle', 'hand', 'graveyard', 'shield', 'deck'], tapped: /タップして/ },
   { re: /^墓地に置く$/, to: 'graveyard', from: ['battle', 'hand', 'mana', 'shield', 'deck'] },
@@ -774,8 +786,9 @@ const MOVE_VERBS: { re: RegExp; to: MoveDest; from: Zone[]; tapped?: RegExp; cre
   { re: /^(?:好きな順序で)?山札の(?:一番)?下に(?:置く|戻す)$/, to: 'deckBottom', from: ['battle', 'hand', 'mana', 'graveyard', 'shield'] },
   { re: /^(?:好きな順序で)?山札の(?:一番)?上に(?:置く|戻す)$/, to: 'deckTop', from: ['battle', 'hand', 'mana', 'graveyard', 'shield'] },
   {
-    re: /^(?:裏向きにして)?(?:新しい)?シールド(?:化する|ゾーンに(?:裏向きにして)?置く|に加える|として(?:シールドゾーンに)?(?:置く|加える))$/,
+    re: /^(?:裏向きにして|表向きで|表向きのまま、?)?(?:新しい)?シールド(?:化する|ゾーンに(?:裏向きにして)?置く|に加える|として(?:シールドゾーンに)?(?:置く|加える))$/,
     to: 'shield',
+    faceUp: /^表向き/,
     from: ['battle', 'hand', 'graveyard', 'mana'],
   },
   { re: /^(?:バトルゾーンに)?出す$/, to: 'battle', from: ['hand', 'graveyard', 'mana', 'hyperspatial'], creatureOnly: true },
@@ -794,7 +807,10 @@ const VERBS: VerbRule[] = [
       re: r.re,
       zones: r.from,
       build: (t, m) =>
-        move(r.creatureOnly && !t.filter?.typeLabelIncludes && !t.element ? { ...t, filter: { ...(t.filter ?? {}), cardType: 'creature' } } : t, r.to, r.tapped?.test(m[0]) ? { tapped: true } : {}),
+        move(r.creatureOnly && !t.filter?.typeLabelIncludes && !t.element ? { ...t, filter: { ...(t.filter ?? {}), cardType: 'creature' } } : t, r.to, {
+          ...(r.tapped?.test(m[0]) ? { tapped: true } : {}),
+          ...(r.faceUp?.test(m[0]) ? { faceUp: true } : {}),
+        }),
     }),
   ),
 ];
@@ -823,6 +839,12 @@ function parseTargeted(s: string): EffectDef[] | null {
   if (!o) return null;
   const { target, verb } = o;
   const zone = target.zone;
+  // 「このターン、そのクリーチャーはパワーを+2000され、相手プレイヤーを攻撃できない」
+  const powAndKw = verb.match(/^(?:このターン、)?(?:その(?:クリーチャー)?|それ)は、?パワーを([+-]\d+)され、(.+)$/);
+  if (powAndKw && zone === 'battle') {
+    const kw = parseGrant(powAndKw[2]);
+    if (kw) return [{ type: 'powerMod', target, amount: n(powAndKw[1]) }, { type: 'grantKeyword', target: { ...target }, keywords: kw }];
+  }
   // 「このターン、そのクリーチャーに「スピードアタッカー」を与える」「次の自分のターンのはじめまで、それは攻撃できない」
   const grant = verb.match(/^(このターン|次の自分のターンのはじめまで)、?(?:それら?|その(?:クリーチャー)?|選んだクリーチャー)?(?:に|は)、?(.+)$/);
   if (grant) {
@@ -2094,6 +2116,16 @@ function parsePickWhat(w: string, filter: CardFilter): boolean {
     if (wm[2] === '呪文') filter.cardType = 'spell';
     return true;
   }
+  // 「コスト7以下の、NEOクリーチャーまたはデーモン・コマンド」：読点の前の条件は、どちらにもかかる
+  const common = w.match(/^(.+?の)、(.+または.+)$/);
+  if (common) {
+    const base: CardFilter = {};
+    const rest: CardFilter = {};
+    if (parseMods(common[1], base) && parsePickWhat(common[2], rest)) {
+      Object.assign(filter, base, rest);
+      return true;
+    }
+  }
   // クロスギア・ドラグハート：カードの種類
   if (w === 'クロスギア' || w === 'ドラグハート') {
     filter.typeLabelIncludes = w;
@@ -2990,6 +3022,15 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
   // 「このクリーチャーにカードが3枚以上含まれていれば」：このクリーチャーと下のカードの合計
   const incl = body.match(/^このクリーチャーにカードが(\d+)枚以上含まれていれば、(.+)$/);
   if (incl) return { body: incl[2], condition: { type: 'underCount', min: Math.max(0, n(incl[1]) - 1) } };
+  // 「自分のクリーチャーの中に闇と火があり、自分のマナゾーンにカードが5枚以上あれば」
+  const civAnd = body.match(/^自分のクリーチャーの中に((?:光|水|闇|火|自然)(?:と(?:光|水|闇|火|自然))+)が(あり|あれば)、(.+)$/);
+  if (civAnd) {
+    const civs: Condition[] = civAnd[1].split('と').map((c): Condition => ({ type: 'compare', left: { who: 'self', zone: 'battle', filter: { civilization: CIV[c] } }, op: '>=', right: 1 }));
+    if (civAnd[2] === 'あれば') return { body: civAnd[3], condition: { type: 'and', conditions: civs } };
+    const rest = splitCondition(civAnd[3]);
+    if (!rest.condition) return { body: null };
+    return { body: rest.body, condition: { type: 'and', conditions: [...civs, rest.condition] } };
+  }
   // 「このクリーチャーがこのターン出ていて、自分のシールドが2つ以下なら」：2つの条件
   const enteredAnd = body.match(/^このクリーチャーが(?:この)?ターン(?:に)?(?:バトルゾーンに)?出ていて、(.+)$/);
   if (enteredAnd) {
@@ -3292,6 +3333,18 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   // 「相手のクリーチャーが召喚以外の方法で出る時、かわりに墓地に置く」
   if (/^相手のクリーチャーが召喚以外の方法で(?:バトルゾーンに)?出る時、(?:相手は)?かわりに(?:そのクリーチャーを)?(?:持ち主の)?墓地に置く。?$/.test(t) && kind === 'creature') {
     out.statics.push({ type: 'nonSummonEntryToGrave', who: 'opponent' });
+    return true;
+  }
+  // 「自分のターンのはじめに、〜あれば、このクリーチャーを自分の墓地から出してもよい」：墓地にある間の誘発
+  const graveStart = t.match(/^自分のターンのはじめに、(?:(.+)、)?このクリーチャーを(?:自分の)?墓地から(?:バトルゾーンに)?出してもよい。?$/);
+  if (graveStart && kind === 'creature') {
+    let condition: Condition | undefined;
+    if (graveStart[1]) {
+      const c = splitCondition(`${graveStart[1]}、x`);
+      if (!c.condition || c.body !== 'x') return false;
+      condition = c.condition;
+    }
+    (out.handTriggers ??= []).push({ when: 'ownTurnStart', zones: ['graveyard'], ...(condition ? { condition } : {}) });
     return true;
   }
   // 「自分のコマンドまたはドラゴンが出た時、このクリーチャーを自分の手札から出してもよい」：手札にある間の誘発
