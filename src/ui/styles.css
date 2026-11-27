@@ -189,6 +189,10 @@ input.num { width: 56px; }
 .home-tile.art-settings { --art: url('./assets/app/tile-settings.webp'); }
 .home-side { grid-column: 2; grid-row: 1 / 3; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 .home-recent { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.home-manual { max-height: 40%; min-height: 0; display: flex; flex-direction: column; }
+.home-manual h3 { display: flex; align-items: center; gap: 8px; }
+.home-manual-copy { margin-left: auto; }
+.home-manual-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .recent-decks { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
 .recent-deck { display: flex; gap: 10px; align-items: center; text-align: left; padding: 6px; }
 .recent-cover .card { --w: 46px; }

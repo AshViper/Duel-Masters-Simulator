@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { CARD_TYPE_LABEL, type CardDefinition } from '../../core/cards/types';
+import { manualLines } from '../components/CardDetail';
 import { deckCountLabel, isDeckLegal, type Deck } from '../../core/deck/rules';
 import { db, type SavedGame } from '../../db/db';
 import { DEFAULT_DECKS } from '../../core/deck/defaultDecks';
@@ -65,6 +67,7 @@ export function HomeScreen() {
               ))}
             </section>
           )}
+          <ManualAbilitiesPanel cards={cards} />
           <section className="panel home-recent">
             <h3>最近使用したデッキ</h3>
             {recent.length === 0 && <p className="muted">まだありません</p>}
@@ -87,6 +90,59 @@ export function HomeScreen() {
         </aside>
       </div>
     </div>
+  );
+}
+
+/** 手動の能力を文ごとにまとめる（同じ文のカードを束ねる）。多いカードの文から並べる */
+function groupManualLines(cards: CardDefinition[]): { line: string; cards: CardDefinition[] }[] {
+  const map = new Map<string, CardDefinition[]>();
+  for (const c of cards) {
+    for (const raw of new Set(manualLines(c).map((l) => l.replace(/\n/g, '')))) {
+      const list = map.get(raw) ?? [];
+      list.push(c);
+      map.set(raw, list);
+    }
+  }
+  return [...map.entries()].map(([line, cs]) => ({ line, cards: cs })).sort((a, b) => b.cards.length - a.cards.length || a.line.localeCompare(b.line, 'ja'));
+}
+
+/** エンジンに実装するための書き出し：能力の文と、その文を持つカード（名前・タイプ）だけ */
+function manualToText(groups: { line: string; cards: CardDefinition[] }[]): string {
+  const cardCount = new Set(groups.flatMap((g) => g.cards.map((c) => c.id))).size;
+  const out = [`# 手動の能力 ${groups.length}種類（カード${cardCount}枚）`, ''];
+  for (const g of groups) {
+    out.push(`- ${g.line}`);
+    out.push(`  - カード: ${g.cards.map((c) => `${c.name}（${c.typeLabel ?? CARD_TYPE_LABEL[c.type]}）`).join(' / ')}`);
+  }
+  return out.join('\n');
+}
+
+/** 保存カードのうち、手動で処理する能力の一覧。エンジン実装用にまとめてコピーできる */
+function ManualAbilitiesPanel({ cards }: { cards: CardDefinition[] }) {
+  const groups = useMemo(() => groupManualLines(cards), [cards]);
+  const [copied, setCopied] = useState(false);
+  if (groups.length === 0) return null;
+  return (
+    <section className="panel home-manual" data-testid="home-manual">
+      <h3>
+        手動の能力 <span className="muted small">{groups.length}種類</span>
+        <button
+          className="home-manual-copy"
+          title="能力の文とカード名だけをテキストでコピーします（エンジン実装用）"
+          onClick={() => void navigator.clipboard?.writeText(manualToText(groups)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
+        >
+          {copied ? 'コピーしました' : 'まとめてコピー'}
+        </button>
+      </h3>
+      <ul className="home-manual-list small">
+        {groups.map((g) => (
+          <li key={g.line}>
+            <span>{g.line}</span>
+            <span className="muted"> — {g.cards.map((c) => c.name).join(' / ')}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

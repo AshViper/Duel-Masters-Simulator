@@ -5,7 +5,7 @@ import { faceKind, OFFICIAL_PREFIX } from '../../core/cards/officialConvert';
 import { parseAbilityText } from '../../core/cards/textParser';
 
 /** 公式カードのうち、自動処理できず手動で処理する能力の行 */
-function manualLines(card: CardDefinition): string[] {
+export function manualLines(card: CardDefinition): string[] {
   if (!card.id.startsWith(OFFICIAL_PREFIX) || card.support === 'full') return [];
   return [...parseAbilityText(card.text, faceKind(card)).manualLines, ...(card.twin ? parseAbilityText(card.twin.text, 'spell').manualLines : [])];
 }
