@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildRegistry, parseCardJson, searchCards } from '../cards/registry';
 import { SAMPLE_CARDS, SAMPLE_DECKS } from '../testing/fixtureCards';
-import { DEFAULT_FORMAT, deckCount, expandDeck, isDeckLegal, validateDeck } from './rules';
+import { anyCopiesAllowed, copyLimit, DEFAULT_FORMAT, deckCount, expandDeck, isDeckLegal, validateDeck } from './rules';
 
 const reg = buildRegistry(SAMPLE_CARDS);
 
@@ -42,5 +42,18 @@ describe('カード検索', () => {
     expect(cards).toHaveLength(1);
     expect(cards[0].support).toBe('manual');
     expect(errors).toHaveLength(1);
+  });
+});
+
+describe('何枚入れてもよいカード', () => {
+  it('「このカードをデッキに何枚入れてもよい」なら上限なし。殿堂の指定は優先', () => {
+    const hachi = { text: 'このカードをデッキに何枚入れてもよい。' };
+    expect(anyCopiesAllowed(hachi)).toBe(true);
+    expect(anyCopiesAllowed({ text: 'このカードは、4枚より多くデッキに入れることができる。' })).toBe(true);
+    expect(anyCopiesAllowed({ text: 'ブロッカー' })).toBe(false);
+    const reg = { H: { ...SAMPLE_CARDS[0], id: 'H', text: hachi.text } };
+    expect(copyLimit('H', DEFAULT_FORMAT, reg)).toBe(Infinity);
+    expect(copyLimit('H', { ...DEFAULT_FORMAT, restricted: { H: 1 } }, reg)).toBe(1);
+    expect(copyLimit('X', DEFAULT_FORMAT, reg)).toBe(4);
   });
 });

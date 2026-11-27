@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { searchCards, type CardQuery } from '../../core/cards/registry';
 import { CIVILIZATIONS, CIV_LABEL, type CardDefinition } from '../../core/cards/types';
-import { deckCount, HYPERSPATIAL_MAX, hyperspatialCount, validateDeck, type Deck } from '../../core/deck/rules';
+import { copyLimit, deckCount, HYPERSPATIAL_MAX, hyperspatialCount, validateDeck, type Deck } from '../../core/deck/rules';
 import { deckToText } from '../../core/deck/deckText';
 import { useApp } from '../../store/appStore';
 import { Header } from '../components/AppShell';
@@ -95,7 +95,8 @@ export function DeckBuilderScreen() {
   const issues = validateDeck(deck, settings.format, registry);
   const errors = issues.filter((i) => i.level === 'error');
   const warnings = issues.filter((i) => i.level === 'warning');
-  const max = (id: string) => settings.format.restricted[id] ?? settings.format.maxCopies;
+  const max = (id: string) => copyLimit(id, settings.format, registry);
+  const maxLabel = (id: string) => (Number.isFinite(max(id)) ? String(max(id)) : '∞');
   // 公式カードは保存（非同期）の後に追加されるので、常に最新のデッキに対して更新する
   const update = (fn: (cards: Record<string, number>) => Record<string, number>) => {
     setDeck((d) => (d ? { ...d, cards: fn(d.cards) } : d));
@@ -244,7 +245,7 @@ export function DeckBuilderScreen() {
                   const n = deck.cards[c.id] ?? 0;
                   const full = n >= max(c.id);
                   return (
-                    <div key={c.id} className={'pool-cell' + (full ? ' maxed' : '')} title={full ? `${c.name}：上限（${max(c.id)}枚）まで入っています` : undefined}>
+                    <div key={c.id} className={'pool-cell' + (full ? ' maxed' : '')} title={full ? `${c.name}：上限（${maxLabel(c.id)}枚）まで入っています` : undefined}>
                       <CardView
                         card={c}
                         size="sm"
@@ -261,7 +262,7 @@ export function DeckBuilderScreen() {
                         draggable={!full}
                         onDragStart={dragAdd(c.id)}
                         testId={`pool-${c.id}`}
-                        badge={<span className={'count-badge' + (full ? ' full' : n > 0 ? ' some' : '')}>{n}/{max(c.id)}</span>}
+                        badge={<span className={'count-badge' + (full ? ' full' : n > 0 ? ' some' : '')}>{n}/{maxLabel(c.id)}</span>}
                       />
                     </div>
                   );
@@ -337,7 +338,7 @@ export function DeckBuilderScreen() {
                 <button className="primary" onClick={() => add(info.id)} disabled={(deck.cards[info.id] ?? 0) >= max(info.id)}>＋ デッキに追加</button>
                 <button onClick={() => remove(info.id)} disabled={!deck.cards[info.id]}>－ 1枚減らす</button>
                 {coverButton(info.id)}
-                <span className="muted small">{deck.cards[info.id] ?? 0}/{max(info.id)}枚</span>
+                <span className="muted small">{deck.cards[info.id] ?? 0}/{maxLabel(info.id)}枚</span>
               </>
             )
           }

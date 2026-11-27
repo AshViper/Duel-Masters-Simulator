@@ -3,7 +3,9 @@ import { CARD_TYPE_LABEL, CIV_LABEL, type CardDefinition } from '../../core/card
 import { manualLines } from '../components/CardDetail';
 import { deckCountLabel, isDeckLegal, type Deck } from '../../core/deck/rules';
 import { db, type SavedGame } from '../../db/db';
-import { DEFAULT_DECKS } from '../../core/deck/defaultDecks';
+import { DEFAULT_DECKS, type DefaultDeck } from '../../core/deck/defaultDecks';
+import { normalizeCardName } from '../../core/deck/deckText';
+import { useCachedImage } from '../../db/imageCache';
 import { useApp } from '../../store/appStore';
 import { useBattle } from '../../store/battleStore';
 import { Header } from '../components/AppShell';
@@ -179,7 +181,7 @@ export function DeckListScreen() {
     useApp.setState({ pendingTextImport: true });
     await newDeck();
   };
-  const fromDefault = async (d: (typeof DEFAULT_DECKS)[number]) => {
+  const fromDefault = async (d: DefaultDeck) => {
     useApp.setState({ pendingTextImport: d.text });
     await newDeck(d.name);
   };
@@ -195,20 +197,7 @@ export function DeckListScreen() {
         <button className="primary" onClick={() => void newDeck()}>＋ 新しいデッキ</button>
       </Header>
       <div className="screen-body">
-        <section className="default-decks" data-testid="default-decks">
-          <h3>デフォルトデッキ</h3>
-          <p className="muted small">押すとデッキを作り、カード名を公式カード検索で照合します（保存済みのカードは通信しません）。「デッキをこの内容にする」で完成です。</p>
-          <div className="row wrap">
-            {DEFAULT_DECKS.map((d) => {
-              const added = decks.some((x) => x.name === d.name);
-              return (
-                <button key={d.id} onClick={() => void fromDefault(d)} data-testid={`default-deck-${d.id}`} title={added ? '同じ名前のデッキがすでにあります（もう1つ作ります）' : undefined}>
-                  ＋ {d.name}{added ? ' ✓' : ''}
-                </button>
-              );
-            })}
-          </div>
-        </section>
+        <DefaultDecks decks={decks} onPick={(d) => void fromDefault(d)} />
         <div className="deck-grid">
           <button className="deck-tile new" onClick={() => void newDeck()}>
             <span className="deck-tile-new-icon">＋</span>
@@ -240,5 +229,75 @@ export function DeckListScreen() {
         </div>
       </div>
     </div>
+  );
+}
+
+const DEFAULT_OPEN_KEY = 'dm-sim:default-decks-open';
+/** 公式サイトのサムネイル（未保存の時に使う） */
+const officialThumb = (id: string) => `https://dm.takaratomy.co.jp/wp-content/card/cardthumb/${id}.jpg`;
+
+/** デフォルトデッキ：見出しごとに、切り札の絵・名前・説明のタイルを並べる。開閉は覚えておく */
+function DefaultDecks({ decks, onPick }: { decks: Deck[]; onPick: (d: DefaultDeck) => void }) {
+  const [open, setOpen] = useState(() => localStorage.getItem(DEFAULT_OPEN_KEY) !== '0');
+  const groups = Array.from(new Set(DEFAULT_DECKS.map((d) => d.group ?? 'その他')));
+  return (
+    <details
+      className="default-decks"
+      data-testid="default-decks"
+      open={open}
+      onToggle={(e) => {
+        const v = (e.currentTarget as HTMLDetailsElement).open;
+        setOpen(v);
+        localStorage.setItem(DEFAULT_OPEN_KEY, v ? '1' : '0');
+      }}
+    >
+      <summary>
+        <h3>デフォルトデッキ</h3>
+        <span className="muted small">{DEFAULT_DECKS.length}種</span>
+      </summary>
+      <p className="muted small">押すとデッキを作り、カード名を公式カード検索で照合します（保存済みのカードは通信しません）。「デッキをこの内容にする」で完成です。</p>
+      {groups.map((g) => (
+        <div key={g} className="default-deck-group">
+          <h4>{g}</h4>
+          <div className="default-deck-grid">
+            {DEFAULT_DECKS.filter((d) => (d.group ?? 'その他') === g).map((d) => (
+              <DefaultDeckTile key={d.id} deck={d} added={decks.some((x) => x.name === d.name)} onPick={() => onPick(d)} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </details>
+  );
+}
+
+function DefaultDeckTile({ deck, added, onPick }: { deck: DefaultDeck; added: boolean; onPick: () => void }) {
+  const registry = useApp((s) => s.registry);
+  // 切り札を保存済みならその絵（オフラインでも出る）、なければ公式のサムネイル
+  const saved = useMemo(() => {
+    if (!deck.cover) return undefined;
+    const want = normalizeCardName(deck.cover);
+    return Object.values(registry).find((c) => normalizeCardName(c.name) === want || normalizeCardName(c.name.split(/\s*[/／]\s*/)[0]) === want);
+  }, [registry, deck.cover]);
+  const cached = useCachedImage(saved?.imageRef);
+  const [broken, setBroken] = useState(false);
+  const src = cached ?? (deck.coverId && !broken ? officialThumb(deck.coverId) : null);
+  const letter = deck.note?.match(/^([A-Z])：/)?.[1];
+  const sub = deck.note?.replace(/^[A-Z]：/, '');
+  return (
+    <button
+      className={'default-deck-tile' + (added ? ' added' : '')}
+      onClick={onPick}
+      data-testid={`default-deck-${deck.id}`}
+      title={[deck.cover && `切り札：${deck.cover}`, added ? '同じ名前のデッキがすでにあります（押すともう1つ作ります）' : ''].filter(Boolean).join('\n') || undefined}
+    >
+      <span className="default-deck-art">
+        {src ? <img src={src} alt={deck.cover ?? deck.name} loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(true)} /> : <span className="default-deck-art-empty">{deck.name.slice(0, 2)}</span>}
+        {letter && <span className="default-deck-letter">{letter}</span>}
+        {added && <span className="default-deck-added">✓ 作成済み</span>}
+      </span>
+      <span className="default-deck-name">{deck.name}</span>
+      {sub && <span className="default-deck-sub">{sub}</span>}
+      {deck.cover && <span className="default-deck-cover">切り札：{deck.cover}</span>}
+    </button>
   );
 }

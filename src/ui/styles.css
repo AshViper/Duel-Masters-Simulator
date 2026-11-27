@@ -685,5 +685,22 @@ a.bookmarklet, .official a.bookmarklet { display: inline-block; padding: 2px 10p
 
 /* デッキ一覧：デフォルトデッキ */
 .default-decks { margin-bottom: 14px; padding: 10px 12px; border: 1px solid rgba(93, 217, 245, 0.25); border-radius: 10px; background: rgba(16, 24, 39, 0.6); }
-.default-decks h3 { margin: 0 0 4px; font-size: 15px; }
-.default-decks .row.wrap { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.default-decks > summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; list-style: none; }
+.default-decks > summary::-webkit-details-marker { display: none; }
+.default-decks > summary::before { content: '▸'; color: #5dd9f5; transition: transform 0.15s; }
+.default-decks[open] > summary::before { transform: rotate(90deg); }
+.default-decks h3 { margin: 0; font-size: 15px; }
+.default-decks > p { margin: 6px 0 0; }
+.default-deck-group h4 { margin: 14px 0 6px; font-size: 13px; color: #9fd8ea; font-weight: 700; letter-spacing: 0.04em; border-left: 3px solid #5dd9f5; padding-left: 8px; }
+.default-deck-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.default-deck-tile { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 0 0 8px; text-align: left; overflow: hidden; border-radius: 9px; border: 1px solid rgba(93, 217, 245, 0.18); background: rgba(10, 16, 28, 0.85); cursor: pointer; transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s; }
+.default-deck-tile:hover { transform: translateY(-2px); border-color: rgba(93, 217, 245, 0.7); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
+.default-deck-tile.added { border-color: rgba(120, 220, 150, 0.45); }
+.default-deck-art { position: relative; display: block; height: 104px; overflow: hidden; background: linear-gradient(135deg, #1b2a44, #0d1524); }
+.default-deck-art img { width: 100%; height: auto; display: block; transform: translateY(-14%); }
+.default-deck-art-empty { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 26px; font-weight: 800; color: rgba(159, 216, 234, 0.5); }
+.default-deck-letter { position: absolute; top: 6px; left: 6px; min-width: 22px; height: 22px; padding: 0 4px; border-radius: 6px; background: rgba(8, 12, 22, 0.85); border: 1px solid rgba(93, 217, 245, 0.6); color: #5dd9f5; font-weight: 800; font-size: 13px; line-height: 20px; text-align: center; }
+.default-deck-added { position: absolute; top: 6px; right: 6px; padding: 1px 6px; border-radius: 6px; background: rgba(40, 120, 70, 0.9); color: #dfffe8; font-size: 11px; }
+.default-deck-name { padding: 4px 8px 0; font-weight: 700; font-size: 14px; color: #eaf6ff; }
+.default-deck-sub { padding: 0 8px; font-size: 11px; color: #a9b8cc; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.default-deck-cover { padding: 0 8px; font-size: 11px; color: #f3c969; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

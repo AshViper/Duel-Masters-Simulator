@@ -58,6 +58,17 @@ export interface DeckIssue {
   message: string;
 }
 
+/** 「このカードをデッキに何枚入れてもよい」（旧「4枚より多くデッキに入れることができる」）のカード */
+export function anyCopiesAllowed(card: { text?: string } | undefined): boolean {
+  const t = (card?.text ?? '').normalize('NFKC');
+  return /デッキに何枚入れてもよい|4枚より多くデッキに入れることができる/.test(t);
+}
+
+/** そのカードを何枚まで入れられるか（殿堂などの指定が先） */
+export function copyLimit(id: string, format: DeckFormat, registry: CardRegistry): number {
+  return format.restricted[id] ?? (anyCopiesAllowed(registry[id]) ? Infinity : format.maxCopies);
+}
+
 export function validateDeck(deck: Pick<Deck, 'cards'>, format: DeckFormat, registry: CardRegistry): DeckIssue[] {
   const issues: DeckIssue[] = [];
   // サイキック・クリーチャーは山札ではなく超次元ゾーンに入れる（8枚まで）
@@ -69,7 +80,7 @@ export function validateDeck(deck: Pick<Deck, 'cards'>, format: DeckFormat, regi
     const card = registry[id];
     const label = card?.name ?? id;
     if (!card) issues.push({ level: 'error', message: `未登録のカードが含まれています: ${id}` });
-    const limit = format.restricted[id] ?? format.maxCopies;
+    const limit = copyLimit(id, format, registry);
     if (n > limit) {
       const kind = limit === 0 ? 'プレミアム殿堂' : limit === 1 ? '殿堂' : '枚数制限';
       issues.push({ level: 'error', message: `${label} は${kind}のため${limit}枚までです（${n}枚）` });
