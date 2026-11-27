@@ -17,6 +17,16 @@
 import { useSyncExternalStore } from 'react';
 import { DM_ORIGIN, setOfficialFetcher, type OfficialFetcher } from '../server/dmOfficial';
 
+// いちばん手軽な経路：中継サーバー（relay/worker.js、Cloudflare Workers）。
+// 公開版（localhost 以外）では何もしなくてもこれでつながる。中継が使えない時だけ、下のユーザースクリプト・ブックマークレットを使う。
+// 開発中に中継を試すには VITE_DM_RELAY_URL を指定して npm run dev する。
+const DEFAULT_RELAY_URL = 'https://dm-sim-relay.REPLACE_ME.workers.dev';
+const RELAY_URL: string = ((import.meta.env.VITE_DM_RELAY_URL as string | undefined) ??
+  (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(globalThis.location?.hostname ?? 'localhost') || DEFAULT_RELAY_URL.includes('REPLACE_ME') ? '' : DEFAULT_RELAY_URL)
+).replace(/\/$/, '');
+/** 中継が使えるか（失敗したら false にして、ほかの経路の案内を出す） */
+let relayOk = !!RELAY_URL;
+
 const WINDOW_NAME = 'dm-card-simulator';
 const TIMEOUT_MS = 20000;
 
@@ -29,12 +39,13 @@ const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((l) => l());
 
 export function isBridgeConnected(): boolean {
-  return userscript || (!!bridge && !bridge.closed);
+  return relayOk || userscript || (!!bridge && !bridge.closed);
 }
 
 /** どの経路でつながっているか */
-export type BridgeKind = 'userscript' | 'tab' | null;
+export type BridgeKind = 'relay' | 'userscript' | 'tab' | null;
 function bridgeKind(): BridgeKind {
+  if (relayOk) return 'relay';
   if (userscript) return 'userscript';
   return bridge && !bridge.closed ? 'tab' : null;
 }
@@ -58,6 +69,30 @@ export function useBridgeConnected(): boolean {
     isBridgeConnected,
   );
 }
+
+/** 中継サーバー経由。届かなければ、ほかの経路（スクリプト・公式タブ）があればそちらで取り直す */
+const relayFetcher: OfficialFetcher = async (url, init) => {
+  if (relayOk) {
+    const u = new URL(url);
+    if (u.origin !== DM_ORIGIN) throw new Error('許可していない URL です');
+    try {
+      const headers: Record<string, string> = {};
+      for (const [k, v] of Object.entries(init.headers ?? {})) if (/^(content-type|x-requested-with)$/i.test(k)) headers[k] = v;
+      const res = await fetch(RELAY_URL + u.pathname + u.search, { method: init.method ?? 'GET', body: init.body, headers, credentials: 'omit' });
+      if (res.status !== 403 && res.status !== 429 && res.status < 500) {
+        return { status: res.status, bytes: await res.arrayBuffer(), contentType: res.headers.get('content-type') ?? '' };
+      }
+      console.warn(`公式カード検索の中継が ${res.status} を返しました`);
+    } catch (e) {
+      console.warn('公式カード検索の中継に届きません', e);
+    }
+    if (userscript || (bridge && !bridge.closed)) return bridgeFetcher(url, init);
+    relayOk = false;
+    notify();
+    throw new Error('公式カード検索の中継に届きませんでした。「公式サイトとつなぐ」の手順でつないでください。');
+  }
+  return bridgeFetcher(url, init);
+};
 
 const bridgeFetcher: OfficialFetcher = (url, init) =>
   new Promise((resolve, reject) => {
@@ -168,7 +203,7 @@ let started = false;
 export function initOfficialBridge(): void {
   if (started || typeof window === 'undefined') return;
   started = true;
-  setOfficialFetcher(bridgeFetcher);
+  setOfficialFetcher(relayFetcher);
   window.addEventListener('message', onMessage);
   // ユーザースクリプトは先に hello を送っていることがあるので、こちらからも呼ぶ
   window.postMessage({ type: 'dm-us-ping' }, location.origin);

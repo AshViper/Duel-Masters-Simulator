@@ -6,7 +6,9 @@ updated: 2026-11-27
 
 - 取得と HTML 解析：`src/server/dmOfficial.ts`（間隔 400ms、10分キャッシュ）。公式サイトの HTML 構造に依存。
 - ローカル版の中継：`src/server/dmApi.ts` + `vitePlugin.ts`（`/dm-api/...`）
-- Pages 版の中継：ユーザースクリプト `public/dm-bridge.user.js`（おすすめ・開くだけで自動接続）か、ブックマークレット。アプリ側はどちらも `src/ui/officialBridge.ts`（`OfficialBridgePanel` / `BridgeImport`）
+- Pages 版の中継（いちばん上）：Cloudflare Worker `relay/worker.js`。アプリは `DEFAULT_RELAY_URL`（officialBridge.ts）へ公式と同じパスで投げる。localhost では使わない（`VITE_DM_RELAY_URL` を付けた時だけ）。中継が 403/429/5xx・届かない時は、スクリプトやタブがあればそちらで取り直し、なければ `relayOk=false` にして案内パネルを出す
+  - 確かめ方：`relay/` で `npx wrangler@4 dev --port 8787`、`.env.development.local` に `VITE_DM_RELAY_URL=http://localhost:8787`（*.local は gitignore）。Origin のない curl は 403 になる（`-H "Origin: http://localhost:5173"` を付ける）
+- Pages 版の中継（予備）：ユーザースクリプト `public/dm-bridge.user.js`（おすすめ・開くだけで自動接続）か、ブックマークレット。アプリ側はどちらも `src/ui/officialBridge.ts`（`OfficialBridgePanel` / `BridgeImport`）
   - スクリプトは同じページ内で `window.postMessage`（dm-us-ping/hello/fetch/result）。サンドボックスでは `window` が包まれていて `e.source === window` が成り立たないので、オリジンだけで確かめている。転送リスト（transfer）も Firefox の包みで失敗しうるので使わない
   - スクリプトは document-start で hello を送るので、アプリが後から listen しても取りこぼさないよう、アプリ側からも ping を送る
   - 公式ページの「DMシミュへ保存」はアプリを `#dm-import=<nonce>:<ids>` で開く（`readImportHash`）。保存はつながってから始める

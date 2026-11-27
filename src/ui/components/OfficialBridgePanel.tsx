@@ -19,6 +19,13 @@ export function OfficialBridgePanel({ compact = false }: { compact?: boolean }) 
   });
   if (!needsBridge()) return null;
 
+  if (kind === 'relay') {
+    return (
+      <p className="bridge-panel ok" data-testid="bridge-status">
+        ● 公式サイトとつながっています
+      </p>
+    );
+  }
   if (kind === 'userscript') {
     return (
       <p className="bridge-panel ok" data-testid="bridge-status">
@@ -35,7 +42,7 @@ export function OfficialBridgePanel({ compact = false }: { compact?: boolean }) 
   }
   return (
     <div className="bridge-panel" data-testid="bridge-status">
-      <strong>公式サイトとつなぐ</strong>
+      <strong>公式サイトとつなぐ</strong>（いつもは自動でつながります。中継サーバーに届かない時だけ、次のどちらかでつないでください）
       {!compact && (
         <p className="small">
           この版はサーバーを使わないため、公式サイトの取得は、ユーザースクリプト（またはあなたが開いた公式カード検索のタブ）が代わりに行います（取得した内容はこのブラウザの中だけで使います）。

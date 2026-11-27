@@ -19,7 +19,16 @@ npm run test:e2e   # UIテスト（Playwright。初回は npx playwright install
 
 Pages 版はサーバーを使わずに、すべての機能（公式カード検索を含む）が動きます。
 
-#### GitHub Pages で公式カード検索を使う（ユーザースクリプトで自動接続・おすすめ）
+#### GitHub Pages で公式カード検索を使う（中継サーバー・何もしなくてよい）
+
+Pages 版は、公式カード検索の中継サーバー（Cloudflare Workers、`relay/worker.js`）を通して公式サイトを読みます。**使う人は何もしなくても、開くだけでつながります。**
+
+- 中継は公式の `/card/` と `/wp-content/card/` しか取りに行かず、このアプリのオリジン（`relay/wrangler.toml` の `ALLOWED_ORIGINS`）からの依頼にしか応えません。GET は10分キャッシュします。
+- 中継の置き場所はアプリの `src/ui/officialBridge.ts` の `DEFAULT_RELAY_URL`。開発中に試すなら `relay/` で `npx wrangler dev` を動かし、`.env.development.local` に `VITE_DM_RELAY_URL=http://localhost:8787` を書いて `npm run dev`。
+- デプロイ：`relay/` で `npx wrangler login`（初回のみ）→ `npx wrangler deploy`。無料枠は1日10万リクエスト。
+- 中継に届かない時（止まっている・無料枠を使い切った）は、下のユーザースクリプトかブックマークレットでつなげます。
+
+#### GitHub Pages で公式カード検索を使う（ユーザースクリプトで自動接続・中継が使えない時）
 
 ブラウザごとに最初の1回だけ準備すれば、以後は **Pages 版を開くだけで公式サイトにつながります**（公式サイトのタブも要りません）。複数のブラウザで使う時はこちらが楽です。
 

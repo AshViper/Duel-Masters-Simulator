@@ -1,0 +1,8 @@
+# 公式カード検索の中継（Cloudflare Workers）。デプロイ: npx wrangler deploy（relay/ で）
+name = "dm-sim-relay"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+# 呼んでよいアプリのオリジン（カンマ区切り）
+ALLOWED_ORIGINS = "https://ashviper.github.io,http://localhost:5173,http://localhost:4173"
