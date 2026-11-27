@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/engine/engine.ts（4129行）
+# src/core/engine/engine.ts（4157行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -10,112 +10,112 @@ generated: 2026-11-27
 
 ## トップレベル
 
-- L94 **export** interface `ApplyResult`
-- L99 **export** fn `applyAction`
-- L111 **export** class `IllegalAction`
-- L113 interface `Response`
-- L164 fn `describeTrigger`
-- L174 fn `bindCondition`
-- L181 fn `bindEvent`
-- L199 **export** class `Ctx`
+- L95 **export** interface `ApplyResult`
+- L100 **export** fn `applyAction`
+- L112 **export** class `IllegalAction`
+- L114 interface `Response`
+- L165 fn `describeTrigger`
+- L175 fn `bindCondition`
+- L182 fn `bindEvent`
+- L200 **export** class `Ctx`
 
 ## メソッド
 
-- L212 `handle`
-- L316 `manualMoveByRule`
-- L350 `manual`
-- L358 `nextPhase`
-- L365 `enterPhase`
-- L371 `runPhase`
-- L460 `turnSwitch`
-- L497 `chargeMana`
-- L510 `playCard`
-- L595 `playAlt`
-- L610 `payAlt`
-- L652 `battleBonus`
-- L666 `attack`
-- L688 `respond`
-- L711 `run`
-- L732 `insertFront`
-- L736 `flushTriggers`
-- L757 `offerHandTriggers`
-- L792 `gateCandidates`
-- L799 `gateReady`
-- L809 `fireZoneGates`
-- L825 `execZoneGate`
-- L868 `addTrigger`
-- L873 `execPickTrigger`
-- L896 `takeResponse`
-- L902 `effectTasks`
-- L907 `exec`
-- L1544 `execShieldTrigger`
-- L1579 `conditionalTrigger`
-- L1585 `execAttackSwap`
-- L1652 `stackFromBattle`
-- L1683 `execCommandUnseal`
-- L1713 `sealCard`
-- L1728 `afterSealRemoved`
-- L1744 `crossGear`
-- L1751 `checkForcedAttack`
-- L1756 `execLeave`
-- L2035 `payCandidates`
-- L2070 `execEffect`
-- L3021 `useFree`
-- L3033 `playFree`
-- L3057 `execMove`
-- L3116 `popTop`
-- L3135 `faceUpShields`
-- L3141 `removeFromShield`
-- L3159 `placeOnShield`
-- L3183 `putUnder`
-- L3200 `setTapped`
-- L3208 `moveTo`
-- L3217 `putIntoBattle`
-- L3237 `lookAtTop`
-- L3326 `awakenLink`
-- L3357 `unlink`
-- L3379 `removeOwnSeals`
-- L3408 `soulRaid`
-- L3440 `withTargets`
-- L3575 `abilityTasks`
-- L3583 `triggerFrom`
-- L3619 `triggerOthers`
-- L3627 `whoMatches`
-- L3632 `emit`
-- L3842 `random`
-- L3848 `shuffle`
-- L3857 `topOfDeck`
-- L3862 `draw`
-- L3881 `deckToGrave`
-- L3887 `moveCard`
-- L4003 `checkStateBased`
-- L4046 `gameOver`
-- L4064 `sendUnderToDeckBottom`
-- L4076 `avertLossUnder`
-- L4092 `avertLoss`
-- L4117 `name`
-- L4125 `log`
+- L213 `handle`
+- L317 `manualMoveByRule`
+- L351 `manual`
+- L359 `nextPhase`
+- L366 `enterPhase`
+- L372 `runPhase`
+- L461 `turnSwitch`
+- L498 `chargeMana`
+- L511 `playCard`
+- L596 `playAlt`
+- L611 `payAlt`
+- L653 `battleBonus`
+- L667 `attack`
+- L689 `respond`
+- L712 `run`
+- L733 `insertFront`
+- L737 `flushTriggers`
+- L758 `offerHandTriggers`
+- L793 `gateCandidates`
+- L800 `gateReady`
+- L810 `fireZoneGates`
+- L826 `execZoneGate`
+- L869 `addTrigger`
+- L874 `execPickTrigger`
+- L897 `takeResponse`
+- L903 `effectTasks`
+- L908 `exec`
+- L1565 `execShieldTrigger`
+- L1600 `conditionalTrigger`
+- L1606 `execAttackSwap`
+- L1673 `stackFromBattle`
+- L1704 `execCommandUnseal`
+- L1734 `sealCard`
+- L1749 `afterSealRemoved`
+- L1765 `crossGear`
+- L1772 `checkForcedAttack`
+- L1777 `execLeave`
+- L2056 `payCandidates`
+- L2091 `execEffect`
+- L3042 `useFree`
+- L3054 `playFree`
+- L3078 `execMove`
+- L3137 `popTop`
+- L3156 `faceUpShields`
+- L3162 `removeFromShield`
+- L3180 `placeOnShield`
+- L3204 `putUnder`
+- L3221 `setTapped`
+- L3229 `moveTo`
+- L3238 `putIntoBattle`
+- L3258 `lookAtTop`
+- L3347 `awakenLink`
+- L3378 `unlink`
+- L3400 `removeOwnSeals`
+- L3429 `soulRaid`
+- L3461 `withTargets`
+- L3596 `abilityTasks`
+- L3604 `triggerFrom`
+- L3640 `triggerOthers`
+- L3648 `whoMatches`
+- L3653 `emit`
+- L3863 `random`
+- L3869 `shuffle`
+- L3878 `topOfDeck`
+- L3883 `draw`
+- L3902 `deckToGrave`
+- L3908 `moveCard`
+- L4031 `checkStateBased`
+- L4074 `gameOver`
+- L4092 `sendUnderToDeckBottom`
+- L4104 `avertLossUnder`
+- L4120 `avertLoss`
+- L4145 `name`
+- L4153 `log`
 
 ## switch の case（`ラベル:行`）
 
 ### handle
-RESPOND:216 · CROSS:218 · HYPERIZE:230 · CONCEDE:239 · MANUAL_MOVE:242 · MANUAL_TAP:253 · MANUAL_DRAW:258 · MANUAL_SHUFFLE:263 · MANUAL_POWER:268 · MANUAL_LOG:273 · NEXT_PHASE:283 · END_TURN:286 · CHARGE_MANA:289 · PLAY_CARD:291 · ATTACK:294 · TAP_ABILITY:296
+RESPOND:217 · CROSS:219 · HYPERIZE:231 · CONCEDE:240 · MANUAL_MOVE:243 · MANUAL_TAP:254 · MANUAL_DRAW:259 · MANUAL_SHUFFLE:264 · MANUAL_POWER:269 · MANUAL_LOG:274 · NEXT_PHASE:284 · END_TURN:287 · CHARGE_MANA:290 · PLAY_CARD:292 · ATTACK:295 · TAP_ABILITY:297
 
 ### runPhase
-start:378 · draw:418 · end:428
+start:379 · draw:419 · end:429
 
 ### exec
-phase:910 · turnSwitch:914 · effect:918 · confirmOptional:931 · castSpell:946 · spellToGrave:958 · enterBattle:1021 · leave:1221 · commandUnseal:1224 · attackSwap:1227 · attackSwapOrder:1230 · pickTrigger:1243 · abilityEnd:1246 · kirifudash:1249 · attackEnd:1264 · linkRelease:1281 · hyperize:1299 · blockStep:1320 · attackResolve:1339 · battle:1363 · battleWon:1406 · beforeBreak:1410 · breakShields:1418 · shieldTrigger:1522 · orderShieldTriggers:1525
+phase:911 · turnSwitch:915 · effect:919 · confirmOptional:932 · castSpell:947 · spellToGrave:959 · enterBattle:1022 · leave:1242 · commandUnseal:1245 · attackSwap:1248 · attackSwapOrder:1251 · pickTrigger:1264 · abilityEnd:1267 · kirifudash:1270 · attackEnd:1285 · linkRelease:1302 · hyperize:1320 · blockStep:1341 · attackResolve:1360 · battle:1384 · battleWon:1427 · beforeBreak:1431 · breakShields:1439 · shieldTrigger:1543 · orderShieldTriggers:1546
 
 ### execLeave
-stay:1830 · shedUnder:1832 · underToDeckBottom:1847 · unflip:1857 · shedTop:1866 · seal:1878 · escape:1887 · destroySelf:1897 · faceUpShieldToGrave:1900 · avertCost:1918 · payCards:1951 · destroyOther:1981
+stay:1851 · shedUnder:1853 · underToDeckBottom:1868 · unflip:1878 · shedTop:1887 · seal:1899 · escape:1908 · destroySelf:1918 · faceUpShieldToGrave:1921 · avertCost:1939 · payCards:1972 · destroyOther:2002
 
 ### execEffect
-draw:2077 · addManaFromDeck:2092 · addShieldFromDeck:2094 · choose:2096 · nextSummonDiscount:2101 · markUsed:2105 · deckTopTo:2108 · revealUntilSameCost:2134 · discardRandom:2155 · destroyDuplicates:2178 · seal:2196 · discardUnder:2200 · optional:2239 · opponentMay:2242 · ifChosen:2246 · repeat:2251 · chooseDest:2266 · revealUntil:2285 · attachGear:2311 · buzzRenda:2341 · upToTimes:2370 · magibomber:2380 · manual:2412 · extraTurn:2424 · skipRestOfTurn:2428 · useOnce:2437 · zoneGate:2440 · dSwitchFlip:2442 · winGame:2448 · breakShields:2452 · selfAction:2455 · turnStatic:2500 · playFree:2516 · flipSelf:2520 · destroyTopCard:2540 · splitFate:2555 · castSelfTwin:2586 · castOwnTwin:2591 · swapGraveMana:2609 · shieldForce:2618 · dynamo:2634 · shieldPlus:2644 · handPlay:2686 · grSummon:2714 · afterAttack:2725 · chooseNumber:2733 · lookAtHand:2743 · tapOrUntap:2748 · fight:2766 · fightPair:2774 · gachinko:2811 · conditional:2830 · chooseOne:2835 · lookAtTop:2858 · powerMod:2860 · grantKeyword:2878 · move:2898 · bounce:2901 · toHand:2902 · shieldToHand:2903 · graveyardToHand:2904 · toMana:2905 · toGraveyard:2906 · toShield:2907 · toDeckBottom:2908 · toDeckTop:2909 · putIntoBattle:2910 · destroy:2912 · tap:2916 · untap:2918 · putSelfIntoBattle:2925 · shuffleDeck:2932 · graveyardToDeck:2938 · revealTopCard:2945 · playRevealed:2961 · soulRaid:2975 · removeOwnSeals:2977 · awakenLink:2979 · shieldGamble:2982 · playFromHandFree:3002
+draw:2098 · addManaFromDeck:2113 · addShieldFromDeck:2115 · choose:2117 · nextSummonDiscount:2122 · markUsed:2126 · deckTopTo:2129 · revealUntilSameCost:2155 · discardRandom:2176 · destroyDuplicates:2199 · seal:2217 · discardUnder:2221 · optional:2260 · opponentMay:2263 · ifChosen:2267 · repeat:2272 · chooseDest:2287 · revealUntil:2306 · attachGear:2332 · buzzRenda:2362 · upToTimes:2391 · magibomber:2401 · manual:2433 · extraTurn:2445 · skipRestOfTurn:2449 · useOnce:2458 · zoneGate:2461 · dSwitchFlip:2463 · winGame:2469 · breakShields:2473 · selfAction:2476 · turnStatic:2521 · playFree:2537 · flipSelf:2541 · destroyTopCard:2561 · splitFate:2576 · castSelfTwin:2607 · castOwnTwin:2612 · swapGraveMana:2630 · shieldForce:2639 · dynamo:2655 · shieldPlus:2665 · handPlay:2707 · grSummon:2735 · afterAttack:2746 · chooseNumber:2754 · lookAtHand:2764 · tapOrUntap:2769 · fight:2787 · fightPair:2795 · gachinko:2832 · conditional:2851 · chooseOne:2856 · lookAtTop:2879 · powerMod:2881 · grantKeyword:2899 · move:2919 · bounce:2922 · toHand:2923 · shieldToHand:2924 · graveyardToHand:2925 · toMana:2926 · toGraveyard:2927 · toShield:2928 · toDeckBottom:2929 · toDeckTop:2930 · putIntoBattle:2931 · destroy:2933 · tap:2937 · untap:2939 · putSelfIntoBattle:2946 · shuffleDeck:2953 · graveyardToDeck:2959 · revealTopCard:2966 · playRevealed:2982 · soulRaid:2996 · removeOwnSeals:2998 · awakenLink:3000 · shieldGamble:3003 · playFromHandFree:3023
 
 ### execMove
-battle:3077 · under:3084 · deckTop:3087 · deckBottom:3092 · shieldTop:3094
+battle:3098 · under:3105 · deckTop:3108 · deckBottom:3113 · shieldTop:3115
 
 ### emit
-CARD_DRAWN:3637 · CREATURE_SUMMONED:3642 · CREATURE_DESTROYED:3700 · CARD_MOVED:3718 · CREATURE_LEFT:3727 · ATTACK_DECLARED:3738 · CREATURE_TAPPED:3748 · SHIELD_LEFT:3753 · UNDER_LEFT:3765 · CARD_TARGETED:3772 · BLOCKED:3775 · BATTLE_WON:3780 · TURN_STARTED:3793 · TURN_ENDED:3796 · BROKE_SHIELDS:3799 · SHIELD_BROKEN:3803 · SHIELD_ADDED:3808 · CARD_DISCARDED:3812 · CARD_PLAYED:3823 · SPELL_CAST:3830
+CARD_DRAWN:3658 · CREATURE_SUMMONED:3663 · CREATURE_DESTROYED:3721 · CARD_MOVED:3739 · CREATURE_LEFT:3748 · ATTACK_DECLARED:3759 · CREATURE_TAPPED:3769 · SHIELD_LEFT:3774 · UNDER_LEFT:3786 · CARD_TARGETED:3793 · BLOCKED:3796 · BATTLE_WON:3801 · TURN_STARTED:3814 · TURN_ENDED:3817 · BROKE_SHIELDS:3820 · SHIELD_BROKEN:3824 · SHIELD_ADDED:3829 · CARD_DISCARDED:3833 · CARD_PLAYED:3844 · SPELL_CAST:3851
 

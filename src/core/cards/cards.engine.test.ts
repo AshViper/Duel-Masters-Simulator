@@ -1519,6 +1519,7 @@ const C = {
   swapper: spell('b-142', ['自分の墓地にあるカードすべてと、自分のマナゾーンにあるカードすべてを入れ替える。']),
   topBreaker: mk('b-143', ['このクリーチャーがシールドをブレイクする時、そのシールドをかわりに持ち主の山札の一番上に置く。']),
   graveShrink: spell('b-144', ['相手のクリーチャーを１体選ぶ。このターン、自分の墓地にあるカード１枚につき、そのクリーチャーのパワーを－1000する。']),
+  aura: mk('b-150', ['これを付けたクリーチャーに「パワード・ブレイカー」を与える。', 'これをクリーチャーに付けた時、自分の山札の上から３枚を墓地に置いてもよい。'], { type: 'オレガ・オーラ', power: '6000', cost: '1' }),
   discardJump: mk('b-117', ['相手のターンにこのクリーチャーが自分の手札から捨てられる時、墓地に置くかわりに出す。']),
   reanimSelf: mk('b-110', ['このクリーチャーが破壊された時、相手の手札が１枚もなければ、このクリーチャーを自分の墓地から出してもよい。']),
   kinDraw: mk('b-95', ['クロスギア', 'これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時、カードを１枚引いてもよい。'], { type: 'クロスギア', power: '' }),
@@ -2128,6 +2129,41 @@ describe('下にあったカード・下に置く・墓地とマナの入れ替�
     s = resolve(play(s, C.graveShrink.id).s);
     // 唱えている呪文はまだ墓地にないので、墓地は2枚
     expect(power(s, reg, t)).toBe(3000);
+  });
+});
+
+describe('オーラ', () => {
+  const resolve = (s: GameState): GameState => {
+    let guard = 0;
+    while (s.pending && guard++ < 20) {
+      const p = s.pending;
+      if (p.kind === 'confirm') s = act(s, { type: 'RESPOND', player: p.player, accept: true });
+      else if (p.kind === 'selectCards') s = act(s, { type: 'RESPOND', player: p.player, selected: p.candidates.slice(0, Math.max(p.min, 1)) });
+      else s = act(s, { type: 'RESPOND', player: p.player, selected: ['0'] });
+    }
+    return s;
+  };
+  it('オーラはクリーチャーではなく、付けたクリーチャーにパワーと能力を加え、クリーチャーが離れると墓地へ', () => {
+    expect(C.aura.type).toBe('field');
+    let s = newGame();
+    const host = put(s, 0, C.vanilla.id, 'battle');
+    const grave = s.players[0].zones.graveyard.length;
+    const r = play(s, C.aura.id);
+    s = resolve(r.s);
+    expect(s.cards[r.iid]).toMatchObject({ zone: 'battle', equippedTo: host });
+    expect(power(s, reg, host)).toBe(11000);
+    expect(keywords(s, reg, host).poweredBreaker).toBe(true);
+    // 付けた時：山札の上から3枚を墓地に
+    expect(s.players[0].zones.graveyard.length).toBe(grave + 3);
+    s = resolve(play(s, C.killOwn.id).s);
+    expect([s.cards[host].zone, s.cards[r.iid].zone]).toEqual(['graveyard', 'graveyard']);
+  });
+  it('付ける自分のクリーチャーがいなければ使えない', () => {
+    const s = newGame();
+    const a = put(s, 0, C.aura.id, 'hand');
+    mana(s, 1);
+    while (s.phase !== 'main') Object.assign(s, act(s, { type: 'NEXT_PHASE', player: 0 }));
+    expect(canPlay(s, reg, 0, a, 'main')).toBe(false);
   });
 });
 

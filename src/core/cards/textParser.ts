@@ -144,6 +144,9 @@ export function normalizeText(s: string): string {
     .replace(/相手が(?:自分の)?クリーチャーを選ぶ時、そのクリーチャーは選べない/g, 'そのクリーチャーは相手に選ばれない')
     // 「このクリーチャーに含まれるカードが10枚以上あれば」＝このクリーチャーにカードが10枚以上含まれていれば
     .replace(/このクリーチャーに含まれるカードが(\d+)枚以上あれば/g, 'このクリーチャーにカードが$1枚以上含まれていれば')
+    // オーラ：「これをクリーチャーに付けた時」「このオーラが離れた時」
+    .replace(/^これをクリーチャーに付けた時(?:また|、または)はこのオーラが(?:バトルゾーンを)?離れた時、/, 'このクリーチャーがクリーチャーに付けられた時またはバトルゾーンを離れた時、')
+    .replace(/^これをクリーチャーに付けた時、/, 'このクリーチャーがクリーチャーに付けられた時、')
     // ジェネレート：クロスギアをバトルゾーンに出すこと
     .replace(/ジェネレートしてもよい/g, 'バトルゾーンに出してもよい')
     .replace(/ジェネレートする/g, 'バトルゾーンに出す')
@@ -415,6 +418,7 @@ const EVENTS: { re: RegExp; self?: TriggerEvent; other?: TriggerEvent; ownInclud
   { re: /^自分を攻撃する時/, other: 'onOtherAttackPlayer' },
   { re: /^相手に選ばれた時/, self: 'onTargeted' },
   { re: /^クロスされた時/, self: 'onCrossed' },
+  { re: /^クリーチャーに付けられた時/, self: 'onAttached' },
   { re: /^攻撃を終えた時/, other: 'onOtherAttackEnd' },
   { re: /^(?:相手の)?シールドを(?:1つ以上)?ブレイクした時/, self: 'onBreak', other: 'onOtherBreak' },
 ];
@@ -3231,7 +3235,7 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     return true;
   }
   // 「これを装備したクリーチャーに〜／が〜時、〜」（ドラグハート・ウエポン）：「このクリーチャー」の文として読み、装備先にかかる形にする
-  const eq = t.match(/^これを(?:装備|クロス)したクリーチャー(?!と同じ種族)(.+)$/);
+  const eq = t.match(/^これを(?:装備|クロス|付け)したクリーチャー(?!と同じ種族)(.+)$/) ?? t.match(/^これを付けたクリーチャー(?!と同じ種族)(.+)$/);
   if (eq && kind === 'creature') {
     const tmp: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
     const asSelf = `このクリーチャー${eq[1]}`;

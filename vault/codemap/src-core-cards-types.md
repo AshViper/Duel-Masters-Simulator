@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/types.ts（1087行）
+# src/core/cards/types.ts（1089行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -27,24 +27,24 @@ generated: 2026-11-27
 - L252 **export** type `MoveDest`
 - L255 **export** type `EffectDef`
 - L474 **export** const `TRIGGER_EVENTS`
-- L551 **export** type `TriggerEvent`
-- L553 **export** interface `TriggeredAbility`
-- L588 **export** interface `Applies`
-- L599 **export** type `StaticAbility`
-- L665 **export** interface `ReplacementAbility`
-- L697 **export** interface `Keywords`
-- L851 **export** interface `ForbiddenSide`
-- L858 **export** interface `TwinSide`
-- L868 **export** interface `AttackSwap`
-- L881 **export** interface `AltPlay`
-- L924 **export** interface `ZoneGate`
-- L936 **export** interface `HandTrigger`
-- L964 **export** interface `EvolveSpec`
-- L981 **export** interface `CardDefinition`
-- L1051 **export** interface `PsychicSide`
-- L1057 **export** fn `isCreatureType`
-- L1062 **export** fn `isNonCreaturePermanent`
-- L1067 **export** fn `manaCivilizations`
-- L1072 **export** interface `PlayFace`
-- L1081 **export** fn `playFace`
+- L553 **export** type `TriggerEvent`
+- L555 **export** interface `TriggeredAbility`
+- L590 **export** interface `Applies`
+- L601 **export** type `StaticAbility`
+- L667 **export** interface `ReplacementAbility`
+- L699 **export** interface `Keywords`
+- L853 **export** interface `ForbiddenSide`
+- L860 **export** interface `TwinSide`
+- L870 **export** interface `AttackSwap`
+- L883 **export** interface `AltPlay`
+- L926 **export** interface `ZoneGate`
+- L938 **export** interface `HandTrigger`
+- L966 **export** interface `EvolveSpec`
+- L983 **export** interface `CardDefinition`
+- L1053 **export** interface `PsychicSide`
+- L1059 **export** fn `isCreatureType`
+- L1064 **export** fn `isNonCreaturePermanent`
+- L1069 **export** fn `manaCivilizations`
+- L1074 **export** interface `PlayFace`
+- L1083 **export** fn `playFace`
 

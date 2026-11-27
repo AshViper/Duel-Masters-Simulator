@@ -417,6 +417,8 @@ function powerImpl(state: GameState, reg: CardRegistry, iid: string): number {
       p += s.perCount ? s.amount * countQuantity(state, reg, a.controller, s.perCount, true, a.source) : s.amount;
   }
   if (attacking) p += keywords(state, reg, iid).powerAttacker ?? 0;
+  // 付いているオーラのパワー
+  for (const pl of state.players) for (const b of pl.zones.battle) if (state.cards[b].equippedTo === iid && isAura(reg[state.cards[b].cardId])) p += reg[state.cards[b].cardId]?.power ?? 0;
   return Math.max(0, p);
 }
 
@@ -564,6 +566,11 @@ export function playLimitReached(state: GameState, reg: CardRegistry, player: Pl
 
 /** 召喚・呪文の禁止を受けているなら理由を返す */
 /** クロスギアか */
+/** オーラか（自分のクリーチャーに付けて、書かれたパワーを加える） */
+export function isAura(d: CardDefinition | undefined): boolean {
+  return !!d && d.type === 'field' && /オーラ/.test(d.typeLabel ?? '');
+}
+
 export function isCrossGear(d: CardDefinition | undefined): boolean {
   return !!d && /クロスギア/.test(d.typeLabel ?? '');
 }
@@ -627,6 +634,8 @@ export function entryBlocked(state: GameState, reg: CardRegistry, player: Player
 export function playRestriction(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): string | null {
   const d = def(state, reg, iid);
   const face = playFace(d, side);
+  // オーラは付ける自分のクリーチャーがいないと使えない
+  if (side === 'main' && isAura(d) && !battleCards(state, reg, player).length) return 'オーラを付ける自分のクリーチャーがいません';
   if (face.type === 'spell' || isCreatureType(face.type)) {
     const limit = playLimitReached(state, reg, player, face.type === 'spell' ? 'spell' : 'creature');
     if (limit) return limit;

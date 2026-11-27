@@ -43,6 +43,7 @@ import {
   entryBlocked,
   canCross,
   isCrossGear,
+  isAura,
   isGrCard,
   multiEvolveSpec,
   validEvolveSources,
@@ -1022,6 +1023,24 @@ export class Ctx {
         const inst = s.cards[task.iid];
         if (!inst || inst.zone === 'battle') return false;
         const fromZone = inst.zone;
+        // オーラ：付ける自分のクリーチャーを選ぶ（いなければ墓地へ）
+        if (isAura(this.reg[inst.cardId]) && !task.equipTo) {
+          const hosts = battleCards(s, this.reg, task.player);
+          if (!hosts.length) {
+            this.moveCard(task.iid, 'graveyard');
+            this.log(`${this.name(task.iid)} を付けるクリーチャーがいないので墓地に置いた`, task.player);
+            return false;
+          }
+          if (hosts.length === 1) task.equipTo = hosts[0];
+          else {
+            const r = this.takeResponse();
+            if (!r) {
+              s.pending = { kind: 'selectCards', player: task.player, source: task.iid, prompt: `${this.name(task.iid)} を付ける自分のクリーチャーを選んでください`, candidates: hosts, min: 1, max: 1, harmful: false };
+              return true;
+            }
+            task.equipTo = r.selected?.[0] && hosts.includes(r.selected[0]) ? r.selected[0] : hosts[0];
+          }
+        }
         const entering = def(s, this.reg, task.iid);
         // 「山札から手札以外のゾーンに置かれる時、かわりに墓地に置く」
         if (inst.zone === 'deck' && this.deckToGrave(inst.owner)) {
@@ -1203,7 +1222,9 @@ export class Ctx {
           }
           if (task.equipTo && s.cards[task.equipTo]?.zone === 'battle') {
             inst.equippedTo = task.equipTo;
-            this.log(`${enteredDef.name} を ${this.name(task.equipTo)} に装備した`, task.player);
+            this.log(`${enteredDef.name} を ${this.name(task.equipTo)} に${isAura(enteredDef) ? '付けた' : '装備した'}`, task.player);
+            // 「これをクリーチャーに付けた時」
+            if (isAura(enteredDef)) this.triggerFrom(task.iid, 'onAttached');
           }
           // 「このドラグハートが出た時」「このフィールドが出た時」
           this.triggerFrom(task.iid, 'onSummon');
@@ -3974,6 +3995,13 @@ export class Ctx {
         delete s.cards[w].equippedTo;
         // クロスギアは、クロスしていたクリーチャーが離れてもバトルゾーンに残る
         if (isCrossGear(this.reg[s.cards[w].cardId])) continue;
+        // オーラは、付けていたクリーチャーが離れたら墓地に置く
+        if (isAura(this.reg[s.cards[w].cardId])) {
+          this.log(`${this.name(w)} は付けていたクリーチャーが離れたので墓地に置いた`, s.cards[w].owner);
+          this.moveCard(w, 'graveyard');
+          this.triggerFrom(w, 'onLeave');
+          continue;
+        }
         this.log(`${this.name(w)} は装備先が離れたので超次元ゾーンに戻った`, s.cards[w].owner);
         this.moveCard(w, 'hyperspatial');
       }

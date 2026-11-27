@@ -39,6 +39,8 @@ function mapType(label: string, hasPower: boolean): CardType {
   if (label.includes('ドラグハート') && !label.includes('クリーチャー')) return 'field';
   // クロスギア：バトルゾーンに置く、クリーチャーではない置き物（クリーチャーにクロスして使う）
   if (label.includes('クロスギア')) return 'field';
+  // オーラ：自分のクリーチャーに付ける置き物。書かれたパワーは付けたクリーチャーに加える（「オーラ/クリーチャー」はクリーチャー）
+  if (label.includes('オーラ') && !label.includes('クリーチャー')) return 'field';
   // タマシード（「タマシード/クリーチャー」はクリーチャーとして扱う）
   if (label.includes('タマシード') && !label.includes('クリーチャー') && !hasPower) return 'tamaseed';
   if (label.includes('進化')) return hasPower ? 'evolution' : 'spell';

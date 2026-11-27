@@ -547,6 +547,8 @@ export const TRIGGER_EVENTS = [
   'onOtherAttackEnd',
   /** 他のクリーチャーがタップした時 */
   'onOtherTap',
+  /** これ（オーラ）をクリーチャーに付けた時 */
+  'onAttached',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
