@@ -15,7 +15,7 @@ updated: 2026-11-27
 ## やりかけ・気になる点
 - **能力テキストの読み取りを作り替え中**（[[howto/text-parser-rewrite]]）。字句解析 `lexer.ts` と構文解析 `grammar.ts` の最初の版ができた。いまは textParser で読めなかった行だけを grammar で読む。次は grammar の読める形を広げ、textParser の正規表現を減らす
 - ユーザーの例文で手動だった21行を自動処理にした（エンジンに新しい処理を足した。[[decisions]] 参照）
-- 既存テストが2つ落ちている（2026-11-27 確認、lexer を足す前から）：`cards.basic.test.ts` の abilityWords「すべて自動処理になる」（dm:w-16 が partial）、textParser「読めない文は手動…」（manual のはずが draw）。textParser.ts を編集中だった跡と思われる（使い捨ての `__scratch_lines.test.ts` も落ちていたが、2026-11-27 に削除）
+- テストはすべて通る（2026-11-27。前から落ちていた2件を直した：部分的に読める文の方針に合わせてテストを更新、補足説明から読めた時に本文の手動処理が残る不具合を修正）
 - `design/ability-coverage.md` の「未対応」の表は再計測前の一覧のまま（件数は 144 に更新済み）
 
 ## 次の候補（README の「未実装」より）

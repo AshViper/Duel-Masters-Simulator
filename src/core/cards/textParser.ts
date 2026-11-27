@@ -2261,7 +2261,16 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
       continue;
     }
     const before = snapshot(result);
-    let ok = parseLine(line, options, kind, result) || parseFromReminder(line, options, kind, result);
+    let ok = parseLine(line, options, kind, result);
+    // 補足説明（カッコ書き）から読めたら、本文の読み取りが入れた手動処理（タイミングだけ分かったもの）を取り消す
+    if (!ok) {
+      const fromReminder = empty();
+      if (parseFromReminder(line, options, kind, fromReminder)) {
+        restore(result, before);
+        mergeParsed(result, fromReminder);
+        ok = true;
+      }
+    }
     // 今の読み取りで読めなかった行は、語の組み立て（grammar.ts）で読む。読めたら、手動処理として入れたものを取り消す
     if (!ok) {
       const g = readByGrammar(line, options, kind);

@@ -104,9 +104,15 @@ describe('能力テキストの読み取り', () => {
     expect(p.abilities).toEqual([{ when: 'onSummon', effects: [{ type: 'manual', text: expect.stringContaining('超次元') }] }]);
     // 能力語つきの文は読まない
     expect(creature('鬼タイム：自分と相手のシールドの数が合計６つ以下で、自分のターンなら、このクリーチャーは破壊されない。').manualLines).toHaveLength(1);
-    // 一部だけ読める文も丸ごと手動にする
+    // 一部だけ読める文は、読めた所まで自動処理し、残りだけを手動にする（前の文が読めない時に後ろの文だけを実行することはしない）
     const partial = creature('このクリーチャーがバトルゾーンに出た時、カードを1枚引く。その後、相手とじゃんけんする。');
-    expect(partial.abilities[0].effects[0].type).toBe('manual');
+    expect(partial.abilities).toEqual([{ when: 'onSummon', effects: [{ type: 'draw', count: 1 }, { type: 'manual', text: '相手とじゃんけんする' }] }]);
+    const headUnknown = creature('このクリーチャーがバトルゾーンに出た時、相手とじゃんけんする。その後、カードを1枚引く。');
+    expect(headUnknown.abilities[0].effects).toHaveLength(1);
+    expect(headUnknown.abilities[0].effects[0].type).toBe('manual');
+    // 手動の部分が残る文を持つカードは「一部手動」
+    const card = convertOfficialCard({ id: 'x-partial', detailUrl: '', faces: [{ ...face, name: 'じゃんけん', type: 'クリーチャー', power: '1000', cost: '1', abilities: ['このクリーチャーがバトルゾーンに出た時、カードを1枚引く。その後、相手とじゃんけんする。'] }] });
+    expect(card.support).toBe('partial');
   });
 });
 
