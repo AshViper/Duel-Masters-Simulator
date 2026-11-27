@@ -2100,6 +2100,8 @@ const C = {
   shinsekai: mk('md-18', ['自分の魔導具呪文を唱えた時、唱えた後で墓地に置くかわりに、このフィールドの下に置いてカードを１枚引いてもよい。', '自分の魔導具呪文またはドルスザク呪文を唱えられなくする能力を無視する。', '無月の門99：自分のターンの終わりに、このフィールドの下に４枚以上カードがあれば、ゲーム中で一度、水のコスト99以下の呪文を１枚、自分の手札または墓地からコストを支払わずに唱えてもよい。'], { type: '無月フィールド', power: '', race: '', civ: '水' }),
   airvo: mk('md-19', ['S・トリガー', 'バトルゾーンにある、コスト７以下のカードを１枚選び、持ち主の手札に戻す。'], { type: '呪文', power: '', civ: '水', race: '魔導具', cost: '4' }),
   noSpell: mk('md-20', ['相手は呪文を唱えられない。'], { race: 'テスト' }),
+  // 出た時に相手と自分のシールドを2つずつブレイクし、自分のシールドがなければブロッカー
+  breakBoth: mk('md-30', [GATE, 'W・ブレイカー', 'このクリーチャーがバトルゾーンに出た時、相手のシールドを２つブレイクする。その後、自分のシールドを２つブレイクする。', '自分のシールドが１つもなければ、このクリーチャーに「ブロッカー」を与える。'], { race: 'マスター・ドルスザク', cost: '8', power: '9000' }),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
 const filler = Array.from({ length: 40 }, () => 'S01-043');
@@ -2154,6 +2156,34 @@ describe('無月の門', () => {
     // 下に4枚以上：相手のクリーチャーはタップして出る
     const o = put(s, 1, C.other.id, 'battle');
     expect(s.cards[o].tapped).toBe(true);
+  });
+
+  it('無月の門で出た時、相手と自分のシールドを2つずつブレイクし、自分のシールドがなければブロッカー', () => {
+    const card = C.breakBoth;
+    expect(card.abilities?.[0].effects).toEqual([{ type: 'breakShields', count: 2 }, { type: 'breakShields', count: 2, self: true }]);
+    let s = newGame();
+    put(s, 0, C.madogu.id, 'battle');
+    put(s, 0, C.madogu.id, 'graveyard');
+    put(s, 0, C.madogu.id, 'graveyard');
+    const u = put(s, 0, card.id, 'hand');
+    const nw = put(s, 0, C.madogu.id, 'hand');
+    mana(s, 2);
+    // 自分のシールドを3つにしておく（2つブレイクすると1つ残る）
+    for (const sh of s.players[0].zones.shield.slice(3)) new Ctx(s, reg).moveCard(sh, 'graveyard');
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: nw });
+    s = act(s, { type: 'RESPOND', player: 0, accept: true });
+    // 相手のシールドを2つ選んでブレイク → 自分のシールドを2つ選んでブレイク（S・トリガーは使わない）
+    while (s.pending) {
+      const p = s.pending;
+      s = act(s, { type: 'RESPOND', player: p.player, accept: false, selected: p.kind === 'selectCards' ? p.candidates.slice(0, p.min) : [] });
+    }
+    expect(s.cards[u].zone).toBe('battle');
+    expect(s.players[1].zones.shield).toHaveLength(3);
+    expect(s.players[0].zones.shield).toHaveLength(1);
+    expect(keywords(s, reg, u).blocker).toBeFalsy();
+    // 残りの1つもなくなればブロッカー
+    new Ctx(s, reg).moveCard(s.players[0].zones.shield[0], 'graveyard');
+    expect(keywords(s, reg, u).blocker).toBe(true);
   });
 
   it('素材が足りなければ聞かれない', () => {

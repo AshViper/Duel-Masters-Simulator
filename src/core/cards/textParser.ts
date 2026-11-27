@@ -1033,7 +1033,9 @@ function parseSentence(s: string): EffectDef[] | null {
     const r = parseTargeted(`相手の${m[1]}`);
     return r && r.map((e) => ('target' in e && typeof e.target === 'object' ? ({ ...e, target: { ...e.target, chooser: 'owner' } } as EffectDef) : e));
   }
-  if ((m = s.match(/^(?:このクリーチャーは)?相手のシールドを(\d+)つブレイクする$/))) return [{ type: 'breakShields', count: n(m[1]) }];
+  // 「相手のシールドを2つブレイクする」「自分のシールドを2つブレイクする」「自分のシールドをすべてブレイクする」
+  if ((m = s.match(/^(?:このクリーチャーは)?(相手|自分)のシールドを(?:(\d+)つ|(すべて))ブレイクする$/)))
+    return [{ type: 'breakShields', count: m[3] ? 99 : n(m[2]), ...(m[1] === '自分' ? { self: true } : {}) }];
   // 「相手は自身のクリーチャーすべてに封印を1つ付ける」（ドキンダムX）
   if ((m = s.match(/^(?:相手は、?自身|(相手|自分))の(.*?)クリーチャーすべてに(?:、?それぞれ)?封印を1つ(?:ずつ)?付ける$/))) {
     const filter: CardFilter = {};
