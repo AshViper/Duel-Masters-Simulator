@@ -223,6 +223,11 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
     const races = def(state, reg, host).races;
     if (!d.races.some((r) => races.includes(r))) return false;
   }
+  // 「自分のマナゾーンにあるカードの枚数以下のコストを持つ」：発生源の持ち主から数える
+  if (f.maxCostCount) {
+    const owner = source && state.cards[source] ? state.cards[source].owner : inst.owner;
+    if (d.cost > countQuantity(state, reg, owner, f.maxCostCount, true, source)) return false;
+  }
   if (f.sameNameAsEquipped) {
     const host = source ? state.cards[source]?.equippedTo : undefined;
     if (!host || !state.cards[host] || def(state, reg, host).name !== d.name) return false;
@@ -756,7 +761,10 @@ export function countQuantity(state: GameState, reg: CardRegistry, controller: P
   const players: PlayerId[] = q.who === 'self' ? [controller] : q.who === 'opponent' ? [other(controller)] : [controller, other(controller)];
   // フィールド・タマシードを数える時はクリーチャー以外も見る
   const inBattle = (p: PlayerId) => (q.withPermanents || (q.filter?.cardType && isNonCreaturePermanent(q.filter.cardType)) ? battleAndFields(state, reg, p) : battleCards(state, reg, p));
-  const hits = players.flatMap((p) => (q.zone === 'battle' ? inBattle(p) : state.players[p].zones[q.zone]).filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)));
+  // 「このクリーチャーの下にあるカード」
+  if (q.zone === 'under') return source && state.cards[source] ? state.cards[source].under.filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)).length : 0;
+  const zone = q.zone;
+  const hits = players.flatMap((p) => (zone === 'battle' ? inBattle(p) : state.players[p].zones[zone]).filter((iid) => matchFilter(state, reg, iid, q.filter, source, noPower)));
   // 「コストが異なる〜1体につき」：コストの種類の数
   if (q.distinctCost) return new Set(hits.map((iid) => def(state, reg, iid).cost)).size;
   return hits.length;
@@ -823,6 +831,11 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       if (c.from && !(inst.enteredFrom && c.from.includes(inst.enteredFrom))) return false;
       if (c.notFrom && inst.enteredFrom && c.notFrom.includes(inst.enteredFrom)) return false;
       return true;
+    }
+    case 'selfPower': {
+      if (noPower || !source || state.cards[source]?.zone !== 'battle') return false;
+      const p = power(state, reg, source);
+      return c.op === '>' ? p > c.value : c.op === '>=' ? p >= c.value : p <= c.value;
     }
     case 'selfAttacking':
       return !!source && state.combat?.attacker === source;

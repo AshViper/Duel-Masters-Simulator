@@ -117,6 +117,7 @@ interface Response {
 
 const INSTEAD_LABEL: Record<ReplacementAbility['instead'], string> = {
   toHand: '手札に戻す',
+  payCards: '自分のカードを動かす',
   toMana: 'マナゾーンに置く',
   toShield: 'シールドに加える',
   toDeckBottom: '山札の下に置く',
@@ -385,7 +386,9 @@ export class Ctx {
           if (c.hyper && c.owner === pl) delete c.hyper;
         }
         // 「次の相手のターンのはじめに、それらはアンタップしない」マナもタップしたまま
-        for (const iid of P.zones.mana) if (!s.cards[iid].keywordsUntil?.keywords.noUntap) s.cards[iid].tapped = false;
+        // 「誰も、自身のマナゾーンの呪文カードをアンタップできない」
+        const spellsStay = activeStatics(s, this.reg).some((a) => a.static.type === 'manaSpellsStayTapped');
+        for (const iid of P.zones.mana) if (!s.cards[iid].keywordsUntil?.keywords.noUntap && !(spellsStay && this.reg[s.cards[iid].cardId]?.type === 'spell')) s.cards[iid].tapped = false;
         // 「自分のターンのはじめにアンタップしない」クリーチャーはタップしたまま
         for (const iid of P.zones.battle) if (!keywords(s, this.reg, iid).noUntap) s.cards[iid].tapped = false;
         P.chargedThisTurn = false;
@@ -414,7 +417,12 @@ export class Ctx {
       }
       case 'draw': {
         const skip = s.turn === 1 && pl === s.firstPlayer && !s.config.firstPlayerDrawsOnFirstTurn;
-        if (!skip) this.draw(pl, 1);
+        if (!skip) {
+          this.draw(pl, 1);
+          // 「自分のターンに1枚目のカードを引く時、もう1枚余分に引いてもよい」
+          const extra = activeStatics(s, this.reg).find((a) => a.static.type === 'extraTurnDraw' && a.controller === pl);
+          if (extra) this.addTrigger(pl, extra.source, [{ kind: 'confirmOptional', controller: pl, source: extra.source, effects: [{ type: 'draw', count: 1 }] }]);
+        }
         break;
       }
       case 'end':
@@ -1065,6 +1073,7 @@ export class Ctx {
           const ins = activeStatics(s, this.reg).find(
             (a) =>
               a.static.type === 'enterInstead' &&
+              !(a.static.exceptFromHand && fromZone === 'hand') &&
               (a.static.who === 'both' || (a.static.who === 'self') === (a.controller === inst.owner)) &&
               matchFilter(s, this.reg, task.iid, a.static.filter, a.source),
           );
@@ -1263,6 +1272,7 @@ export class Ctx {
         // 「このクリーチャーの攻撃の終わりに」
         if (s.cards[task.attacker]?.zone === 'battle') {
           this.triggerFrom(task.attacker, 'onAttackEnd');
+          if (s.cards[task.attacker]) this.triggerOthers(task.attacker, 'onOtherAttackEnd', s.cards[task.attacker].owner);
           this.flushTriggers();
         }
         return false;
@@ -1380,6 +1390,11 @@ export class Ctx {
         for (const [me, opp] of [[attacker, defender], [defender, attacker]] as const) {
           if (losers.includes(me) && !losers.includes(opp) && kw(me).slayer) losers.push(opp);
           if (!losers.includes(me) && losers.includes(opp) && kw(me).suicideOnWin) losers.push(me);
+        }
+        // 「パワー5500以下のクリーチャーとのバトル中、破壊されない」
+        for (const [me, opp] of [[attacker, defender], [defender, attacker]] as const) {
+          const cap = keywords(s, this.reg, me).battleImmuneVsPowerAtMost;
+          if (cap !== undefined && losers.includes(me) && power(s, this.reg, opp) <= cap) losers.splice(losers.indexOf(me), 1);
         }
         const leaves = losers.map((l): Task => ({ kind: 'leave', iid: l, to: 'graveyard', cause: 'destroy' }));
         // 「バトルに勝った時」は負けた側の破壊を処理してから誘発させる
@@ -1928,6 +1943,36 @@ export class Ctx {
           this.insertFront(...picks.map((x): Task => ({ kind: 'leave', iid: x, to: 'graveyard', cause: 'destroy', replaced: [...replaced, key] })));
           return false;
         }
+        case 'payCards': {
+          // かわりに自分のカードを動かす（マナゾーンから墓地・手札を捨てる・墓地から山札の下・山札の上から墓地など）
+          const pay = ability.pay!;
+          const cands = this.payCandidates(owner, pay, source);
+          if (cands.length < pay.count) {
+            this.insertFront({ ...task, replaced: [...replaced, key] });
+            return false;
+          }
+          let picks = pay.from === 'deckTop' ? cands.slice(0, pay.count) : cands.slice(0, pay.count);
+          if (pay.from !== 'deckTop' && cands.length > pay.count) {
+            const r = this.takeResponse();
+            if (!r) {
+              task.confirmed = key;
+              s.pending = { kind: 'selectCards', player: owner, source, prompt: `${this.name(task.iid)} のかわりに動かすカードを${pay.count}枚選んでください`, candidates: cands, min: pay.count, max: pay.count, harmful: true, ...(pay.from === 'hand' ? { reveal: true } : {}) };
+              return true;
+            }
+            picks = r.selected?.length ? r.selected : picks;
+          }
+          if (ability.oncePerTurn) (s.usedThisTurn ??= []).push(`rep:${key}`);
+          for (const p of picks) {
+            const fromHand = s.cards[p].zone === 'hand';
+            if (pay.to === 'graveyard') {
+              this.moveCard(p, 'graveyard');
+              if (fromHand) this.emit({ type: 'CARD_DISCARDED', player: owner, iid: p });
+            } else this.moveCard(p, 'deck', { toTop: false });
+          }
+          if (pay.to === 'deckShuffle') this.shuffle(owner);
+          this.log(`${this.name(task.iid)} はかわりにカードを${picks.length}枚動かして、バトルゾーンにとどまった`, owner);
+          return false;
+        }
         case 'destroyOther': {
           // かわりに自分の他のクリーチャーを1体（N枚）破壊する（足りなければ置換しない）
           const need = ability.count ?? 1;
@@ -1981,6 +2026,13 @@ export class Ctx {
   }
 
   /** いま適用できる置換効果すべて（自分自身のもの、次に自分の他のカードのものの順） */
+  /** 置換で支払うカードの候補（「かわりにカードを3枚、自分のマナゾーンから墓地に置いてもよい」） */
+  private payCandidates(owner: PlayerId, pay: NonNullable<ReplacementAbility['pay']>, source: string): string[] {
+    const s = this.s;
+    if (pay.from === 'deckTop') return s.players[owner].zones.deck.slice(-pay.count).reverse();
+    return s.players[owner].zones[pay.from].filter((x) => x !== source && matchFilter(s, this.reg, x, pay.filter, source, true));
+  }
+
   private findReplacements(iid: string, cause: LeaveCause, used: string[]): { source: string; ability: ReplacementAbility; key: string }[] {
     const out: { source: string; ability: ReplacementAbility; key: string }[] = [];
     const s = this.s;
@@ -2001,6 +2053,8 @@ export class Ctx {
         // 真・エスケープ・マナ武装：シールドが足りなければ置換しない
         if (ab.instead === 'escape' && s.players[s.cards[src].owner].zones.shield.length < (ab.count ?? 1)) continue;
         if (ab.instead === 'faceUpShieldToGrave' && !this.faceUpShields().length) continue;
+        if (ab.oncePerTurn && (s.usedThisTurn ?? []).includes(`rep:${key}`)) continue;
+        if (ab.instead === 'payCards' && ab.pay && this.payCandidates(s.cards[src].owner, ab.pay, src).length < ab.pay.count) continue;
         out.push({ source: src, ability: ab, key });
       }
     }
@@ -2688,6 +2742,24 @@ export class Ctx {
         });
       }
       case 'fightPair': {
+        // 「自分と相手のクリーチャーを1体ずつ選ぶ。その2体をバトルさせる」
+        if (e.eachSide) {
+          const side = e.mine ? opp : controller;
+          const cands = battleCards(s, this.reg, side).filter((x) => side === controller || !isUntargetable(s, this.reg, x));
+          if (!cands.length || (e.mine && s.cards[e.mine]?.zone !== 'battle')) return false;
+          let pick = cands[0];
+          if (cands.length > 1) {
+            const r = this.takeResponse();
+            if (!r) {
+              s.pending = { kind: 'selectCards', player: controller, source, prompt: `${this.name(source)}：バトルさせる${side === controller ? '自分' : '相手'}のクリーチャーを1体選んでください`, candidates: cands, min: 1, max: 1 };
+              return true;
+            }
+            pick = r.selected?.[0] ?? pick;
+          }
+          if (!e.mine) this.insertFront(...this.effectTasks(controller, source, [{ ...e, mine: pick }]));
+          else this.insertFront({ kind: 'battle', attacker: e.mine, defender: pick });
+          return false;
+        }
         // 2体を選んでバトルさせる（1体しかいなければバトルしない）
         const r = this.takeResponse();
         const cands = targetCandidates(s, this.reg, controller, e.target, source);
@@ -3337,6 +3409,7 @@ export class Ctx {
   /** 対象を選んで fn を適用する。選択が必要なら pending を立てて true を返す */
   private withTargets(controller: PlayerId, source: string, spec: TargetSpec, verb: string, harmful: boolean, fn: (iid: string) => Task | void): boolean {
     const s = this.s;
+    if (spec.maxTotalPowerOfSource) spec = { ...spec, maxTotalPowerOfSource: undefined, maxTotalPower: s.cards[source]?.zone === 'battle' ? power(s, this.reg, source) : 0 };
     if (spec.maxCostOfChosen) {
       const costs = (s.lastChosen ?? []).filter((x) => s.cards[x]).map((x) => def(s, this.reg, x).cost);
       spec = { ...spec, maxCostOfChosen: undefined, filter: { ...(spec.filter ?? {}), maxCost: costs.length ? Math.max(...costs) : -1 } };

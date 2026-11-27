@@ -112,10 +112,14 @@ export interface CardFilter {
   sameRaceAsEquipped?: boolean;
   /** 効果の発生源（クロスギア）をクロスしたクリーチャーと同じ名前 */
   sameNameAsEquipped?: boolean;
+  /** コストが、発生源の持ち主から数えた数以下（「自分のマナゾーンにあるカードの枚数以下のコストを持つ」） */
+  maxCostCount?: Quantity;
 }
 
 /** 効果の対象指定 */
 export interface TargetSpec {
+  /** パワーの合計が、効果の発生源（このクリーチャー）のパワー以下になるように選ぶ */
+  maxTotalPowerOfSource?: boolean;
   owner: 'self' | 'opponent' | 'any';
   zone: 'battle' | 'mana' | 'shield' | 'graveyard' | 'hand' | 'deck' | 'hyperspatial';
   /** 'all' は条件に合うものすべて（選択なし） */
@@ -156,7 +160,8 @@ export interface TargetSpec {
 export interface Quantity {
   /** any: 両方のプレイヤー */
   who: 'self' | 'opponent' | 'any';
-  zone: 'battle' | 'mana' | 'shield' | 'graveyard' | 'hand' | 'deck';
+  /** under: 効果の発生源（このクリーチャー）の下にあるカード */
+  zone: 'battle' | 'mana' | 'shield' | 'graveyard' | 'hand' | 'deck' | 'under';
   filter?: CardFilter;
   /** バトルゾーンを数える時、クリーチャー以外（タマシード・フィールド）も数える */
   withPermanents?: boolean;
@@ -216,6 +221,8 @@ export type Condition =
   | { type: 'selfAttacking' }
   /** バトルゾーンにあるカード（両方のプレイヤー）の文明の種類が min 以上（「バトルゾーンに5文明すべてのカードがそろっていれば」） */
   | { type: 'civsInBattle'; min: number }
+  /** このクリーチャーのパワーを比べる（「そのパワーが0より大きければ」） */
+  | { type: 'selfPower'; op: '>' | '>=' | '<='; value: number }
   /** このクリーチャーがタップしている */
   | { type: 'selfTapped' }
   /** このターンに、そのプレイヤーのクリーチャーがバトルに勝っていた */
@@ -383,7 +390,8 @@ export type EffectDef =
    */
   | { type: 'fight'; target: TargetSpec; fighter?: 'chosen' }
   /** 選んだ2体をバトルさせる（「クリーチャーを2体選ぶ。その2体をバトルさせる」） */
-  | { type: 'fightPair'; target: TargetSpec }
+  /** eachSide: 自分と相手のクリーチャーを1体ずつ選ぶ（mine: エンジン内部用、選んだ自分のクリーチャー） */
+  | { type: 'fightPair'; target: TargetSpec; eachSide?: boolean; mine?: string }
   /** ガチンコ・ジャッジ：互いに山札の上を公開し、自分のコストが相手以上なら勝ち（then を処理）。公開したカードは山札の下へ */
   /** power: パワー・ガチンコ・ジャッジ（パワーを比べる）。lose: 負けた時の処理（「自分が負けたら、〜」） */
   | { type: 'gachinko'; then: EffectDef[]; power?: boolean; lose?: EffectDef[] }
@@ -527,6 +535,8 @@ export const TRIGGER_EVENTS = [
   'onSelfMoved',
   /** 自分のマナゾーンにカードが置かれた時（スペース・チャージ。filter は置かれたカード） */
   'onManaPut',
+  /** 他のクリーチャーの攻撃の終わりに */
+  'onOtherAttackEnd',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
@@ -585,6 +595,10 @@ export type StaticAbility = (
    * firstPerTurn: 各ターン、条件に合うカードを使うまでの1枚目だけ（「各ターン、自分の闇のクリーチャー1体目の」）
    */
   | { type: 'costMod'; amount: number; appliesTo: Applies; minCost?: number; firstPerTurn?: boolean }
+  /** 自分のターンに1枚目のカードを引く時、もう1枚余分に引いてもよい */
+  | { type: 'extraTurnDraw' }
+  /** 誰も、自身のマナゾーンの呪文カードをアンタップできない */
+  | { type: 'manaSpellsStayTapped' }
   /** 相手のクリーチャーが出て、相手のクリーチャーの能力がトリガーする時、かわりにその能力はトリガーしない */
   | { type: 'suppressEnterTriggers' }
   /** 自分は、このクリーチャーよりパワーが小さいクリーチャーに攻撃されない（プレイヤーへの攻撃を防ぐ） */
@@ -617,7 +631,8 @@ export type StaticAbility = (
    * 条件に合うクリーチャーがバトルゾーンに出る時、かわりに持ち主の to に置く（召喚でも効果でも）。
    * who: そのクリーチャーの持ち主（「相手の〜クリーチャーが出る時、相手はかわりにマナゾーンに置く」）
    */
-  | { type: 'enterInstead'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; to: 'graveyard' | 'mana' }
+  /** exceptFromHand: 手札から出る時は置き換えない（「手札以外のどこからでもバトルゾーンに出る時」） */
+  | { type: 'enterInstead'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; to: 'graveyard' | 'mana' | 'hand'; exceptFromHand?: boolean }
   /**
    * そのプレイヤーはゲームに負けない（「自分はゲームに負けない」「相手はゲームに勝てない」はどちらも who: self）。
    * deckOutOnly: 山札がなくなった時だけ（「自分の山札にカードがなくなっても、自分はゲームに負けない」）
@@ -651,7 +666,11 @@ export interface ReplacementAbility {
   /** shedTop: かわりに一番上のカードが離れる（スター進化。下のカードがクリーチャーとして残る） */
   /** faceUpShieldToGrave: かわりにいずれかのシールドゾーンにある表向きのカードを1枚、持ち主の墓地に置く */
   /** avertCost: かわりに自分の表向きのカードを count 枚破壊するか、自分のシールドを shieldAlt 個墓地に置く（CRY-S-MAX進化） */
-  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'toDeckTop' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther' | 'shedTop' | 'unflip' | 'faceUpShieldToGrave' | 'avertCost' | 'underToDeckBottom';
+  /** payCards: かわりに自分のカードを動かす（pay。「かわりにカードを3枚、自分のマナゾーンから墓地に置いてもよい」） */
+  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'toDeckTop' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther' | 'shedTop' | 'unflip' | 'faceUpShieldToGrave' | 'avertCost' | 'underToDeckBottom' | 'payCards';
+  pay?: { from: 'mana' | 'hand' | 'graveyard' | 'deckTop'; count: number; filter?: CardFilter; to: 'graveyard' | 'deckBottom' | 'deckShuffle' };
+  /** 各ターンに1度だけ */
+  oncePerTurn?: boolean;
   /** avertCost：かわりに墓地に置いてもよいシールドの数 */
   shieldAlt?: number;
   optional?: boolean;
@@ -794,6 +813,8 @@ export interface Keywords {
   maxBreakPerAttack?: number;
   /** パワーN以下のクリーチャーに攻撃もブロックもされない */
   immuneToPowerAtMost?: number;
+  /** パワーN以下のクリーチャーとのバトル中、破壊されない */
+  battleImmuneVsPowerAtMost?: number;
   /** クロスギアがクロスされた、タップされていないクリーチャーを攻撃できる */
   attackUntappedCrossed?: boolean;
   /** パワーが0以下の間、破壊されず、すべてのバトルに勝つ */

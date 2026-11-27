@@ -1498,6 +1498,15 @@ const C = {
       { ...base, name: 'ツイン / ツイン呪文', race: '', civilization: '水', type: '呪文', power: '', cost: '3', abilities: ['カードを１枚引く。'] },
     ],
   }),
+  manaPayGuard: mk('b-120', ['このクリーチャーが破壊される時、かわりにカードを３枚、自分のマナゾーンから墓地に置いてもよい。']),
+  millGuard: mk('b-121', ['このクリーチャーが破壊される時、そのパワーが０より大きければ、かわりに自分の山札の上から５枚を墓地に置く。']),
+  underPower: mk('b-122', ['このクリーチャーの下にあるカード１枚につき、このクリーチャーのパワーを+8000する。'], { power: '1000' }),
+  darkKiller: mk('b-123', ['闇ではないクリーチャーの攻撃の終わりに、そのクリーチャーを破壊する。'], { civ: '闇' }),
+  battleTough: mk('b-124', ['このクリーチャーは、パワー5500以下のクリーチャーとのバトル中、破壊されない。'], { power: '1000' }),
+  extraDraw: mk('b-125', ['自分のターンに１枚目のカードを引く時、もう１枚余分に引いてもよい。']),
+  duel: spell('b-126', ['自分と相手のクリーチャーを１体ずつ選んでもよい。その２体をバトルさせる。']),
+  sumKill: mk('b-127', ['このクリーチャーが出た時、パワーの合計がこのクリーチャーのパワー以下になるように相手のクリーチャーを好きな数選び、破壊する。'], { power: '7000' }),
+  handOnlyEnter: mk('b-128', ['相手のコスト４以下のクリーチャーが、手札以外のどこからでもバトルゾーンに出る時、相手はかわりにそのクリーチャーを手札に加える。']),
   discardJump: mk('b-117', ['相手のターンにこのクリーチャーが自分の手札から捨てられる時、墓地に置くかわりに出す。']),
   reanimSelf: mk('b-110', ['このクリーチャーが破壊された時、相手の手札が１枚もなければ、このクリーチャーを自分の墓地から出してもよい。']),
   kinDraw: mk('b-95', ['クロスギア', 'これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時、カードを１枚引いてもよい。'], { type: 'クロスギア', power: '' }),
@@ -1881,6 +1890,103 @@ describe('スペース・チャージ・ダイナモ・ツインパクトの呪�
     for (const h of [...s.players[1].zones.hand]) if (h !== j) new Ctx(s, reg).moveCard(h, 'deck');
     s = resolve(play(s, C.discardOne.id).s);
     expect(s.cards[j].zone).toBe('battle');
+  });
+});
+
+describe('置換で支払う・下のカード・他の攻撃の終わり・バトル中破壊されない・余分に引く・1体ずつバトル', () => {
+  const resolve = (s: GameState, pick?: (cands: string[]) => string[]): GameState => {
+    let guard = 0;
+    while (s.pending && guard++ < 20) {
+      const p = s.pending;
+      if (p.kind === 'confirm') s = act(s, { type: 'RESPOND', player: p.player, accept: true });
+      else if (p.kind === 'selectCards') s = act(s, { type: 'RESPOND', player: p.player, selected: pick ? pick(p.candidates) : p.candidates.slice(0, Math.max(p.min, 1)) });
+      else s = act(s, { type: 'RESPOND', player: p.player, selected: ['0'] });
+    }
+    return s;
+  };
+  it('破壊される時、かわりにマナゾーンのカードを3枚墓地に置ける（足りなければ使えない）', () => {
+    let s = newGame();
+    const g = put(s, 0, C.manaPayGuard.id, 'battle');
+    mana(s, 4);
+    s = resolve(play(s, C.killOwn.id).s);
+    expect(s.cards[g].zone).toBe('battle');
+    expect(s.players[0].zones.graveyard.length).toBeGreaterThanOrEqual(3);
+    let s2 = newGame();
+    const g2 = put(s2, 0, C.manaPayGuard.id, 'battle');
+    s2 = resolve(play(s2, C.killOwn.id).s);
+    expect(s2.cards[g2].zone).toBe('graveyard');
+  });
+  it('パワーが0より大きければ、かわりに山札の上から5枚を墓地に置く', () => {
+    let s = newGame();
+    const g = put(s, 0, C.millGuard.id, 'battle');
+    const deck = s.players[0].zones.deck.length;
+    s = resolve(play(s, C.killOwn.id).s);
+    expect(s.cards[g].zone).toBe('battle');
+    expect(s.players[0].zones.deck.length).toBe(deck - 5);
+  });
+  it('下にあるカード1枚につきパワー+8000', () => {
+    const s = newGame();
+    const u = put(s, 0, C.underPower.id, 'battle');
+    const c1 = put(s, 0, C.vanilla.id, 'graveyard');
+    s.cards[c1].zone = 'battle';
+    s.players[0].zones.graveyard.splice(s.players[0].zones.graveyard.indexOf(c1), 1);
+    s.cards[u].under.push(c1);
+    expect(power(s, reg, u)).toBe(9000);
+  });
+  it('闇ではないクリーチャーの攻撃の終わりに、そのクリーチャーを破壊する', () => {
+    let s = toAttack(newGame());
+    put(s, 1, C.darkKiller.id, 'battle');
+    const a = put(s, 0, C.vanilla.id, 'battle');
+    s = act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'player' } });
+    s = resolve(s);
+    expect(s.cards[a].zone).toBe('graveyard');
+  });
+  it('パワー5500以下のクリーチャーとのバトルでは破壊されない', () => {
+    let s = toAttack(newGame());
+    const a = put(s, 0, C.vanilla.id, 'battle');
+    const t = put(s, 1, C.battleTough.id, 'battle');
+    s.cards[t].tapped = true;
+    s = resolve(act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'creature', iid: t } }));
+    expect(s.cards[t].zone).toBe('battle');
+  });
+  it('自分のターンに1枚目を引く時、もう1枚引ける', () => {
+    let s = newGame();
+    put(s, 1, C.extraDraw.id, 'battle');
+    const hand = s.players[1].zones.hand.length;
+    s = act(s, { type: 'END_TURN', player: 0 });
+    s = resolve(s);
+    expect(s.players[1].zones.hand.length).toBe(hand + 2);
+  });
+  it('自分と相手のクリーチャーを1体ずつ選んでバトルさせる', () => {
+    let s = newGame();
+    const mine = put(s, 0, C.vanilla.id, 'battle');
+    put(s, 0, C.small.id, 'battle');
+    const theirs = put(s, 1, C.small.id, 'battle');
+    put(s, 1, C.vanilla.id, 'battle');
+    s = resolve(play(s, C.duel.id).s, (c) => [c.includes(mine) ? mine : c.includes(theirs) ? theirs : c[0]]);
+    expect([s.cards[mine].zone, s.cards[theirs].zone]).toEqual(['battle', 'graveyard']);
+  });
+  it('パワーの合計がこのクリーチャーのパワー以下になるように破壊する', () => {
+    let s = newGame();
+    const a = put(s, 1, C.vanilla.id, 'battle');
+    const b = put(s, 1, C.small.id, 'battle');
+    const c = put(s, 1, C.small.id, 'battle');
+    s = resolve(play(s, C.sumKill.id).s, (cands) => cands);
+    // 5000+2000 = 7000 までしか破壊できない
+    const dead = [a, b, c].filter((x) => s.cards[x].zone === 'graveyard');
+    expect(dead.reduce((sum, x) => sum + (x === a ? 5000 : 2000), 0)).toBeLessThanOrEqual(7000);
+    expect(dead.length).toBeGreaterThan(0);
+  });
+  it('相手のクリーチャーが手札以外から出る時、かわりに手札に戻る（手札からは出られる）', () => {
+    let s = newGame();
+    put(s, 0, C.handOnlyEnter.id, 'battle');
+    const g = put(s, 1, C.vanilla.id, 'graveyard');
+    s.queue.push({ kind: 'enterBattle', player: 1, iid: g });
+    new Ctx(s, reg).run();
+    expect(s.cards[g].zone).toBe('hand');
+    s.queue.push({ kind: 'enterBattle', player: 1, iid: g });
+    new Ctx(s, reg).run();
+    expect(s.cards[g].zone).toBe('battle');
   });
 });
 
