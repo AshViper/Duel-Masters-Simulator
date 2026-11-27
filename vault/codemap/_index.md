@@ -27,7 +27,7 @@ generated: 2026-11-27
 | `src/core/cards/cards.engine.test.ts` | 3475 | engineMore / 読み取り / エンジンで動く / 別のコストでの使い方 | [[codemap/src-core-cards-cards.engine.test\|地図]] |
 | `src/core/cards/cards.newParser.test.ts` | 758 | lexer / 語に分ける / 動詞の活用 / カッコ・カード名・能力語 | [[codemap/src-core-cards-cards.newParser.test\|地図]] |
 | `src/core/cards/cards.sample10.test.ts` | 308 | 例文10の読み取り / 例文10の動作 | [[codemap/src-core-cards-cards.sample10.test\|地図]] |
-| `src/core/cards/cards.sample11.test.ts` | 254 | 例文11の読み取り / 例文11の動作 | [[codemap/src-core-cards-cards.sample11.test\|地図]] |
+| `src/core/cards/cards.sample11.test.ts` | 303 | 例文11の読み取り / 例文11の動作 | [[codemap/src-core-cards-cards.sample11.test\|地図]] |
 | `src/core/cards/cards.sample7.test.ts` | 137 | 例文7の読み取り / 例文7の動作 |  |
 | `src/core/cards/cards.sample8.test.ts` | 127 | 例文8の読み取り / 例文8の動作 |  |
 | `src/core/cards/cards.sample9.test.ts` | 221 | 例文9の読み取り / 例文9の動作 |  |
@@ -38,7 +38,7 @@ generated: 2026-11-27
 | `src/core/cards/lineDefs.ts` | 204 | 能力の文ごとの効果定義。 |  |
 | `src/core/cards/officialConvert.ts` | 332 | 公式カード検索の詳細（OfficialCardDetail）を、デッキ構築・対戦で使うカード定義に変換する。 | [[codemap/src-core-cards-officialConvert\|地図]] |
 | `src/core/cards/registry.ts` | 82 | カードIDからカード定義を引く辞書。エンジン・UI 共通で使う。 |  |
-| `src/core/cards/textParser.ts` | 4372 | 公式カードの能力テキスト（日本語）を、エンジンが処理できる効果定義に変換する。 | [[codemap/src-core-cards-textParser\|地図]] |
+| `src/core/cards/textParser.ts` | 4385 | 公式カードの能力テキスト（日本語）を、エンジンが処理できる効果定義に変換する。 | [[codemap/src-core-cards-textParser\|地図]] |
 | `src/core/cards/types.ts` | 1155 | カードの基本情報（カードデータ）の型定義。 | [[codemap/src-core-cards-types\|地図]] |
 | `src/core/deck/deckText.test.ts` | 106 | parseDeckText / カード名の照合 / deckToText |  |
 | `src/core/deck/deckText.ts` | 193 | AI やメモで書いたデッキリスト（表・箇条書き）のテキストから「カード名と枚数」を読み取る。 |  |
@@ -48,7 +48,7 @@ generated: 2026-11-27
 | `src/core/deck/rules.ts` | 100 | デッキ構成ルール。フォーマットごとに差し替えられる。 |  |
 | `src/core/engine/effects.test.ts` | 398 | 常在効果 / 置換効果 / 誘発タイミング / ツインパクト | [[codemap/src-core-engine-effects.test\|地図]] |
 | `src/core/engine/engine.test.ts` | 333 | ゲーム開始 / ターン進行 / 召喚・呪文 / 攻撃 | [[codemap/src-core-engine-engine.test\|地図]] |
-| `src/core/engine/engine.ts` | 4449 | ゲームエンジン本体。applyAction(state, action) で新しい状態を返す純粋な入口を持ち、 | [[codemap/src-core-engine-engine\|地図]] |
+| `src/core/engine/engine.ts` | 4459 | ゲームエンジン本体。applyAction(state, action) で新しい状態を返す純粋な入口を持ち、 | [[codemap/src-core-engine-engine\|地図]] |
 | `src/core/engine/legal.ts` | 62 | 入力待ちでない時にターンプレイヤーが取れる合法アクションの一覧。 |  |
 | `src/core/engine/order.test.ts` | 148 | 効果の処理順 / 置換効果が2つ以上ある時 |  |
 | `src/core/engine/queries.ts` | 1193 | ゲーム状態を読むだけの関数群（状態を変更しない）。UI・AI・エンジンで共用する。 | [[codemap/src-core-engine-queries\|地図]] |

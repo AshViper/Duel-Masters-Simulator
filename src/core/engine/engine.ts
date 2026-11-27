@@ -2827,7 +2827,17 @@ export class Ctx {
         const iid = picked[0];
         if (!iid || !s.cards[iid]) return false;
         const usesJbig = (ab: TriggeredAbility) => JSON.stringify(ab.effects).includes('"jbig":true');
-        const ab = (def(s, this.reg, iid).abilities ?? []).find((a) => a.when === e.when && !a.effects.some((x) => x.type === 'manual') && !(e.jbig && usesJbig(a)));
+        const usable = (def(s, this.reg, iid).abilities ?? []).filter((a) => a.when === e.when && !a.effects.some((x) => x.type === 'manual') && !(e.jbig && usesJbig(a)));
+        let ab = usable[0];
+        // 使える能力が2つ以上あれば、どれを使うか選ぶ（「能力を1つ使う」）
+        if (usable.length > 1) {
+          const r = this.takeResponse();
+          if (!r) {
+            s.pending = { kind: 'chooseMode', player: controller, source, prompt: `${this.name(iid)} のどの能力を使いますか？`, options: usable.map((a, i) => `${i + 1}つ目の能力：${a.effects.map((x) => EFFECT_HINT[x.type] ?? '能力').join('・')}`) };
+            return true;
+          }
+          ab = usable[Number(r.selected?.[0])] ?? ab;
+        }
         if (!ab) {
           this.log(`${this.name(iid)}：使える能力がない`, controller);
           return false;

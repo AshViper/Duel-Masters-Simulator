@@ -31,6 +31,14 @@ const C = {
   meraAtk: mk('s11-5', 'めらこうげき', ['このクリーチャーが攻撃する時、自分の、ジョーカーズとマナゾーンにあるジョーカーズ・カードが合計７つ以上なら、相手の「ブロッカー」を持つクリーチャーをすべて破壊する。'], { ...J, civ: '火', cost: '7', power: '10000' }),
   keshi: mk('s11-6', 'けしかす', ['相手のクリーチャーがバトルゾーンに出て、その能力がトリガーする時、「ノーン!!」と叫びながらこのクリーチャーを破壊してもよい。そうしたら、その能力はトリガーしない。（例えば、「このクリーチャーがバトルゾーンに出た時」で始まる能力はトリガーしない）'], { ...J, civ: '無色', cost: '5', power: '5000' }),
   jogi: mk('s11-7', 'じょぎ', ['W・ブレイカー', '相手は、自身の各ターンに１枚しか呪文を唱えられない。'], { race: 'ジョーカーズ・ドラゴン', civ: '無色', cost: '8', power: '10000' }),
+  jogiFull: mk('s11-13', 'じょぎぜんぶ', [
+    '革命チェンジ：コスト５以上のジョーカーズ（自分のコスト５以上のジョーカーズが攻撃する時、そのクリーチャーと手札にあるこのクリーチャーを入れ替えてもよい）',
+    'W・ブレイカー',
+    'このクリーチャーがバトルゾーンに出た時、カードを１枚引き、その後、自分の手札を１枚捨てる。こうして捨てたカードがジョーカーズなら、そのカードの「このクリーチャーがバトルゾーンに出た時」で始まる能力を１つ使ってもよい。',
+    '相手は、自身の各ターンに１枚しか呪文を唱えられない。',
+  ], { race: 'ジョーカーズ・ドラゴン', civ: '無色', cost: '8', power: '10000' }),
+  jokerCip: mk('s11-14', 'でるじょーかー', ['このクリーチャーが出た時、カードを２枚引く。'], { ...J, civ: '無色', cost: '4', power: '3000' }),
+  joker2: mk('s11-15', 'ふたつじょーかー', ['このクリーチャーが出た時、カードを２枚引く。', 'このクリーチャーが出た時、相手のクリーチャーを１体破壊する。'], { ...J, civ: '無色', cost: '6', power: '3000' }),
   joker: mk('s11-8', 'じょーかー', [], { ...J, civ: '無色', cost: '2', power: '2000' }),
   small: mk('s11-9', 'こもの', [], { cost: '2', power: '2000' }),
   blocker: mk('s11-10', 'ぶろっかー', ['ブロッカー'], { cost: '2', power: '2000' }),
@@ -239,6 +247,47 @@ describe('例文11の動作', () => {
     s = settle(runTask(s, { kind: 'enterBattle', player: 1, iid: c }), false);
     expect(zone(s, k)).toBe('battle');
     expect(s.players[1].zones.hand.length).toBe(hand1 + 2);
+  });
+
+  it('捨てたカードがジョーカーズなら、その「出た時」の能力を使ってもよい（墓地にあるまま使う）', () => {
+    let s = newGame();
+    const jc = put(s, 0, C.jokerCip.id, 'hand');
+    const jogi = put(s, 0, C.jogiFull.id, 'hand');
+    s.players[0].zones.hand = [jc, jogi];
+    s = runTask(s, { kind: 'enterBattle', player: 0, iid: jogi });
+    // 1枚引いた後、捨てるカードに でるじょーかー を選ぶ → 使うか聞かれる
+    s = settle(s, true, (c) => (c.includes(jc) ? [jc] : c.slice(0, 1)));
+    expect(zone(s, jc)).toBe('graveyard');
+    // 1枚引いて1枚捨て、2枚引く：手札は 1（引いた1枚）+2
+    expect(s.players[0].zones.hand.length).toBe(3);
+  });
+
+  it('使わなければ引かない／ジョーカーズでないカードを捨てた時は聞かない', () => {
+    let s = newGame();
+    const jc = put(s, 0, C.jokerCip.id, 'hand');
+    const jogi = put(s, 0, C.jogiFull.id, 'hand');
+    s.players[0].zones.hand = [jc, jogi];
+    s = settle(runTask(s, { kind: 'enterBattle', player: 0, iid: jogi }), false, (c) => (c.includes(jc) ? [jc] : c.slice(0, 1)));
+    expect(s.players[0].zones.hand.length).toBe(1);
+    s = newGame();
+    const sm = put(s, 0, C.small.id, 'hand');
+    const jogi2 = put(s, 0, C.jogiFull.id, 'hand');
+    s.players[0].zones.hand = [sm, jogi2];
+    s = runTask(s, { kind: 'enterBattle', player: 0, iid: jogi2 });
+    s = settle(s, true, (c) => (c.includes(sm) ? [sm] : c.slice(0, 1)));
+    expect(zone(s, sm)).toBe('graveyard');
+    expect(s.players[0].zones.hand.length).toBe(1);
+  });
+
+  it('「出た時」の能力が2つあれば、使う1つを選ぶ', () => {
+    let s = newGame();
+    const j2 = put(s, 0, C.joker2.id, 'hand');
+    const jogi = put(s, 0, C.jogiFull.id, 'hand');
+    const foe = put(s, 1, C.small.id, 'battle');
+    s.players[0].zones.hand = [j2, jogi];
+    s = settle(runTask(s, { kind: 'enterBattle', player: 0, iid: jogi }), true, (c) => (c.includes(j2) ? [j2] : c.slice(0, 1)), (o) => (expect(o.length).toBe(2), 1));
+    expect(zone(s, foe)).toBe('graveyard');
+    expect(s.players[0].zones.hand.length).toBe(1);
   });
 
   it('ケシカス：出た時の能力を持たない相手のクリーチャー・自分のクリーチャーでは聞かない', () => {

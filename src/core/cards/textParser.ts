@@ -1112,6 +1112,13 @@ function parseSentence(s: string): EffectDef[] | null {
     const target = refAnyZone();
     return target && [{ type: 'useAbilityOf', target, when: 'onSummon' }];
   }
+  // 「（こうして捨てたカードがジョーカーズなら、）そのカードの「このクリーチャーが出た時」で始まる能力を1つ使ってもよい」
+  const usePrev = s.match(/^(?:その|こうして(?:捨てた|墓地に置いた|手札に戻した))(?:カード|クリーチャー)の「このクリーチャーが(?:バトルゾーンに)?出た時」で始まる能力を1つ使(う|ってもよい)$/);
+  if (usePrev) {
+    const target = refAnyZone();
+    const eff: EffectDef[] | null = target && [{ type: 'useAbilityOf', target, when: 'onSummon' }];
+    return eff && (usePrev[1] === 'う' ? eff : [{ type: 'optional', effects: eff }]);
+  }
   // Jビッグ1：「自分の他のジョーカーズの、Jビッグ1以外の、出た時にトリガーする能力を1つ使う」
   if (/^Jビッグ1する$/.test(s))
     return [{ type: 'useAbilityOf', target: { owner: 'self', zone: 'battle', count: 1, filter: { race: 'ジョーカーズ', excludeSelf: true, hasOnSummonAbility: true } }, when: 'onSummon', jbig: true }];
@@ -3100,6 +3107,12 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
       const cond: Condition = { type: 'compare', left, op: '>=', right: n(count as string) };
       return { body: rest as string, condition: neg ? { type: 'not', condition: cond } : cond };
     }
+  }
+  // 「こうして捨てたカードがジョーカーズなら、」：直前に選んだ（動かした）カードが条件に合う時だけ
+  const chosenIs = body.match(/^(?:こうして(?:捨てた|墓地に置いた|手札に(?:加えた|戻した)|マナゾーンに置いた|山札の(?:一番)?(?:上|下)に置いた)|その(?:捨てた)?)(?:カード|クリーチャー)が([^、。]+?)(?:なら|であれば)、(.+)$/);
+  if (chosenIs) {
+    const f: CardFilter = {};
+    if (parseSubject(chosenIs[1], f) && Object.keys(f).length) return { body: chosenIs[2], condition: { type: 'chosenMatches', filter: f } };
   }
   // 水晶武装：「自分のマナゾーンに裏向きのカードが4枚以上あれば、」
   const crystal = body.match(/^(自分|相手)のマナゾーンに裏向きのカードが(\d+)枚以上あれば、(.+)$/);
