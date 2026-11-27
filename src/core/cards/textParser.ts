@@ -682,7 +682,7 @@ function parseMods(mods: string, filter: CardFilter): boolean {
     [/^([^、のをにがで「」《》]+?)ではない/, (x) => (filter.not = { race: x[1].replace(/・?クリーチャー$/, '') })],
     [/^種族に([^、のをにがで「」]+?)とある/, (x) => (filter.race = x[1])],
     [/^(?:その|選んだ)数字と同じコスト(?:の|を持つ)/, () => (filter.costIsChosenNumber = true)],
-    [/^ツインパクト/, () => (filter.twinpact = true)],
+    [/^ツインパクト・?/, () => (filter.twinpact = true)],
     [/^(光|水|闇|火|自然)以外の/, (x) => (filter.not = { civilization: CIV[x[1]] })],
     [/^サイキック以外の/, () => (filter.not = { typeLabelIncludes: 'サイキック' })],
     [/^「([^「」]+)」(?:を持つ|付きの|つきの)/, (x) => {
@@ -947,6 +947,9 @@ function parseGrant(t: string): Keywords | null {
 
 /** 「自分のドラゴン」「自分の多色クリーチャー」の主語部分を CardFilter にする */
 function parseSubject(t: string, filter: CardFilter): boolean {
+  // 「自分の《弾丸超邪 クロスファイア》がなければ」：その名前のカード（名前に含むだけのカードは合わない）
+  const named = t.match(/^《([^》]+)》$/);
+  if (named) return !!(filter.nameEquals = named[1]);
   if (t.endsWith('クリーチャー')) {
     const tmp: CardFilter = {};
     if (parseMods(t.slice(0, -'クリーチャー'.length), tmp)) return !!Object.assign(filter, tmp);
@@ -3741,6 +3744,19 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     (out.handTriggers ??= []).push({ when: 'opponentAttackOrBlock', condition: conds.length > 1 ? { type: 'and', conditions: conds } : conds[0], endOfTurn: 'deckBottom', oncePerAttack: true });
     return true;
   }
+  // ニンジャ・チェンジN：相手のクリーチャーが攻撃またはブロックした時、この攻撃中に「ニンジャ」能力を使っていなければ、
+  // 手札にあるこのクリーチャーと、自分のコストN以上の（補足説明の種族の）クリーチャー1体を入れ替えてもよい
+  const nChange = t.match(/^ニンジャ・チェンジ(\d+)。?$/);
+  if (nChange && kind === 'creature') {
+    const rem = line.normalize('NFKC').replace(/\s/g, '').match(/自分のコスト(\d+)以上で(.+?)のクリーチャー1体を入れ替えてもよい/);
+    const filter: CardFilter = { cardType: 'creature', minCost: n(nChange[1]) };
+    if (rem) {
+      if (n(rem[1]) !== n(nChange[1])) return false;
+      setRaces(filter, rem[2]);
+    }
+    (out.handTriggers ??= []).push({ when: 'opponentAttackOrBlock', oncePerAttack: true, ninjaChange: filter });
+    return true;
+  }
   // 革命0トリガー：「クリーチャーが自分を攻撃する時、自分のシールドが1枚もなければ、このクリーチャーを手札から見せてもよい。そうしたら、〜」
   // 手札から見せて、このカードの効果を使う（効果の source は手札にあるこのカード）
   const rev0 = t.match(/^革命0トリガー[―ー—\-－:：]?クリーチャーが自分を攻撃する時、(?:(.+?)、)?この(?:クリーチャー|カード)を(?:自分の)?手札から(?:相手に)?見せてもよい。そうしたら、(.+?)。?$/);
@@ -3973,8 +3989,26 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   const gz = t.match(/^G・ゼロ[:：\-](.+)、この(?:クリーチャー|呪文|カード)を(?:コストを支払わずに|コスト0で)(?:召喚し|唱え|使っ)てもよい。?$/);
   if (gz) {
     const c = splitCondition(`${gz[1]}、x`);
-    if (!c.condition || c.body !== 'x') return false;
-    out.gZero = c.condition;
+    if (c.condition && c.body === 'x') {
+      out.gZero = c.condition;
+      return true;
+    }
+    // 「自分のクリーチャーが4体以上あり、自分の《X》がなければ」：2つの条件の両方
+    const two = gz[1].match(/^(.+?)あり、(.+)$/);
+    const a = two && splitCondition(`${two[1]}あれば、x`);
+    const b = two && splitCondition(`${two[2]}、x`);
+    if (!a?.condition || a.body !== 'x' || !b?.condition || b.body !== 'x') return false;
+    out.gZero = { type: 'and', conditions: [a.condition, b.condition] };
+    return true;
+  }
+  // 「このクリーチャーを召喚する時、自分の手札にある他のコスト9のカードを好きな数、相手に見せてもよい。こうして見せたカード1枚につき、このクリーチャーの召喚コストを1少なくする」
+  // 見せるカードは、条件に合う手札すべて（見せるほど軽くなるので、すべて見せたものとする）
+  const reveal = t.match(/^このクリーチャーを召喚する時、自分の手札にある(他の)?(.*?)カードを好きな数、相手に見せてもよい。こうして見せたカード1枚につき、このクリーチャーの召喚コストを(\d+)少なくする。ただし、コストは0以下に(?:は)?ならない。?$/);
+  if (reveal && kind === 'creature') {
+    const filter: CardFilter = {};
+    if (!parseMods(reveal[2], filter)) return false;
+    if (reveal[1]) filter.excludeSelf = true;
+    out.selfCost = { amount: n(reveal[3]), per: { who: 'self', zone: 'hand', filter }, unit: 1, min: 1 };
     return true;
   }
   // シンパシー：「シンパシー：自分のドラゴン・クリーチャー」その1体につき召喚コストを1（W・シンパシーは2）少なくする

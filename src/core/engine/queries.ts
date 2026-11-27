@@ -217,6 +217,8 @@ export function zoneSummonSource(state: GameState, reg: CardRegistry, player: Pl
     if (st.type !== 'summonFromZone' || a.controller !== player || st.zone !== inst.zone) continue;
     // 山札からは、上から1枚目だけ
     if (st.zone === 'deck' && state.players[player].zones.deck.at(-1) !== iid) continue;
+    // 選んだカードだけ（《冒険妖精ポレキチ》）
+    if (st.chosenOnly && !st.iids?.includes(iid)) continue;
     if (st.oncePerTurn && (state.activePlayer !== player || state.usedThisTurn?.includes(`sfz:${a.source}`))) continue;
     if (matchFilter(state, reg, iid, st.filter)) return a.source;
   }
@@ -255,6 +257,21 @@ export function hyperizeCandidates(state: GameState, reg: CardRegistry, player: 
 // ───────────────────────── 絞り込み ─────────────────────────
 
 /** カード（バトルゾーン以外も可）が条件に合うか。noPower なら現在パワーではなく元のパワーで判定（常在効果の循環防止） */
+/** 光・水・闇・火・自然（無色は含まない） */
+const ALL_CIVS: Civilization[] = ['light', 'water', 'darkness', 'fire', 'nature'];
+
+/** 「自分のマナゾーンにあるカードは、すべての文明を持つ」がそのプレイヤーに効いているか（循環を避けるため、バトルゾーンのカードの元の能力を直接見る） */
+export function manaHasAllCivs(state: GameState, reg: CardRegistry, player: PlayerId): boolean {
+  return state.players[player].zones.battle.some((b) => !!reg[state.cards[b].cardId]?.statics?.some((x) => x.type === 'manaAllCivs'));
+}
+
+/** コストの支払いに使えるカード（マナゾーンのカードと、「マナゾーンにあるかのようにタップしてもよい」クリーチャー）の文明 */
+function payCivs(state: GameState, reg: CardRegistry, m: string, allCivs: boolean): Civilization[] {
+  if (allCivs || state.cards[m].zone === 'battle') return ALL_CIVS;
+  // 裏向きのマナ（水晶チャージャー）は文明を持たない
+  return state.cards[m].faceUp === false ? [] : manaCivilizations(def(state, reg, m));
+}
+
 export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f: CardFilter | undefined, source?: string, noPower = false): boolean {
   if (!f) return true;
   const inst = state.cards[iid];
@@ -282,6 +299,10 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
     const owner = source && state.cards[source] ? state.cards[source].owner : inst.owner;
     if (d.cost > countQuantity(state, reg, owner, f.maxCostCount, true, source)) return false;
   }
+  if (f.costBelowCount) {
+    const owner = source && state.cards[source] ? state.cards[source].owner : inst.owner;
+    if (d.cost >= countQuantity(state, reg, owner, f.costBelowCount, true, source)) return false;
+  }
   if (f.wasUnderSource && !(source && state.cards[source]?.formerUnder?.includes(iid))) return false;
   if (f.hasAbilityWhen && !(d.abilities ?? []).some((a) => a.when === f.hasAbilityWhen)) return false;
   // 誘発の原因と比べる条件が、誘発の時に置き換えられていない：何にも合わない
@@ -301,15 +322,17 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   }
   if (f.costIsChosenNumber && d.cost !== state.chosenNumber) return false;
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(d.type) : d.type !== f.cardType)) return false;
-  if (f.civilization && !d.civilizations.includes(f.civilization)) return false;
-  if (f.civilizations && !f.civilizations.some((c) => d.civilizations.includes(c))) return false;
+  // 「自分のマナゾーンにあるカードは、すべての文明を持つ」
+  const civs = (f.civilization || f.civilizations || f.multicolor) && inst.zone === 'mana' && manaHasAllCivs(state, reg, inst.owner) ? ALL_CIVS : d.civilizations;
+  if (f.civilization && !civs.includes(f.civilization)) return false;
+  if (f.civilizations && !f.civilizations.some((c) => civs.includes(c))) return false;
   if (f.race && !d.races.some((r) => r.includes(f.race!))) return false;
   if (f.races && !f.races.some((x) => d.races.some((r) => r.includes(x)))) return false;
   if (f.nonEvolution && (d.type === 'evolution' || (inst.zone === 'battle' && inst.under.length > 0))) return false;
   if (f.twinpact && !d.twin) return false;
   // 常在効果の中からは元の能力で判定する（循環防止）
   if (f.hasKeyword && !(inst.zone === 'battle' && !noPower ? keywords(state, reg, iid) : (d.keywords ?? {}))[f.hasKeyword]) return false;
-  if (f.multicolor && d.civilizations.length < 2) return false;
+  if (f.multicolor && civs.length < 2) return false;
   // NEO進化・G-NEO進化で重ねたクリーチャーも進化クリーチャー
   if (f.evolution && d.type !== 'evolution' && !(inst.zone === 'battle' && inst.under.length > 0)) return false;
   if (f.nameIncludes && !d.name.replace(/\s/g, '').includes(f.nameIncludes.replace(/\s/g, ''))) return false;
@@ -854,6 +877,8 @@ function attackTargetsImpl(state: GameState, reg: CardRegistry, player: PlayerId
     // 「パワー2000以下のクリーチャーに攻撃またはブロックされない」
     const immune = keywords(state, reg, t).immuneToPowerAtMost;
     if (immune !== undefined && power(state, reg, iid) <= immune) continue;
+    // 飛行：「飛行」を持たないクリーチャーから攻撃されない
+    if (keywords(state, reg, t).flying && !kw.flying) continue;
     // 「出したターン、アンタップしているクリーチャーを攻撃できる」：出たターンはアンタップのクリーチャーだけ
     if (machOnly && !kw.machFighter) {
       if (!state.cards[t].tapped) out.push({ kind: 'creature', iid: t });
@@ -881,6 +906,8 @@ export function blockersFor(state: GameState, reg: CardRegistry, defender: Playe
     const kw = keywords(state, reg, b);
     if (kw.cannotBlock) return false;
     if (akw.immuneToPowerAtMost !== undefined && power(state, reg, b) <= akw.immuneToPowerAtMost) return false;
+    // 飛行：「飛行」を持たないクリーチャーからブロックされない
+    if (akw.flying && !kw.flying) return false;
     // 「このクリーチャーよりパワーが小さいクリーチャーにブロックされない」
     if (akw.unblockableBySmaller && !kw.superGuardman && !kw.guardman && power(state, reg, b) < power(state, reg, attacker)) return false;
     // ガードマンは「ブロック」ではなく攻撃先の変更なので、ブロックされないクリーチャーにも使える
@@ -1013,6 +1040,7 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       // 「自分のマナゾーンにすべての文明が揃っていれば」：そのプレイヤーのマナゾーン（裏向きのカードは文明を持たない）
       if (c.manaOf) {
         const p = c.manaOf === 'self' ? controller : other(controller);
+        if (state.players[p].zones.mana.length && manaHasAllCivs(state, reg, p)) return ALL_CIVS.length >= c.min;
         for (const m of state.players[p].zones.mana) if (state.cards[m].faceUp !== false) for (const cv of def(state, reg, m).civilizations) if (cv !== 'zero') civs.add(cv);
         return civs.size >= c.min;
       }
@@ -1166,9 +1194,11 @@ export function payMana(state: GameState, reg: CardRegistry, player: PlayerId, c
   // コスト0（G・ゼロなど）はマナを支払わない
   if (cost === 0) return preferred && preferred.length ? null : [];
   const civs: Civilization[] = needCivs.filter((cv) => cv !== 'zero');
-  const untapped = state.players[player].zones.mana.filter((m) => !state.cards[m].tapped);
-  // 裏向きのマナ（水晶チャージャー）は文明を持たない
-  const mciv = (m: string) => (state.cards[m].faceUp === false ? [] : manaCivilizations(def(state, reg, m)));
+  // 《極楽鳥》：マナゾーンにあり、すべての文明を持つかのようにタップしてもよいクリーチャーも使える
+  const birds = battleCards(state, reg, player).filter((b) => !state.cards[b].tapped && keywords(state, reg, b).tapAsMana);
+  const untapped = [...state.players[player].zones.mana.filter((m) => !state.cards[m].tapped), ...birds];
+  const allCivs = manaHasAllCivs(state, reg, player);
+  const mciv = (m: string) => payCivs(state, reg, m, allCivs);
   if (preferred) {
     if (preferred.length !== cost || preferred.some((m) => !untapped.includes(m)) || new Set(preferred).size !== preferred.length) return null;
     return assignCivs(civs, preferred, mciv) ? preferred : null;

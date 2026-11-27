@@ -114,6 +114,8 @@ export interface CardFilter {
   sameNameAsEquipped?: boolean;
   /** コストが、発生源の持ち主から数えた数以下（「自分のマナゾーンにあるカードの枚数以下のコストを持つ」） */
   maxCostCount?: Quantity;
+  /** コストが、発生源の持ち主から数えた数より小さい（「自分のマナゾーンにあるツインパクトカードの枚数よりコストの小さい」） */
+  costBelowCount?: Quantity;
   /** 効果の発生源（このクリーチャー）がバトルゾーンを離れた時に、その下にあったカード（「下にあったカード」） */
   wasUnderSource?: boolean;
   /** コストが、直前に選んだカードのコストの合計以下（「そのJトルネードされたクリーチャーのコストの合計以下のコストを持つ」） */
@@ -481,6 +483,8 @@ export type EffectDef =
   | { type: 'shieldPlus'; count: number; upTo?: boolean; each?: boolean }
   /** エンジン内部用：手札（墓地）にあるカードを、コストを支払わずに使うか聞く（手札にある間の誘発） */
   | { type: 'handPlay'; iid: string; endOfTurn?: 'deckBottom'; ninja?: boolean; spellAfter?: 'deckBottom'; onceKey?: string; debt?: number }
+  /** エンジン内部用：ニンジャ・チェンジ（手札の iid と、自分の filter に合うクリーチャー1体を入れ替えてもよい） */
+  | { type: 'ninjaChange'; iid: string; filter: CardFilter }
   /** GR召喚：自分の超GRゾーンの上から count 枚を、1枚ずつ召喚する */
   | { type: 'grSummon'; count: number }
   /** 「その攻撃の後、〜」：いまの攻撃が終わった後に行う */
@@ -526,6 +530,11 @@ export type EffectDef =
    * そうでなければ全部を restTo へ（「それがすべて同じコストのクリーチャーなら出す。そうでなければ、好きな順序で山札の下に置く」）
    */
   | { type: 'revealTopAll'; count: number; filter?: CardFilter; sameCost?: boolean; to: 'hand' | 'battle'; restTo: 'deckBottom' | 'graveyard' | 'top' }
+  /**
+   * 山札の上から count 枚を表向きにし（distinctCost: それらがすべて異なるコストなら）、その中から filter に合うカードを好きな数、コストを支払わずに使ってもよい。
+   * 残りをすべて restTo に置く（《五輪の求道者 清永》。ツインパクトは両方のコストを持つものとして比べる）。from・rest はエンジン内部用
+   */
+  | { type: 'revealTopUse'; count: number; distinctCost?: boolean; filter?: CardFilter; restTo: 'mana'; from?: string[]; rest?: string[] }
   /** 「次の能力をN回まで使う」：使うかどうかを1回ずつ聞く */
   | { type: 'upToTimes'; times: number; effects: EffectDef[] }
   /**
@@ -751,7 +760,8 @@ export type StaticAbility = (
   /** 条件に合うクリーチャーを、そのゾーンから召喚してもよい（「自分のターンに一度、魔導具クリーチャーを1体、自分の墓地から召喚してもよい」） */
   /** zone: deck は山札の上から1枚目（「自分の山札の上から1枚目をいつでも見てもよい。それがクリーチャーなら、召喚してもよい」） */
   /** then: この能力で召喚したら、続けて行う効果（「そうしたら、自分の山札の上から1枚目をマナゾーンに置く」。《チアスカーレット アカネ》） */
-  | { type: 'summonFromZone'; zone: 'graveyard' | 'mana' | 'deck'; filter?: CardFilter; oncePerTurn?: boolean; then?: EffectDef[] }
+  /** chosenOnly: turnStatic で使い、直前に選んだカードだけ召喚できる（「〜を1体選ぶ。このターン、そのクリーチャーをマナゾーンから召喚してもよい」）。iids はエンジン内部用 */
+  | { type: 'summonFromZone'; zone: 'graveyard' | 'mana' | 'deck'; filter?: CardFilter; oncePerTurn?: boolean; then?: EffectDef[]; chosenOnly?: boolean; iids?: string[] }
   /** 自分がカードを引く時、山札が0枚なら、かわりに effects を行う（引く1枚ごと。《不死鳥縫合 ブラック・ビッグバン》） */
   | { type: 'emptyDrawInstead'; effects: EffectDef[] }
   /** そのプレイヤーは、自身の山札の横向きのカードを手札に加えた時、ゲームに負ける（《Q.Q.QX.》） */
@@ -774,7 +784,14 @@ export type StaticAbility = (
    */
   /** exceptFromHand: 手札から出る時は置き換えない（「手札以外のどこからでもバトルゾーンに出る時」） */
   /** anyCard: クリーチャー以外のカード（タマシード・クロスギア・フィールドなど）にも効く（「相手が自身の手札以外からカードを出す時」） */
-  | { type: 'enterInstead'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; to: 'graveyard' | 'mana' | 'hand'; exceptFromHand?: boolean; anyCard?: boolean }
+  /** thenSelfTo: 置き換えた後、このクリーチャーをそこに置く（「その後、自分はこのクリーチャーをマナゾーンに置く」《ベイB セガーレ》） */
+  | { type: 'enterInstead'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; to: 'graveyard' | 'mana' | 'hand'; exceptFromHand?: boolean; anyCard?: boolean; thenSelfTo?: 'mana' }
+  /** そのプレイヤーが手札以外から（exceptFromHand）マナゾーンにカードを置く時、かわりに to に置く（《星空に浮かぶニンギョ》。置くプレイヤーはカードの持ち主で見る） */
+  | { type: 'manaInstead'; who: 'self' | 'opponent' | 'both'; to: 'graveyard'; exceptFromHand?: boolean }
+  /** シールドゾーンから自分の手札に加えられる呪文はすべて「S・トリガー」を得る（《天雷龍姫エリザベス》。ツインパクトは呪文側） */
+  | { type: 'shieldSpellsTrigger' }
+  /** 自分のマナゾーンにあるカードは、すべての文明を持つ（《怪盗妖精カサブランカ》。裏向きのカードも） */
+  | { type: 'manaAllCivs' }
   /**
    * そのプレイヤーはゲームに負けない（「自分はゲームに負けない」「相手はゲームに勝てない」はどちらも who: self）。
    * deckOutOnly: 山札がなくなった時だけ（「自分の山札にカードがなくなっても、自分はゲームに負けない」）
@@ -783,7 +800,8 @@ export type StaticAbility = (
   /** 相手の呪文の効果やクリーチャーの能力によって、自分の手札は捨てられない */
   | { type: 'handProtected' }
   /** 条件に合う自分のカードは、マナゾーンにアンタップして置かれる（「自分のスノーフェアリー・カードをマナゾーンに置いた時、それをアンタップする」） */
-  | { type: 'manaEntersUntapped'; filter?: CardFilter }
+  /** fromHand: 手札からマナゾーンに置いた時だけ（「カードを自分の手札からマナゾーンに置いた時、そのカードをアンタップする」《怪盗妖精カサブランカ》） */
+  | { type: 'manaEntersUntapped'; filter?: CardFilter; fromHand?: boolean }
   /** 持ち主の zones 以外からはバトルゾーンに出ない（「相手のエレメントは、相手の手札以外から出ない」。who: カードの持ち主） */
   | { type: 'entryOnlyFrom'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; zones: Array<'hand' | 'deck'> }
   /** そのプレイヤーは「S・トリガー」を使えない（「このクリーチャーがタップしていれば、相手は「S・トリガー」を使えない」は condition: selfTapped） */
@@ -1014,6 +1032,10 @@ export interface Keywords {
   gBreaker?: boolean;
   /** S・バック：この文明のカードを自分のシールドゾーンから手札に加える時、そのカードを捨ててもよい。そうしたら、コストを支払わずにこの呪文を唱える */
   sBack?: Civilization;
+  /** 飛行：「飛行」を持たないクリーチャーから攻撃もブロックもされない */
+  flying?: boolean;
+  /** このクリーチャーを、自分のマナゾーンにあり、すべての文明を持つかのようにタップしてもよい（コストの支払いに使える。《極楽鳥》） */
+  tapAsMana?: boolean;
 }
 
 /** 禁断の鼓動の裏側（禁断クリーチャー） */
@@ -1136,6 +1158,8 @@ export interface HandTrigger {
   debt?: number;
   /** 出す・唱えるかわりに、手札にあるこのカードを source としてこの効果を使う（革命0トリガー：「このクリーチャーを手札から見せてもよい。そうしたら、〜」） */
   effects?: EffectDef[];
+  /** ニンジャ・チェンジ：手札にあるこのクリーチャーと、自分のバトルゾーンの（この条件に合う）クリーチャー1体を入れ替えてもよい */
+  ninjaChange?: CardFilter;
 }
 
 /**

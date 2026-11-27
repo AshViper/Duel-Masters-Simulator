@@ -849,6 +849,12 @@ export class Ctx {
             s.afterAttackPlays = [...(s.afterAttackPlays ?? []), { player, iid: h }];
             continue;
           }
+          // ニンジャ・チェンジ：入れ替えられる自分のクリーチャーがいる時だけ
+          if (ht.ninjaChange) {
+            const f = ht.ninjaChange;
+            if (battleCards(s, this.reg, player).some((b) => matchFilter(s, this.reg, b, f))) this.addTrigger(player, h, this.effectTasks(player, h, [{ type: 'ninjaChange', iid: h, filter: f }]));
+            continue;
+          }
           // 革命0トリガー：手札から見せて、このカードの効果を使ってもよい
           if (ht.effects) {
             this.addTrigger(player, h, this.effectTasks(player, h, [{ type: 'optional', effects: ht.effects }]));
@@ -1149,7 +1155,7 @@ export class Ctx {
           this.log(`${this.name(task.iid)} を、唱えた後に超次元ゾーンに置いた`, s.cards[task.iid].owner);
           return false;
         }
-        this.moveCard(task.iid, charger ? 'mana' : 'graveyard');
+        this.moveCard(task.iid, charger ? 'mana' : 'graveyard', { resolving: true });
         // 水晶チャージャー：裏向きでマナゾーンに置く（文明を持たないマナになる）
         if (kw?.crystalCharger) s.cards[task.iid].faceUp = false;
         if (charger) this.log(`${this.name(task.iid)} を${kw?.crystalCharger ? '裏向きにして' : ''}マナゾーンに置いた（${kw?.crystalCharger ? '水晶' : ''}チャージャー）`, s.cards[task.iid].owner);
@@ -1253,6 +1259,8 @@ export class Ctx {
             const to = ins.static.to;
             this.moveCard(task.iid, to);
             this.log(`${def(s, this.reg, ins.source).name} の効果：${entering.name} はバトルゾーンに出るかわりに${ZONE_LABEL[to]}に置かれた`, ins.controller);
+            // 「その後、自分はこのクリーチャーをマナゾーンに置く」
+            if (ins.static.thenSelfTo && s.cards[ins.source]?.zone === 'battle') this.insertFront(...this.effectTasks(ins.controller, ins.source, [{ type: 'selfAction', action: ins.static.thenSelfTo }]));
             return false;
           }
         }
@@ -1710,7 +1718,8 @@ export class Ctx {
           this.emit({ type: 'SHIELD_BROKEN', player: task.defender, iid: sh });
           if (burn) continue;
           const d = def(s, this.reg, sh);
-          if (d.keywords?.shieldTrigger || d.twin?.keywords?.shieldTrigger || this.conditionalTrigger(task.defender, sh)) triggers.push({ kind: 'shieldTrigger', player: task.defender, iid: sh });
+          if (d.keywords?.shieldTrigger || d.twin?.keywords?.shieldTrigger || this.conditionalTrigger(task.defender, sh) || this.spellTriggerGranted(task.defender, sh))
+            triggers.push({ kind: 'shieldTrigger', player: task.defender, iid: sh });
           // S・バック：「（その文明の）カードを自分のシールドゾーンから手札に加える時、そのカードを捨ててもよい。そうしたら、コストを支払わずにこの呪文を唱える」
           for (const h of s.players[task.defender].zones.hand) {
             const civ = h === sh ? undefined : def(s, this.reg, h).keywords?.sBack;
@@ -1776,7 +1785,11 @@ export class Ctx {
     const inst = s.cards[iid];
     if (!inst || inst.zone !== 'hand') return false;
     const d = def(s, this.reg, iid);
-    const sides = (['main', 'twin'] as const).filter((side) => (side === 'main' ? d.keywords?.shieldTrigger || this.conditionalTrigger(player, iid) : d.twin?.keywords?.shieldTrigger));
+    // 「シールドゾーンから自分の手札に加えられる呪文はすべて、「S・トリガー」を得る」：呪文の面（ツインパクトは呪文側）
+    const granted = this.spellTriggerGranted(player, iid);
+    const sides = (['main', 'twin'] as const).filter((side) =>
+      side === 'main' ? d.keywords?.shieldTrigger || this.conditionalTrigger(player, iid) || (granted && d.type === 'spell') : d.twin?.keywords?.shieldTrigger || (granted && !!d.twin),
+    );
     // 「相手は「S・トリガー」を使えない」
     const locked = shieldTriggerLocked(s, this.reg, player);
     if (locked) {
@@ -1809,6 +1822,13 @@ export class Ctx {
     this.emit({ type: 'CARD_PLAYED', player, iid });
     this.insertFront(face.type === 'spell' ? { kind: 'castSpell', player, iid, side, from: 'shield' } : { kind: 'enterBattle', player, iid, evolveOn, summoned: true });
     return false;
+  }
+
+  /** 「シールドゾーンから自分の手札に加えられる呪文はすべて、「S・トリガー」を得る」がこのカードに効くか（呪文か、呪文側のあるツインパクト） */
+  private spellTriggerGranted(player: PlayerId, iid: string): boolean {
+    const d = def(this.s, this.reg, iid);
+    if (d.type !== 'spell' && !d.twin) return false;
+    return activeStatics(this.s, this.reg).some((a) => a.static.type === 'shieldSpellsTrigger' && a.controller === player);
   }
 
   /** 「〜があれば、自分のシールドゾーンにあるこの呪文に「S・トリガー」を与える」の条件を満たすか */
@@ -2857,6 +2877,8 @@ export class Ctx {
         // 「その数字と同じコストの」：選んだ数字をこの時点で決める（後で別の数字を選んでも変わらないように）
         const num = s.chosenNumber ?? -1;
         const bound = JSON.parse(JSON.stringify(e.static).split('"costIsChosenNumber":true').join(`"minCost":${num},"maxCost":${num}`)) as StaticAbility;
+        // 「そのクリーチャーを〜から召喚してもよい」：選んだカードをこの時点で決める
+        if (bound.type === 'summonFromZone' && bound.chosenOnly) bound.iids = [...(s.lastChosen ?? [])];
         s.turnStatics.push({
           controller,
           source,
@@ -3146,6 +3168,56 @@ export class Ctx {
           this.emit({ type: 'CARD_PLAYED', player: controller, iid: e.iid });
           this.insertFront({ kind: 'enterBattle', player: controller, iid: e.iid, summoned: true, ...(e.endOfTurn ? { endOfTurn: e.endOfTurn } : {}) });
         } else this.useFree(controller, e.iid, e.spellAfter);
+        return false;
+      }
+      case 'revealTopUse': {
+        // 残りをすべてマナゾーンに置く（使ったカードの処理の後）
+        if (e.rest) {
+          const left = e.rest.filter((x) => s.cards[x]?.zone === 'deck');
+          for (const x of left) this.moveCard(x, e.restTo);
+          if (left.length) this.log(`残りの${left.length}枚（${left.map((x) => this.name(x)).join('・')}）を${ZONE_LABEL[e.restTo]}に置いた`, controller);
+          return false;
+        }
+        const shown = e.from ?? s.players[controller].zones.deck.slice(-e.count).reverse();
+        if (!e.from) this.log(`山札の上から${shown.length}枚を表向きにした：${shown.map((x) => this.name(x)).join('・') || 'なし'}`, controller);
+        const costs = shown.map((x) => {
+          const d = def(s, this.reg, x);
+          return d.twin ? [d.cost, d.twin.cost] : [d.cost];
+        });
+        const distinct = !e.distinctCost || costs.every((c, i) => costs.every((c2, j) => i === j || !c.some((v) => c2.includes(v))));
+        if (!distinct) this.log('コストが同じカードがあるので、使えない', controller);
+        const cands = distinct ? shown.filter((x) => s.cards[x]?.zone === 'deck' && matchFilter(s, this.reg, x, e.filter, source)) : [];
+        let picked: string[] = [];
+        if (cands.length) {
+          const r = this.takeResponse();
+          if (!r) {
+            e.from = shown;
+            s.pending = { kind: 'selectCards', player: controller, source, prompt: `${this.name(source)}：コストを支払わずに使うカードを好きな数選んでください（残りはマナゾーンに置く）`, candidates: cands, min: 0, max: cands.length, harmful: false };
+            return true;
+          }
+          picked = (r.selected ?? []).filter((x) => cands.includes(x));
+        }
+        this.insertFront({ kind: 'effect', controller, source, effect: { ...e, from: shown, rest: shown.filter((x) => !picked.includes(x)) } });
+        for (const x of [...picked].reverse()) this.useFree(controller, x);
+        return false;
+      }
+      case 'ninjaChange': {
+        // ニンジャ・チェンジ：手札にあるこのクリーチャーと、自分のクリーチャー1体を入れ替えてもよい（バトルゾーンのクリーチャーは手札に戻り、このクリーチャーは同じタップの状態で出る）
+        const inst = s.cards[e.iid];
+        if (!inst || inst.zone !== 'hand' || s.combat?.ninjaUsed?.includes(controller)) return false;
+        const cands = battleCards(s, this.reg, controller).filter((b) => matchFilter(s, this.reg, b, e.filter));
+        if (!cands.length) return false;
+        const r = this.takeResponse();
+        if (!r) {
+          s.pending = { kind: 'selectCards', player: controller, source: e.iid, prompt: `ニンジャ・チェンジ：${this.name(e.iid)} と入れ替えるクリーチャーを選んでください（使わないなら選ばない）`, candidates: cands, min: 0, max: 1, harmful: false };
+          return true;
+        }
+        const pick = r.selected?.[0];
+        if (!pick || !cands.includes(pick)) return false;
+        if (s.combat) s.combat.ninjaUsed = [...(s.combat.ninjaUsed ?? []), controller];
+        this.log(`ニンジャ・チェンジ！ ${this.name(pick)} を手札に戻し、${this.name(e.iid)} を出す`, controller);
+        this.emit({ type: 'CARD_PLAYED', player: controller, iid: e.iid });
+        this.insertFront({ kind: 'leave', iid: pick, to: 'hand', cause: 'effect' }, { kind: 'enterBattle', player: controller, iid: e.iid, ...(s.cards[pick].tapped ? { tapped: true } : {}) });
         return false;
       }
       case 'grSummon': {
@@ -4558,10 +4630,20 @@ export class Ctx {
     );
   }
 
-  moveCard(iid: string, to: ZoneName, opts: { toTop?: boolean; deckPos?: number; sideways?: boolean } = {}): void {
+  /** resolving: 唱え終わった呪文を置く（手札を経由しているが、手札から置いたのではない） */
+  moveCard(iid: string, to: ZoneName, opts: { toTop?: boolean; deckPos?: number; sideways?: boolean; resolving?: boolean } = {}): void {
     const s = this.s;
     const inst = s.cards[iid];
     const from = inst.zone;
+    const fromHand = from === 'hand' && !opts.resolving;
+    // 「相手が自身の手札以外からマナゾーンにカードを置く時、かわりに墓地に置く」（《星空に浮かぶニンギョ》。置くプレイヤーはカードの持ち主で見る）
+    if (to === 'mana' && from !== 'mana' && !fromHand) {
+      const ins = activeStatics(s, this.reg).find((a) => a.static.type === 'manaInstead' && (a.static.who === 'both' || (a.static.who === 'self') === (a.controller === inst.owner)));
+      if (ins && ins.static.type === 'manaInstead') {
+        this.log(`${this.name(ins.source)} の効果：${this.name(iid)} はマナゾーンに置かれるかわりに墓地に置かれた`, ins.controller);
+        to = ins.static.to;
+      }
+    }
     // 横向きに刺したカードが山札を離れる：手札に加えたなら「ゲームに負ける」（《Q.Q.QX.》）
     const wasSideways = from === 'deck' && !!inst.sideways;
     if (from === 'deck') delete inst.sideways;
@@ -4632,7 +4714,7 @@ export class Ctx {
     // 多色カードはタップしてマナゾーンに置かれる（「マナゾーンに置いた時、アンタップする」カードは除く）
     const untapIn =
       def(s, this.reg, iid).keywords?.manaUntapped ||
-      activeStatics(s, this.reg).some((a) => a.static.type === 'manaEntersUntapped' && a.controller === inst.owner && matchFilter(s, this.reg, iid, a.static.filter, a.source, true));
+      activeStatics(s, this.reg).some((a) => a.static.type === 'manaEntersUntapped' && a.controller === inst.owner && !(a.static.fromHand && !fromHand) && matchFilter(s, this.reg, iid, a.static.filter, a.source, true));
     if (to === 'mana' && !untapIn && manaCivilizations(def(s, this.reg, iid)).length > 1) inst.tapped = true;
     // 「マナゾーンに置く時、このカードはタップして置く」
     const md = def(s, this.reg, iid);
@@ -4643,6 +4725,8 @@ export class Ctx {
         if (a.static.type === 'manaEntersTapped' && (a.static.who === 'both' || (a.static.who === 'self') === (a.controller === inst.owner))) inst.tapped = true;
       }
     }
+    // 《怪盗妖精カサブランカ》「カードを自分の手札からマナゾーンに置いた時、そのカードをアンタップする」：タップして置かれても、置いた後でアンタップする
+    if (to === 'mana' && fromHand && inst.tapped && activeStatics(s, this.reg).some((a) => a.static.type === 'manaEntersUntapped' && a.static.fromHand && a.controller === inst.owner)) inst.tapped = false;
     if (to === 'deck' && opts.deckPos !== undefined) {
       // 山札の上から N 枚目の位置（山札が足りなければ一番下）
       const deck = owner.zones.deck;

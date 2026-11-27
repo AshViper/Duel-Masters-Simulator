@@ -30,7 +30,7 @@ const ownCiv = (civilization: 'water' | 'darkness'): Condition => ({
 });
 
 /** シビルカウント：自分のその文明のクリーチャーまたはタマシードが合計 n 以上 */
-const civilCount = (civilization: 'water' | 'darkness' | 'nature', n: number): Condition => ({
+const civilCount = (civilization: 'light' | 'water' | 'darkness' | 'nature', n: number): Condition => ({
   type: 'compare',
   left: { who: 'self', zone: 'battle', withPermanents: true, filter: { civilization, anyOf: [{ cardType: 'creature' }, { cardType: 'tamaseed' }] } },
   op: '>=',
@@ -798,6 +798,181 @@ export const BUILT_IN_LINE_DEFS: LineDefs = {
   'このクリーチャーが攻撃する時、自分の手札から、自分の手札の枚数以下のコストを持つ進化ではない、サムライまたはアーマードを1枚、コストを支払わずに使ってもよい。': {
     note: 'ヴァルキリアス・武者・ムサシ「弐天」（クロスギアや呪文でもよい。手札の枚数は使うカードも数える）',
     abilities: [{ when: 'onAttack', optional: true, effects: [{ type: 'playFromHandFree', filter: { nonEvolution: true, races: ['サムライ', 'アーマード'] }, maxCostHandSize: true }] }],
+  },
+  // ── SD1 その7 ──
+  '相手のクリーチャーは、出たターン攻撃できない。': {
+    note: '聖カオスマントラ（スピードアタッカー・マッハファイターがあっても）',
+    statics: [{ type: 'grantKeyword', keywords: { noAttackOnEnterTurn: true }, appliesTo: { owner: 'opponent' } }],
+  },
+  '相手のクリーチャーは、タップしてバトルゾーンに置かれる。': {
+    note: '閃光の神官 ヴェルベット',
+    statics: [{ type: 'opponentEntersTapped' }],
+  },
+  '自分のターンの終わりに、このクリーチャーがアンタップしていたら、自分の手札に戻す。': {
+    note: 'グレイト“S-駆”',
+    abilities: [{ when: 'onTurnEnd', condition: { type: 'not', condition: { type: 'selfTapped' } }, effects: [{ type: 'selfAction', action: 'hand' }] }],
+  },
+  'このクリーチャーが出た時、自分のツインパクト・クリーチャーがあれば、山札の上から1枚目をマナゾーンに置く。': {
+    note: 'アカシック・ゼノン',
+    abilities: [
+      { when: 'onSummon', condition: { type: 'compare', left: { who: 'self', zone: 'battle', filter: { twinpact: true } }, op: '>=', right: 1 }, effects: [{ type: 'deckTopTo', count: 1, to: 'mana' }] },
+    ],
+  },
+  'プレイヤーを1人選ぶ。そのプレイヤーは、自身の墓地を山札に加えてシャッフルする。': {
+    note: 'オキヨメ・水晶チャージャー（清浄のカルマ インカの呪文側）',
+    abilities: [{ when: 'onCast', effects: [{ type: 'graveyardToDeck', who: 'choose' }] }],
+  },
+  'このカードが離れた時、カードを1枚、自分のマナゾーンから手札に戻す。': {
+    note: '晴舞龍 ズンドコ・モモキング（スター進化で一番上のこのカードだけが離れた時も）',
+    abilities: [{ when: 'onLeave', effects: [{ type: 'move', target: { owner: 'self', zone: 'mana', count: 1 }, to: 'hand' }] }],
+  },
+  '各ターンはじめて、自分またはこのクリーチャーが攻撃された時、各相手の手札を1枚ずつ見ないで選び、捨てさせる。': {
+    note: '邪光魔縛 ネロマノフ=ルドルフⅠ世（自分への攻撃とこのクリーチャーへの攻撃を合わせて各ターン1回）',
+    abilities: [
+      { when: 'onAttacked', oncePerTurn: true, onceKey: 'nero-attacked', effects: [{ type: 'discardRandom', count: 1 }] },
+      { when: 'onOtherAttackPlayer', who: 'opponent', oncePerTurn: true, onceKey: 'nero-attacked', effects: [{ type: 'discardRandom', count: 1 }] },
+    ],
+  },
+  '相手が、自身のマナゾーンのカードの枚数よりコストが大きいクリーチャーを出す時、相手はそれをかわりにマナゾーンに置き、その後、自分はこのクリーチャーをマナゾーンに置く。': {
+    note: 'ベイB セガーレ（召喚でも効果でも、どちらのターンでも）',
+    statics: [{ type: 'enterInstead', who: 'opponent', filter: { costAboveOwnerMana: true }, to: 'mana', thenSelfTo: 'mana' }],
+  },
+  '相手のターン中、相手が自身の手札以外からマナゾーンにカードを置く時、かわりに墓地に置く。': {
+    note: '星空に浮かぶニンギョ（相手のカードが相手のマナゾーンに置かれる時。唱えたチャージャー呪文も手札以外から置くものとする）',
+    statics: [{ type: 'manaInstead', who: 'opponent', to: 'graveyard', exceptFromHand: true, duringTurn: 'opponent' }],
+  },
+  '自分のマナゾーンにあるカードは、すべての文明を持つ。': {
+    note: '怪盗妖精カサブランカ（裏向きのカードも）',
+    statics: [{ type: 'manaAllCivs' }],
+  },
+  'カードを自分の手札からマナゾーンに置いた時、そのカードをアンタップする。': {
+    note: '怪盗妖精カサブランカ（タップして置かれても、置いた後でアンタップする）',
+    statics: [{ type: 'manaEntersUntapped', fromHand: true }],
+  },
+  'このクリーチャーが出た時、自分の光のクリーチャーまたは光のタマシード1つにつき、カードを1枚引いてもよい。': {
+    note: 'シェケダン・ドメチアーレ（このクリーチャー自身も数える。引く枚数は0枚から選べる）',
+    abilities: [
+      {
+        when: 'onSummon',
+        effects: [
+          {
+            type: 'repeat',
+            per: { who: 'self', zone: 'battle', withPermanents: true, filter: { civilization: 'light', anyOf: [{ cardType: 'creature' }, { cardType: 'tamaseed' }] } },
+            unit: 1,
+            effects: [{ type: 'draw', count: 1, upTo: true }],
+          },
+        ],
+      },
+    ],
+  },
+  '自分の光のクリーチャーと光のタマシードを使うコストを2少なくする。ただし、コストは0以下にはならない。': {
+    note: 'シェケダン・ドメチアーレ',
+    statics: [{ type: 'costMod', amount: -2, appliesTo: { owner: 'self', filter: { civilization: 'light', anyOf: [{ cardType: 'creature' }, { cardType: 'tamaseed' }] } }, minCost: 1 }],
+  },
+  'シビルカウント5：自分の光のクリーチャーまたは光のタマシードが合計5つ以上あれば、このクリーチャーのパワーを+10000し、「T・ブレイカー」と「このクリーチャーが攻撃する時、相手のクリーチャーを1体選んでもよい。相手はそれをシールド化する」を与える。': {
+    note: 'シェケダン・ドメチアーレ（与える攻撃する時の能力は、攻撃する時に条件を満たしていれば使える）',
+    statics: [
+      { type: 'powerMod', amount: 10000, appliesTo: { owner: 'self', onlySelf: true }, condition: civilCount('light', 5) },
+      { type: 'grantKeyword', keywords: { breaker: 3 }, appliesTo: { owner: 'self', onlySelf: true }, condition: civilCount('light', 5) },
+    ],
+    abilities: [
+      { when: 'onAttack', condition: civilCount('light', 5), effects: [{ type: 'move', target: { owner: 'opponent', zone: 'battle', count: 1, upTo: true }, to: 'shield' }] },
+    ],
+  },
+  '相手のターン中に、相手のクリーチャーが相手のマナゾーンのカードをタップせずに出た時、それをシールド化してもよい。': {
+    note: 'ヴェネラック-F5（召喚でも効果でも、コストを支払わずに出たもの）',
+    abilities: [
+      {
+        when: 'onOtherSummon',
+        who: 'opponent',
+        duringTurn: 'opponent',
+        condition: { type: 'subjectEnteredFree' },
+        optional: true,
+        effects: [{ type: 'move', target: { owner: 'opponent', zone: 'battle', count: 'all', ref: 'event' }, to: 'shield' }],
+      },
+    ],
+  },
+  'シールドゾーンから自分の手札に加えられる呪文はすべて、「S・トリガー」を得る。': {
+    note: '天雷龍姫エリザベス（シールドがブレイクされた時。ツインパクトは呪文側が得る）',
+    statics: [{ type: 'shieldSpellsTrigger' }],
+  },
+  '各ターンに一度、自分のツインパクト・クリーチャーが攻撃する時、そのクリーチャーの呪文側を、バトルゾーンに置いたままコストを支払わずに唱えてもよい。': {
+    note: 'アカシック・ゼノン（唱えなかった時は数えない。そのターンの他の攻撃でもう一度使える）',
+    abilities: [
+      {
+        when: 'onOtherAttack',
+        who: 'self',
+        filter: { twinpact: true },
+        oncePerTurn: true,
+        oncePerTurnOnUse: true,
+        onceKey: 'zenon-twin',
+        optional: true,
+        effects: [{ type: 'castOwnTwin', target: { owner: 'self', zone: 'battle', count: 'all', ref: 'event' } }],
+      },
+    ],
+  },
+  'このクリーチャーが出た時、自分のマナゾーンにあるクリーチャーを1体選ぶ。このターン、そのクリーチャーをマナゾーンから召喚してもよい。': {
+    note: '冒険妖精ポレキチ（コストは支払う。選んだクリーチャーだけ）',
+    abilities: [
+      {
+        when: 'onSummon',
+        effects: [
+          { type: 'choose', target: { owner: 'self', zone: 'mana', count: 1, filter: { cardType: 'creature' } } },
+          { type: 'turnStatic', static: { type: 'summonFromZone', zone: 'mana', chosenOnly: true } },
+        ],
+      },
+    ],
+  },
+  'このクリーチャーが攻撃する時、自分のマナゾーンにあるツインパクトカードの枚数よりコストの小さいクリーチャーを1体、自分のマナゾーンから出してもよい。': {
+    note: '全虹帝 ミノガミ（枚数は出すクリーチャーを選ぶ時に数える。選ぶクリーチャー自身も数える）',
+    abilities: [
+      {
+        when: 'onAttack',
+        effects: [
+          {
+            type: 'move',
+            target: { owner: 'self', zone: 'mana', count: 1, upTo: true, filter: { cardType: 'creature', costBelowCount: { who: 'self', zone: 'mana', filter: { twinpact: true } } } },
+            to: 'battle',
+          },
+        ],
+      },
+    ],
+  },
+  '自分のターンの終わりに、自分のコスト4以下のクリーチャーを手札と墓地から最大1体ずつ出してもよい。次の自分のターンのはじめまで、それらに「ブロッカー」を与える。': {
+    note: '千羽忍革 ボジソワカ（手札から1体、墓地から1体を、それぞれ出さなくてもよい）',
+    abilities: [
+      {
+        when: 'onTurnEnd',
+        effects: (['hand', 'graveyard'] as const).map(
+          (zone): EffectDef => ({
+            type: 'move',
+            target: { owner: 'self', zone, count: 1, upTo: true, filter: { cardType: 'creature', maxCost: 4 } },
+            to: 'battle',
+            grant: { keywords: { blocker: true }, untilNextTurn: true },
+          }),
+        ),
+      },
+    ],
+  },
+  'このクリーチャーが攻撃する時、自分の山札の上から3枚を表向きにする。それらがすべて異なるコストなら、その中から、コスト9以下のエレメントを好きな数、コストを支払わずに使ってもよい。残りをすべてマナゾーンに置く。': {
+    note: '五輪の求道者 清永（エレメントは呪文以外。ツインパクトは両方のコストを持つものとして比べ、クリーチャー側を使う）',
+    abilities: [{ when: 'onAttack', effects: [{ type: 'revealTopUse', count: 3, distinctCost: true, filter: { maxCost: 9, not: { cardType: 'spell' } }, restTo: 'mana' }] }],
+  },
+  '自分の山札の上から6枚を表向きにする。その中から進化クリーチャーをすべて自分の手札に加え、それ以外のカードを好きな順で自分の山札の一番下に戻す。': {
+    note: '進化設計図',
+    abilities: [{ when: 'onCast', effects: [{ type: 'lookAtTop', count: 6, pickCount: 6, pickAll: true, pickFilter: { cardType: 'creature', evolution: true }, pickTo: 'hand', restTo: 'deckBottom' }] }],
+  },
+  '飛行': {
+    note: '極楽鳥（「飛行」を持たないクリーチャーから攻撃もブロックもされない）',
+    keywords: { flying: true },
+  },
+  'このクリーチャーはシールドをブレイクできない。': {
+    note: '極楽鳥（攻撃でブレイクするシールドの数が0になる。シールドがなければとどめは刺せる）',
+    keywords: { maxBreakPerAttack: 0 },
+  },
+  'このクリーチャーを、自分のマナゾーンにあり、すべての文明を持つかのようにタップしてもよい。': {
+    note: '極楽鳥（コストの支払いに使える。出たターンにも使える）',
+    keywords: { tapAsMana: true },
   },
 };
 
