@@ -47,6 +47,11 @@ describe('backup', () => {
     expect(parseBackup({ format: BACKUP_FORMAT, version: 1 }).errors).toEqual([]);
   });
 
+  it('スリーブの設定を取り出す（古いファイルにはない）', () => {
+    expect(parseBackup({ format: BACKUP_FORMAT, version: 1, sleeves: { current: 'ui:sleeve:a', uploads: ['ui:sleeve:a', 1] } }).sleeves).toEqual({ current: 'ui:sleeve:a', uploads: ['ui:sleeve:a'] });
+    expect(parseBackup({ format: BACKUP_FORMAT, version: 1 }).sleeves).toBeUndefined();
+  });
+
   it('新しい版の形式は読み込まない', () => {
     const r = parseBackup({ format: BACKUP_FORMAT, version: 99, cards: [card] });
     expect(r.cards).toEqual([]);

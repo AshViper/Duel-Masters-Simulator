@@ -5,12 +5,13 @@ import { deckCount, HYPERSPATIAL_MAX, hyperspatialCount, validateDeck, type Deck
 import { deckToText } from '../../core/deck/deckText';
 import { useApp } from '../../store/appStore';
 import { Header } from '../components/AppShell';
-import { CardDetail, CardInfoPanel } from '../components/CardDetail';
+import { CardDetail, CardInfoPanel, Modal } from '../components/CardDetail';
 import { CardFilter } from '../components/CardFilter';
 import { CardView, CIV_COLOR } from '../components/CardView';
 import { DeckTextImport } from '../components/DeckTextImport';
 import { OfficialPicker } from '../components/OfficialPicker';
 import { ProxyPrintDialog } from '../components/ProxyPrintDialog';
+import { SleevePicker } from '../components/SleevePicker';
 
 // デッキ構築（design/app-ui.md）：検索｜デッキ40枚｜カード詳細 の3列。ページ全体はスクロールしない。
 
@@ -63,6 +64,7 @@ export function DeckBuilderScreen() {
   }, []);
   const [printing, setPrinting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [sleeveOpen, setSleeveOpen] = useState(false);
   const results = useMemo(() => searchCards(cards, q), [cards, q]);
 
   const entries = useMemo(
@@ -205,6 +207,7 @@ export function DeckBuilderScreen() {
         <button className="gold" onClick={() => { void saveDeck(deck); setSaved(true); }} disabled={saved} data-testid="save-deck">保存</button>
         <button onClick={async () => { const c = await duplicateDeck(deck.id); if (c) { editDeck(c.id); setDeck(c); } }}>複製</button>
         <button onClick={() => setTextImport(true)} data-testid="open-text-import">テキスト取込</button>
+        <button onClick={() => setSleeveOpen(true)} title="このデッキのカードの裏面の見た目" data-testid="open-sleeve">スリーブ</button>
         <button
           onClick={() => void navigator.clipboard?.writeText(deckToText(deck, registry)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
           disabled={total + hyper === 0}
@@ -340,6 +343,20 @@ export function DeckBuilderScreen() {
           }
         />
       </div>
+      {sleeveOpen && (
+        <Modal onClose={() => setSleeveOpen(false)}>
+          <h2 style={{ marginTop: 0 }}>スリーブ：{deck.name}</h2>
+          <p className="muted small">対戦でこのデッキのカードの裏面に使います（保存を押すと反映）。「全体の標準」は設定画面で選んだスリーブです。</p>
+          <SleevePicker
+            inherit
+            value={deck.sleeve}
+            onChange={(id) => {
+              setDeck((d) => (d ? { ...d, sleeve: id } : d));
+              setSaved(false);
+            }}
+          />
+        </Modal>
+      )}
       {printing && <ProxyPrintDialog deckName={deck.name} entries={entries.map(({ id, n, card }) => ({ id, count: n, card }))} onClose={() => setPrinting(false)} />}
       {textImport && (
         <DeckTextImport

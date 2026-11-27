@@ -7,6 +7,8 @@ import { db, type MatchRecord } from '../../db/db';
 import { useApp } from '../../store/appStore';
 import { Header } from '../components/AppShell';
 import { useBattleBackground } from '../battleBackground';
+import { SleevePicker } from '../components/SleevePicker';
+import { useSleeves } from '../sleeves';
 export { Header };
 
 export { HomeScreen, DeckListScreen } from './Home';
@@ -47,6 +49,7 @@ export function SettingsScreen() {
               </div>
             </div>
             <BattleBackgroundRow />
+            <SleeveRow />
           </section>
 
           <section className="panel settings-group">
@@ -254,6 +257,20 @@ function BattleBackgroundRow() {
         <span className="unit">暗さ</span>
         <input type="range" min={0} max={0.8} step={0.05} value={bg.dim} onChange={(e) => bg.setDim(Number(e.target.value))} />
       </div>
+    </div>
+  );
+}
+
+/** 設定：スリーブ（全体の標準。デッキごとの指定はデッキ構築で） */
+function SleeveRow() {
+  const { current, setCurrent } = useSleeves();
+  return (
+    <div className="setting-row sleeve-row">
+      <div className="setting-label">
+        <b>スリーブ</b>
+        <small>カードの裏面（山札・シールド・相手の手札）の見た目。デッキごとに変える時はデッキ構築の「スリーブ」から</small>
+      </div>
+      <SleevePicker value={current} onChange={(id) => setCurrent(id ?? 'std')} />
     </div>
   );
 }

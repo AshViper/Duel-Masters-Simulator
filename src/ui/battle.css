@@ -212,7 +212,10 @@
   width: calc(var(--c-zone) * 0.88);
   aspect-ratio: 63 / 88;
   border-radius: 4px;
-  background: url('./assets/battle/card-back.webp') center / cover;
+  /* スリーブ（--sleeve）は複数レイヤーのこともあるので longhand で書く */
+  background-image: var(--sleeve, url('./assets/battle/card-back.webp'));
+  background-position: center;
+  background-size: cover;
   box-shadow: 2px 2px 0 #0b1220, 3px 3px 0 #2a3550, 5px 5px 0 #0b1220, 6px 6px 0 #2a3550, 0 0 14px rgba(93, 217, 245, 0.25);
 }
 .pile-stack.empty { background: none; border: 1px dashed rgba(165, 179, 197, 0.3); box-shadow: none; }

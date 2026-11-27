@@ -11,14 +11,25 @@ import { DeckListScreen, HistoryScreen, HomeScreen, SettingsScreen } from './scr
 import { useBridgeConnected, useBridgeKind } from './officialBridge';
 import { BridgeImport } from './components/BridgeImport';
 import { AppShell } from './components/AppShell';
+import { useDeckSleeve } from './sleeves';
 
 export function App() {
   return (
     <>
+      <SleeveRoot />
       <BridgeImport />
       <Shell />
     </>
   );
+}
+
+/** 全体の標準のスリーブを、画面全体の CSS 変数 --sleeve にする（対戦ではプレイヤーごとに上書き） */
+function SleeveRoot() {
+  const css = useDeckSleeve(undefined);
+  useEffect(() => {
+    document.documentElement.style.setProperty('--sleeve', css);
+  }, [css]);
+  return null;
 }
 
 /** 対戦画面は全画面、それ以外は左ナビつきの枠に入れる */

@@ -8,6 +8,7 @@ import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
 import { useOnline } from '../../store/onlineStore';
 import { CardDetail, Modal } from '../components/CardDetail';
 import { CardView, CIV_COLOR, type CardSize } from '../components/CardView';
+import { useDeckSleeve } from '../sleeves';
 import { create } from 'zustand';
 import '../battle.css';
 import { useBattleBackground } from '../battleBackground';
@@ -39,7 +40,9 @@ const DRAG_THRESHOLD = 6;
 const MOVE_TARGETS: ZoneName[] = ['hand', 'battle', 'mana', 'shield', 'graveyard', 'deck'];
 
 export function BattleScreen() {
-  const { game, mode, dispatch, error, clearError, saveGame, quit, start, deckNames, seat, rematch } = useBattle();
+  const { game, mode, dispatch, error, clearError, saveGame, quit, start, deckNames, seat, rematch, sleeves } = useBattle();
+  // 各プレイヤーのスリーブ（裏面）。.side に CSS 変数で付ける
+  const sleeveCss = [useDeckSleeve(sleeves[0]), useDeckSleeve(sleeves[1])];
   const net = useOnline();
   /** 画面の下側に置く（自分の）プレイヤー。1人回しはプレイヤー1が下 */
   const me: PlayerId = mode === 'solo' ? 0 : seat;
@@ -435,7 +438,7 @@ export function BattleScreen() {
       </div>
     );
     return (
-      <div className={'side ' + (top ? 'top' : 'bottom')}>
+      <div className={'side ' + (top ? 'top' : 'bottom')} style={{ ['--sleeve' as string]: sleeveCss[p] }}>
         {top ? (
           <>
             {hand}

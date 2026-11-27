@@ -28,6 +28,22 @@ export interface BackupFile {
   images: BackupImage[];
   /** カード名ごとの見た目（ui/cardLooks.ts の CardLook）。古いファイルにはない */
   looks?: Record<string, BackupLook>;
+  /** スリーブ（ui/sleeves.ts）：全体の標準と追加した画像のキー。デッキごとの指定はデッキに入っている */
+  sleeves?: BackupSleeves;
+}
+
+export interface BackupSleeves {
+  current?: string;
+  uploads?: string[];
+}
+
+function parseSleeves(raw: unknown): BackupSleeves | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const out: BackupSleeves = {};
+  if (typeof o.current === 'string' && o.current) out.current = o.current;
+  if (Array.isArray(o.uploads)) out.uploads = o.uploads.filter((k): k is string => typeof k === 'string' && !!k);
+  return out;
 }
 
 /** カードの見た目（ui/cardLooks.ts の CardLook と同じ形。db から ui を読まないようにここでも定義する） */
@@ -100,7 +116,7 @@ function isImage(o: unknown): o is BackupImage {
 }
 
 /** 読み込んだ JSON を検証する。不正な項目は飛ばしてエラーに数える */
-export function parseBackup(raw: unknown): { cards: CardDefinition[]; decks: Deck[]; images: BackupImage[]; looks: Record<string, BackupLook>; errors: string[] } {
+export function parseBackup(raw: unknown): { cards: CardDefinition[]; decks: Deck[]; images: BackupImage[]; looks: Record<string, BackupLook>; sleeves?: BackupSleeves; errors: string[] } {
   const o = raw as Partial<BackupFile>;
   if (!isBackupFile(raw)) return { cards: [], decks: [], images: [], looks: {}, errors: ['バックアップファイルではありません'] };
   if (typeof o.version !== 'number' || o.version > BACKUP_VERSION)
@@ -114,17 +130,17 @@ export function parseBackup(raw: unknown): { cards: CardDefinition[]; decks: Dec
   if (images.length < imageList.length) errors.push(`画像 ${imageList.length - images.length}件が不正なため飛ばしました`);
   const { looks, bad } = parseLooks(o.looks);
   if (bad) errors.push(`見た目の設定 ${bad}件が不正なため飛ばしました`);
-  return { cards, decks, images, looks, errors };
+  return { cards, decks, images, looks, sleeves: parseSleeves(o.sleeves), errors };
 }
 
 /** ブラウザ内のカード・画像・デッキをまとめる。looks はカードの見た目の設定（localStorage にあるので呼び出し側が渡す） */
-export async function buildBackup(looks: Record<string, BackupLook> = {}): Promise<BackupFile> {
+export async function buildBackup(looks: Record<string, BackupLook> = {}, sleeves?: BackupSleeves): Promise<BackupFile> {
   const [cards, decks, rows] = await Promise.all([db.customCards.toArray(), db.decks.toArray(), db.images.toArray()]);
   const images: BackupImage[] = [];
   for (const r of rows) {
     images.push({ key: r.key, type: r.blob.type || 'application/octet-stream', source: r.source, data: bytesToBase64(new Uint8Array(await r.blob.arrayBuffer())) });
   }
-  return { format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: Date.now(), cards, decks, images, looks };
+  return { format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: Date.now(), cards, decks, images, looks, ...(sleeves ? { sleeves } : {}) };
 }
 
 /** バックアップを書き込む。同じ ID のカード・デッキ・画像は上書きする */

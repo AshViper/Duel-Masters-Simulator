@@ -244,7 +244,7 @@ input.num { width: 56px; }
 .kw-manual { background: #a0406a; }
 .card-xs .card-name, .card-xs .card-art, .card-xs .kw { display: none; }
 .card-xs .card-head { justify-content: center; }
-.card.face-down { background: #0b1428 url('./assets/battle/card-back.webp') center / cover no-repeat; display: grid; place-items: center; border: 1px solid #6b5a2e; padding: 0; }
+.card.face-down { background-color: #0b1428; background-image: var(--sleeve, url('./assets/battle/card-back.webp')); background-position: center; background-size: cover; background-repeat: no-repeat; display: grid; place-items: center; border: 1px solid #6b5a2e; padding: 0; }
 .card-back-mark { display: none; }
 .under-badge { position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); background: var(--gold); color: #111; font-size: 9px; padding: 0 4px; border-radius: 4px; white-space: nowrap; }
 .seal-badge { background: #6b4ea8; color: #fff; }
@@ -483,6 +483,16 @@ a.btn { display: inline-block; padding: 6px 12px; border: 1px solid var(--line);
 .look-art.add { border: 1px dashed var(--line-light, #556); font-size: 18px; }
 .look-foils { display: flex; flex-wrap: wrap; gap: 4px; }
 .look-foils button.on { border-color: var(--gold); color: var(--gold); }
+
+/* スリーブ選び（sleeves.ts） */
+.sleeve-picker { display: flex; flex-direction: column; gap: 6px; }
+.sleeve-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.sleeve-swatch { position: relative; width: 48px; aspect-ratio: 63 / 88; border-radius: 5px; border: 2px solid transparent; background: #0b1428 center / cover no-repeat; cursor: pointer; display: grid; place-items: center; color: var(--muted); font-size: 18px; box-shadow: 0 1px 4px #0008; }
+.sleeve-swatch.on { border-color: var(--gold); box-shadow: 0 0 8px rgba(244, 211, 94, 0.6); }
+.sleeve-swatch.add { border: 1px dashed var(--line-light, #556); background: none; }
+.sleeve-swatch .look-tag { position: absolute; left: 0; right: 0; bottom: 0; background: #000b; color: #fff; font-size: 9px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 0 0 3px 3px; }
+.sleeve-swatch .look-del { position: absolute; top: 1px; right: 1px; width: 16px; height: 16px; line-height: 14px; padding: 0; border-radius: 50%; border: none; background: #000c; color: #fff; font-size: 11px; cursor: pointer; }
+.setting-row.sleeve-row { flex-direction: column; align-items: stretch; }
 .getting-started { border-color: var(--accent) !important; }
 
 .official-picker { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; }

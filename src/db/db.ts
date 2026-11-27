@@ -26,6 +26,8 @@ export interface SavedGame {
   mode: 'cpu' | 'solo';
   difficulty: string;
   state: GameState;
+  /** 各プレイヤーのデッキのスリーブ（表示用。古い保存にはない） */
+  sleeves?: [string | undefined, string | undefined];
 }
 
 /** 画像キャッシュ（公式カード画像など）。ブラウザ内にだけ保存する */

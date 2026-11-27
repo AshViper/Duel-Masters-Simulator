@@ -29,6 +29,8 @@ export interface Deck {
   formatId: string;
   /** 一覧・ホームでサムネイルに使うカード（未指定・デッキに無いときは自動で選ぶ） */
   coverCardId?: string;
+  /** スリーブ（裏面の見た目。ui/sleeves.ts の id）。未指定なら全体の標準 */
+  sleeve?: string;
   createdAt: number;
   updatedAt: number;
 }

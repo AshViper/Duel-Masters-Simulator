@@ -30,6 +30,8 @@ interface BattleState {
   mode: BattleMode;
   difficulty: Difficulty;
   deckNames: [string, string];
+  /** 各プレイヤーのデッキのスリーブ（未指定なら全体の標準で表示） */
+  sleeves: [string | undefined, string | undefined];
   saveId: string | null;
   error: string | null;
   recorded: boolean;
@@ -91,6 +93,7 @@ export const useBattle = create<BattleState>((set, get) => {
     mode: 'cpu',
     difficulty: 'normal',
     deckNames: ['', ''],
+    sleeves: [undefined, undefined],
     saveId: null,
     error: null,
     recorded: false,
@@ -108,7 +111,7 @@ export const useBattle = create<BattleState>((set, get) => {
         },
         registry,
       );
-      set({ game, mode, difficulty, deckNames: [decks[0].name, decks[1].name], saveId: uid(), error: null, recorded: false, seat: 0 });
+      set({ game, mode, difficulty, deckNames: [decks[0].name, decks[1].name], sleeves: [decks[0].sleeve, decks[1].sleeve], saveId: uid(), error: null, recorded: false, seat: 0 });
       useApp.getState().go('battle');
       scheduleCpu();
     },
@@ -135,7 +138,7 @@ export const useBattle = create<BattleState>((set, get) => {
 
     startOnline: (game, deckNames, seat) => {
       if (cpuTimer) clearTimeout(cpuTimer);
-      set({ game, mode: 'online', difficulty: 'normal', deckNames, saveId: null, error: null, recorded: game.gameOverReason !== null, seat });
+      set({ game, mode: 'online', difficulty: 'normal', deckNames, sleeves: [undefined, undefined], saveId: null, error: null, recorded: game.gameOverReason !== null, seat });
       useApp.getState().go('battle');
     },
 
@@ -164,10 +167,10 @@ export const useBattle = create<BattleState>((set, get) => {
     clearError: () => set({ error: null }),
 
     saveGame: async () => {
-      const { game, mode, difficulty, saveId, deckNames } = get();
+      const { game, mode, difficulty, saveId, deckNames, sleeves } = get();
       // オンライン対戦は中断保存しない（再開には相手が必要なため）
       if (!game || !saveId || mode === 'online') return;
-      await db.savedGames.put({ id: saveId, savedAt: Date.now(), title: `${deckNames[0]} vs ${deckNames[1]}（ターン${game.turn}）`, mode, difficulty, state: game });
+      await db.savedGames.put({ id: saveId, savedAt: Date.now(), title: `${deckNames[0]} vs ${deckNames[1]}（ターン${game.turn}）`, mode, difficulty, state: game, sleeves });
     },
 
     loadGame: async (id) => {
@@ -177,7 +180,7 @@ export const useBattle = create<BattleState>((set, get) => {
       const registry = useApp.getState().registry;
       const missing = [...new Set(Object.values(row.state.cards).map((c) => c.cardId).filter((id) => !registry[id]))];
       if (missing.length) return `この対戦で使っていたカードが ${missing.length}種 手元にないため再開できません（${missing.slice(0, 3).join('、')}${missing.length > 3 ? ' など' : ''}）`;
-      set({ game: row.state, mode: row.mode, seat: 0, difficulty: row.difficulty as Difficulty, saveId: row.id, error: null, recorded: row.state.gameOverReason !== null, deckNames: row.title.split(' vs ') as [string, string] });
+      set({ game: row.state, mode: row.mode, seat: 0, difficulty: row.difficulty as Difficulty, saveId: row.id, error: null, recorded: row.state.gameOverReason !== null, deckNames: row.title.split(' vs ') as [string, string], sleeves: row.sleeves ?? [undefined, undefined] });
       useApp.getState().go('battle');
       scheduleCpu();
       return null;
