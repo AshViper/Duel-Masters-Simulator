@@ -356,7 +356,8 @@ export class Ctx {
           // ハイパーモードは次の自分のターンのはじめまで
           if (c.hyper && c.owner === pl) delete c.hyper;
         }
-        for (const iid of P.zones.mana) s.cards[iid].tapped = false;
+        // 「次の相手のターンのはじめに、それらはアンタップしない」マナもタップしたまま
+        for (const iid of P.zones.mana) if (!s.cards[iid].keywordsUntil?.keywords.noUntap) s.cards[iid].tapped = false;
         // 「自分のターンのはじめにアンタップしない」クリーチャーはタップしたまま
         for (const iid of P.zones.battle) if (!keywords(s, this.reg, iid).noUntap) s.cards[iid].tapped = false;
         P.chargedThisTurn = false;
@@ -898,7 +899,11 @@ export class Ctx {
           return true;
         }
         if (r.accept) this.insertFront(...this.effectTasks(task.controller, task.source, task.effects));
-        else this.log(`${this.name(task.source)} の能力を使わなかった`, task.controller);
+        else {
+          this.log(`${this.name(task.source)} の能力を使わなかった`, task.controller);
+          // 「そうしなければ、〜」
+          if (task.otherwise) this.insertFront(...this.effectTasks(task.controller, task.source, task.otherwise));
+        }
         return false;
       }
 
@@ -1967,6 +1972,10 @@ export class Ctx {
         return this.withTargets(controller, source, e.target, e.reveal ? '見る' : '選ぶ', false, (iid) => {
           if (e.reveal) this.log(`${this.name(source)}：${this.name(iid)} を見た`, controller);
         });
+      case 'nextSummonDiscount':
+        s.players[controller].nextSummonDiscount = { amount: e.amount, min: e.min, ...(e.grant ? { grant: e.grant } : {}), turn: s.turn };
+        this.log(`このターン、次に召喚するクリーチャーのコストを${e.amount}少なくする`, controller);
+        return false;
       case 'markUsed':
         (s.usedThisTurn ??= []).push(`${controller}:${e.key}`);
         return false;
@@ -2076,7 +2085,7 @@ export class Ctx {
         return false;
       }
       case 'optional':
-        this.insertFront({ kind: 'confirmOptional', controller, source, effects: e.effects });
+        this.insertFront({ kind: 'confirmOptional', controller, source, effects: e.effects, ...(e.otherwise ? { otherwise: e.otherwise } : {}) });
         return false;
       case 'opponentMay':
         // 「相手は〜してもよい」：相手に聞いて、相手が行う
@@ -3143,6 +3152,10 @@ export class Ctx {
   /** 対象を選んで fn を適用する。選択が必要なら pending を立てて true を返す */
   private withTargets(controller: PlayerId, source: string, spec: TargetSpec, verb: string, harmful: boolean, fn: (iid: string) => Task | void): boolean {
     const s = this.s;
+    if (spec.maxCostOfChosen) {
+      const costs = (s.lastChosen ?? []).filter((x) => s.cards[x]).map((x) => def(s, this.reg, x).cost);
+      spec = { ...spec, maxCostOfChosen: undefined, filter: { ...(spec.filter ?? {}), maxCost: costs.length ? Math.max(...costs) : -1 } };
+    }
     // 唱えている呪文のコスト（「コスト4以下の呪文によって選べない」の判定用）
     const src = s.cards[source];
     const srcDef = src && src.zone === 'hand' ? def(s, this.reg, source) : undefined;
@@ -3150,6 +3163,7 @@ export class Ctx {
     const candidates = targetCandidates(s, this.reg, controller, spec, source).filter(
       (c) =>
         (c !== source || spec.zone !== 'hand') &&
+        (!spec.minCostOwnerMana || def(s, this.reg, c).cost >= s.players[s.cards[c].owner].zones.mana.length) &&
         // 「相手に選ばれない」クリーチャーは、相手が選ぶ効果の候補にしない（「すべて」は選ばないので対象になる）
         !(spec.count !== 'all' && spec.chooser !== 'owner' && s.cards[c].owner !== controller && isUntargetable(s, this.reg, c, spellCost)),
     );
@@ -3339,6 +3353,12 @@ export class Ctx {
       }
       case 'CREATURE_SUMMONED':
         // 無月の門など：「自分の魔導具をバトルゾーンに出した時」「自分の魔導具クリーチャーを召喚した時」
+        // 「次に召喚する自分のクリーチャー」の軽減は、召喚したら使い切る（与える能力はそのクリーチャーに）
+        if (e.summoned && s.players[e.player].nextSummonDiscount) {
+          const nsd = s.players[e.player].nextSummonDiscount!;
+          delete s.players[e.player].nextSummonDiscount;
+          if (nsd.turn === s.turn && nsd.grant && s.cards[e.iid]) s.cards[e.iid].keywordsTurn = { ...(s.cards[e.iid].keywordsTurn ?? {}), ...nsd.grant };
+        }
         if (s.cards[e.iid]?.owner === e.player) {
           this.fireZoneGates(e.player, 'enter', e.iid);
           if (e.summoned) this.fireZoneGates(e.player, 'summon', e.iid);

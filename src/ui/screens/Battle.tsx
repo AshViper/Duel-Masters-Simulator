@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type CSSProperties } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isCreatureType, isNonCreaturePermanent, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
 import { altCost, battleCards, canCross, isCrossGear, isGrCard, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canSummonFromZone, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
@@ -10,6 +10,7 @@ import { CardDetail, Modal } from '../components/CardDetail';
 import { CardView, CIV_COLOR, type CardSize } from '../components/CardView';
 import { create } from 'zustand';
 import '../battle.css';
+import { useBattleBackground } from '../battleBackground';
 import { dropKey, parseDropKey, resolveDrop, type DropResult, type DropTarget } from './battleDrag';
 import { ActionFx } from './battleFx';
 import { CardFlights } from './battleFlights';
@@ -59,6 +60,9 @@ export function BattleScreen() {
   const [banner, setBanner] = useState<{ text: string; key: number } | null>(null);
   const [flash, setFlash] = useState<PlayerId | null>(null);
   /** 右のパネル（拡大表示・ログ・操作ボタン）。盤面を広く使うため、既定では閉じておく */
+  const bg = useBattleBackground();
+  useEffect(() => { void bg.load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const bgInput = useRef<HTMLInputElement>(null);
   const [panelOpen, setPanelOpen] = useState(() => localStorage.getItem('battle.panelOpen') === '1');
   const togglePanel = () =>
     setPanelOpen((v) => {
@@ -466,7 +470,11 @@ export function BattleScreen() {
             : '';
 
   return (
-    <div className={'battle-screen' + (drag ? ' is-dragging' : '') + (panelOpen ? '' : ' panel-closed')} onContextMenu={(e) => e.preventDefault()}>
+    <div
+      className={'battle-screen' + (drag ? ' is-dragging' : '') + (panelOpen ? '' : ' panel-closed') + (bg.url ? ' custom-bg' : '')}
+      style={bg.url ? ({ '--user-bg': `url("${bg.url}")`, '--user-bg-dim': bg.dim } as CSSProperties) : undefined}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <div className="board">
         {side(opp)}
         <div className="center-bar">
@@ -512,6 +520,19 @@ export function BattleScreen() {
           >
             メモ
           </button>
+          <button onClick={() => bgInput.current?.click()} title="対戦画面の背景を好きな画像に変える（設定画面でも変えられます）">背景を変更</button>
+          {bg.url && <button onClick={() => void bg.clear().then(() => setToast('背景を元に戻しました'))}>背景を戻す</button>}
+          <input
+            ref={bgInput}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void bg.setImage(f).then(() => setToast('背景を変更しました'), (err: Error) => setToast(err.message));
+            }}
+          />
           {mode !== 'online' && <button onClick={() => void saveGame().then(() => setToast('保存しました'))}>中断保存</button>}
           <button className="danger" onClick={() => confirm('投了しますか？') && act({ type: 'CONCEDE', player: mode === 'solo' ? active : me })}>投了</button>
           <button onClick={() => confirm(mode === 'online' ? '対戦を終了してホームに戻りますか？（相手との接続も切れます）' : 'ホームに戻りますか？（保存していない進行は失われます）') && quit()}>ホーム</button>

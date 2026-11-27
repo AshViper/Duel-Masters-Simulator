@@ -24,7 +24,7 @@ import type {
 } from './types';
 import { move } from './effects';
 import { allLineDefs, type LineDef } from './lineDefs';
-import { parseByGrammar } from './grammar';
+import { parseByGrammar, setSentenceFallback } from './grammar';
 
 export interface ParsedAbilities {
   keywords: Keywords;
@@ -100,6 +100,8 @@ export function normalizeText(s: string): string {
     .replace(/パワーは、?([+-]\d+)される/g, 'パワーを$1する')
     .replace(/パワーは、?([^。]+?につき)、?([+-]\d+)される/g, 'パワーを、$1$2する')
     .replace(/全て/g, 'すべて')
+    .replace(/(相手|自分)の、(?=クリーチャーではない)/g, '$1の')
+    .replace(/クリーチャーではない表向きのカード/g, 'クリーチャーではないカード')
     .replace(/(下にあるカードを\d+枚)、墓地に/g, '$1墓地に')
     // 「相手のクリーチャーを1体選ぶ。（このターン、）その（選んだ）クリーチャーのパワーを〜」＝1つの文
     .replace(/を(\d+)体選ぶ。(このターン、)?その(?:選んだ)?クリーチャーの/g, 'を$1体選び、$2その')
@@ -484,6 +486,7 @@ function stripOptional(s: string): { text: string; optional: boolean } {
 }
 
 const n = (s: string) => Number(s);
+setSentenceFallback((x) => parseSentence(normalizeText(x)));
 
 /** 対象の修飾語（「パワー3000以下の」「タップしている」など）を CardFilter にする。読めなければ null */
 function parseMods(mods: string, filter: CardFilter): boolean {
@@ -814,7 +817,8 @@ function parseRefSentence(s: string): EffectDef[] | null {
   // 「次の相手のターンのはじめに、それらはアンタップしない」
   if (/^(?:次の相手のターンのはじめに、(?:それら?|その(?:クリーチャー)?|それらのクリーチャー)は|(?:それら?|そのクリーチャー|それらのクリーチャー)は、?次の相手のターンのはじめに)アンタップ(?:し|され)ない$/.test(s)) {
     const target = refTarget();
-    return target && [{ type: 'grantKeyword', target, keywords: { noUntap: true }, untilNextTurn: true }];
+    // タップしたマナゾーンのカードにも（「相手のマナゾーンにあるカードをすべてタップする。〜それらはアンタップしない」）
+    return target && [{ type: 'grantKeyword', target: typeof target === 'object' && target.ref === 'chosen' ? { ...target, anyZone: true } : target, keywords: { noUntap: true }, untilNextTurn: true }];
   }
   // 「次の自分のターンのはじめまで、そのクリーチャーのパワーを+4000し、「ブロッカー」を与える」
   m = s.match(/^(このターン|次の自分のターンのはじめまで)、(?:その(?:クリーチャー)?|それ)のパワーを([+-]\d+)し、(「.+」を与え)る$/);
@@ -852,6 +856,22 @@ function parseSentence(s: string): EffectDef[] | null {
   let m: RegExpMatchArray | null;
   s = s.replace(/^(一番パワーが(?:大きい|小さい)|このクリーチャーより(?:パワー|コスト)が(?:小さい|大きい)|(?:その捨てたカード|そのクリーチャー|それ)(?:と同じコストの|以下のコストの|と同じ文明を持つ、?))(相手|自分)の/, '$2の$1');
   s = s.replace(/^そのターン、/, 'このターン、');
+  // 「AすべてとBをすべて〜する」：それぞれを読む
+  if ((m = s.match(/^([^、]+?)すべてと、?(.+?)をすべて、?(.+)$/))) {
+    const one = (x: string): EffectDef[] | null => {
+      for (const v of [x, x.replace('をすべて', 'をすべて、')]) {
+        const g = parseBody(v, []);
+        if (g && g.every((gr) => !gr.optional && gr.effects.every(hasRealEffect))) return flattenGroups(g);
+        const gr = readByGrammar(`${v}。`, [], 'spell');
+        const ab = gr?.abilities ?? [];
+        if (ab.length === 1 && ab[0].when === 'onCast' && !ab[0].optional && !ab[0].condition && ab[0].effects.every(hasRealEffect)) return ab[0].effects;
+      }
+      return null;
+    };
+    const a = one(`${m[1]}をすべて${m[3]}`);
+    const b = one(`${m[2]}をすべて${m[3]}`);
+    if (a && b) return [...a, ...b];
+  }
   const ref = parseRefSentence(s);
   if (ref) return ref;
   if (s === '数字を1つ選ぶ') return [{ type: 'chooseNumber' }];
@@ -1074,6 +1094,22 @@ function parseSentence(s: string): EffectDef[] | null {
   }
   if (/^このターンの後(?:に|、)?(?:もう一度)?自分のターンを(?:追加する|行う)$/.test(s)) return [{ type: 'extraTurn' }];
   if (s === '自分はゲームに勝つ' || s === 'ゲームに勝つ') return [{ type: 'winGame' }];
+  // 次召喚軽減N下限M付与「X」：parseBody でまとめた「次に召喚する自分のクリーチャーのコストを少なくする」
+  if ((m = s.match(/^次召喚軽減(\d+)下限(\d+)(?:付与(「[^」]+」))?$/))) {
+    const grant = m[3] ? parseGrant(`${m[3]}を与える`) : null;
+    if (m[3] && !grant) return null;
+    return [{ type: 'nextSummonDiscount', amount: n(m[1]), min: n(m[2]), ...(grant ? { grant } : {}) }];
+  }
+  // 「こうして捨てた手札以下のコストを持つ相手のエレメントを1つ選び、破壊する」
+  if ((m = s.match(/^こうして捨てた(?:手札|カード)(?:の)?(?:コスト)?以下のコストを持つ(.+)$/))) {
+    const inner = parseSentence(m[1]);
+    const t0 = inner?.[0] as { target?: unknown } | undefined;
+    if (!inner || inner.length !== 1 || !t0?.target || typeof t0.target !== 'object') return null;
+    return [{ ...inner[0], target: { ...(t0.target as TargetSpec), maxCostOfChosen: true } } as EffectDef];
+  }
+  // 「各プレイヤーは、自身のマナゾーンにあるカードの枚数以上のコストを持つクリーチャーをすべて、（好きな順序で）自身の山札の一番下に置く」
+  if ((m = s.match(/^各プレイヤーは、?自身のマナゾーンにあるカードの枚数以上のコストを持つクリーチャーをすべて、?(?:好きな順序で)?自身の山札の(?:一番)?(下|上)に置く$/)))
+    return [{ type: 'move', target: { owner: 'any', zone: 'battle', count: 'all', filter: { cardType: 'creature' }, minCostOwnerMana: true }, to: m[1] === '下' ? 'deckBottom' : 'deckTop' }];
   // 「そのクリーチャーとこのクリーチャーを破壊する」：それぞれを読む
   if ((m = s.match(/^(そのクリーチャー|このクリーチャー)と(そのクリーチャー|このクリーチャー)を(.+)$/)) && m[1] !== m[2]) {
     const a = parseSentence(`${m[1]}を${m[3]}`);
@@ -1178,6 +1214,13 @@ function parseBothCondition(text: string): Condition | null {
 function parseBody(body: string, options: string[], allowPartial = false): Group[] | null {
   const sentences = body
     .replace(/シャッフルし、(?:その後|そのあと)、/g, 'シャッフルし、')
+    // 「このターン、次に召喚する自分のクリーチャーのコストをN少なくする。ただし〜。そのクリーチャーに「X」を与える」＝1つの効果
+    .replace(
+      /このターン、次に召喚する自分のクリーチャーの(?:召喚)?コストを(?:最大)?(\d+)少なく(?:する|してもよい)(?:。ただし、?コストは(\d+)(以下には|以下に|より少なく)ならない)?(?:。(?:そのクリーチャーをバトルゾーンに出した時|このターン)、(?:このターンの終わりまで)?、?そのクリーチャー(?:は|に)(「[^」]+」)を(?:得る|与える))?/g,
+      (_m, a, b, c, g) => `次召喚軽減${a}下限${b === undefined ? 1 : c === 'より少なく' ? b : Number(b) + 1}${g ? `付与${g}` : ''}`,
+    )
+    // 「AすべてとBをすべてタップする。次の相手のターンのはじめに、それらはアンタップしない」：それぞれに分ける
+    .replace(/([^。]+?)すべてと、?([^。]+?)をすべて、?([^。]+?)。(次の相手のターンのはじめに、それら?はアンタップしない)/g, '$1をすべて$3。$4。$2をすべて$3。$4')
     // 「クリーチャーを5体自分の墓地から選び」→「自分の墓地からクリーチャーを5体選び」
     .replace(/([^、。]+?)を(\d+(?:体|枚))((?:自分|相手)の(?:墓地|マナゾーン|手札|シールド))から選び/g, '$3から$1を$2選び')
     .split('。')
@@ -1202,6 +1245,16 @@ function parseBody(body: string, options: string[], allowPartial = false): Group
     if (/^(?:ただし、)?その「S・トリガー」は使えない$/.test(s)) continue;
     // 「このようにして山札を見た場合、シャッフルする」：山札を見る効果がシャッフルまで行う
     if (/^このようにして山札を見た場合、(?:山札を)?シャッフルする$/.test(s)) continue;
+    // 「〜してもよい。そうしなければ、〜」：使わなかった時の効果
+    const sn = s.match(/^(?:そうしなければ|そうしなかった場合|そうしなかったら)、(.+)$/);
+    if (sn) {
+      const last = groups[groups.length - 1];
+      if (!last?.optional) return null;
+      const alt = parseSentence(sn[1]);
+      if (!alt) return null;
+      groups[groups.length - 1] = { optional: false, effects: [{ type: 'optional', effects: last.effects, otherwise: alt }] };
+      continue;
+    }
     let chain = false;
     const so = s.match(/^(?:そうしたら|そしたら|そうした場合)、(.+)$/);
     if (so) {
@@ -3112,6 +3165,23 @@ const ALT_PLAYS: { re: RegExp; kinds: ('creature' | 'spell')[]; build: (m: RegEx
     kinds: ['spell'],
     // この呪文を、コストをN少なくして唱えてもよい。そうしたら、自分の手札を1枚捨てる
     build: (m) => ({ name: 'B・A・D・S', reduce: n(m[1]), then: [{ type: 'move', target: { owner: 'self', zone: 'hand', count: 1 }, to: 'graveyard' }] }),
+  },
+  // 「コストを支払うかわりに、自分の手札からスノーフェアリーを5体捨て、この呪文を唱えてもよい」
+  {
+    re: /^コストを支払うかわりに、?自分の手札から(.+?)を(\d+)(?:体|枚)捨て、?この(?:呪文を唱え|クリーチャーを召喚し|カードを使っ)てもよい$/,
+    kinds: ['creature', 'spell'],
+    build: (m) => {
+      const filter: CardFilter = {};
+      if (!parseSubject(m[1], filter)) filter.race = m[1].replace(/(?:・クリーチャー|・カード)$/, '');
+      const k = n(m[2]);
+      return {
+        name: `${m[1]}を${k}枚捨てる`,
+        cost: 0,
+        civilizations: [],
+        condition: { type: 'compare', left: { who: 'self', zone: 'hand', filter }, op: '>=', right: k + 0 },
+        then: [{ type: 'move', target: { owner: 'self', zone: 'hand', count: k, filter }, to: 'graveyard' }],
+      };
+    },
   },
   { re: /^B・A・D(\d+)$/, kinds: ['creature'], build: (m) => ({ name: 'B・A・D', reduce: n(m[1]), endOfTurn: 'destroy' }) },
   { re: /^J・O・E(\d+)$/, kinds: ['creature'], build: (m) => ({ name: 'J・O・E', reduce: n(m[1]), endOfTurn: 'deckBottomDraw' }) },

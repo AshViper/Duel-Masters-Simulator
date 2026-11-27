@@ -7,6 +7,12 @@
 import type { CardFilter, Civilization, Condition, EffectDef, HandTrigger, Keywords, MoveDest, Quantity, ReplacementAbility, StaticAbility, TargetSpec, TriggeredAbility, TriggerEvent } from './types';
 import { tokenize, type Token } from './lexer';
 
+/** 語の組み立てで読めない効果文を、表の読み取り（textParser）で1文ずつ読む（循環 import を避けるため後から差し込む） */
+let sentenceFallback: ((s: string) => EffectDef[] | null) | null = null;
+export function setSentenceFallback(fn: (s: string) => EffectDef[] | null): void {
+  sentenceFallback = fn;
+}
+
 /** 構文解析の結果（textParser の ParsedAbilities の一部と同じ形） */
 export interface GrammarResult {
   keywords: Keywords;
@@ -1426,10 +1432,19 @@ function readAbility(ts: Token[], kind: Kind, label: string | null): GrammarResu
   }
   if (!effects) {
     const groups = parseEffectSentences(rest, ctx);
-    if (!groups) return null;
-    const flat = flatten(groups);
-    effects = flat.effects;
-    optional = flat.optional;
+    if (groups) {
+      const flat = flatten(groups);
+      effects = flat.effects;
+      optional = flat.optional;
+    } else if (sentenceFallback) {
+      const fx: EffectDef[] = [];
+      for (const r of rest.map((x) => textOf(x).replace(/。$/, '')).filter(Boolean)) {
+        const e = sentenceFallback(r);
+        if (!e) return null;
+        fx.push(...e);
+      }
+      effects = fx;
+    } else return null;
   }
   if (cond?.markUsed) effects = [{ type: 'markUsed', key: cond.markUsed }, ...effects];
   const when: TriggerEvent = trig?.when ?? 'onCast';

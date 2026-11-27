@@ -443,6 +443,12 @@ function effectiveCostImpl(state: GameState, reg: CardRegistry, player: PlayerId
     cost += s.amount;
     if (s.minCost !== undefined) floor = Math.min(face.cost, Math.max(floor, s.minCost));
   }
+  // 「このターン、次に召喚する自分のクリーチャーのコストをN少なくする」
+  const nsd = state.players[player].nextSummonDiscount;
+  if (nsd && nsd.turn === state.turn && side === 'main' && face.type === 'creature' && state.cards[iid]?.zone === 'hand') {
+    cost -= nsd.amount;
+    floor = Math.min(face.cost, Math.max(floor, nsd.min));
+  }
   // G・ゼロ：条件を満たしていればコストを支払わずに使える
   if (side === 'main' && d.gZero && evalCondition(state, reg, player, d.gZero, true, iid)) return 0;
   // このカード自身のコスト軽減（「〜1枚につき1少なくする」）

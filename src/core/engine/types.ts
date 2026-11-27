@@ -64,6 +64,8 @@ export interface PlayerState {
   isCpu: boolean;
   zones: Record<ZoneName, string[]>;
   chargedThisTurn: boolean;
+  /** このターン、次に召喚するクリーチャーのコスト軽減（召喚したら消える） */
+  nextSummonDiscount?: { amount: number; min: number; grant?: Partial<import('../cards/types').Keywords>; turn: number };
   /** 残りの追加ターン数 */
   extraTurns: number;
   /** このターンに引いたカードの枚数 */
@@ -172,7 +174,7 @@ export interface TriggerGroup {
 export type Task =
   | { kind: 'effect'; controller: PlayerId; source: string; effect: EffectDef }
   /** 任意効果の実行確認（承認されたら effects をキュー先頭に積む） */
-  | { kind: 'confirmOptional'; controller: PlayerId; source: string; effects: EffectDef[] }
+  | { kind: 'confirmOptional'; controller: PlayerId; source: string; effects: EffectDef[]; otherwise?: EffectDef[] }
   | { kind: 'blockStep'; attacker: string; defender: PlayerId }
   | { kind: 'attackResolve'; attacker: string }
   /** byAttack: 攻撃によるブレイク（効果のブレイクではない） */

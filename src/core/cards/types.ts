@@ -116,6 +116,10 @@ export interface TargetSpec {
   count: number | 'all';
   /** 選んだカードのコストの合計の上限（「コストの合計がN以下になるように」） */
   maxTotalCost?: number;
+  /** 直前に選んだ（捨てた）カードのコスト以下だけ（「こうして捨てた手札以下のコストを持つ〜」） */
+  maxCostOfChosen?: boolean;
+  /** 持ち主のマナゾーンのカードの枚数以上のコストを持つものだけ（「自身のマナゾーンにあるカードの枚数以上のコストを持つ」） */
+  minCostOwnerMana?: boolean;
   /** 選んだカードのパワーの合計の上限（「パワーの合計がN以下になるよう」） */
   maxTotalPower?: number;
   /** true なら 0〜count 枚の範囲で選べる（「〜まで」） */
@@ -227,6 +231,8 @@ export type EffectDef =
   | { type: 'choose'; target: TargetSpec; reveal?: boolean }
   /** その名前の能力をこのターンに使ったことを記録する（usedThisTurn で調べる） */
   | { type: 'markUsed'; key: string }
+  /** 「このターン、次に召喚する自分のクリーチャーのコストをN少なくする」。grant はそのクリーチャーがこのターン得る能力 */
+  | { type: 'nextSummonDiscount'; amount: number; min: number; grant?: Partial<Keywords> }
   /** 「相手は〜してもよい」：相手が選んで、相手が行う（effects は相手から見た効果） */
   | { type: 'opponentMay'; effects: EffectDef[] }
   | { type: 'destroy'; target: TargetSpec }
@@ -334,7 +340,7 @@ export type EffectDef =
   /** bothIf: この条件を満たしていれば、すべての選択肢を選んでもよい（「〜があれば、両方選んでもよい」） */
   | { type: 'chooseOne'; options: { label: string; effects: EffectDef[] }[]; times?: number; distinct?: boolean; bothIf?: Condition }
   /** 効果の途中の「〜してもよい」：使うかどうかを聞いてから行う（選択肢の中など） */
-  | { type: 'optional'; effects: EffectDef[] }
+  | { type: 'optional'; effects: EffectDef[]; /** 「そうしなければ、〜」：使わなかった時に行う効果 */ otherwise?: EffectDef[] }
   /**
    * このクリーチャーと選んだクリーチャーをバトルさせる。
    * fighter: chosen なら、このクリーチャーのかわりに直前に選んだ（出した）クリーチャーがバトルする

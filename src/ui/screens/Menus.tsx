@@ -6,6 +6,7 @@ import { DEFAULT_FORMAT } from '../../core/deck/rules';
 import { db, type MatchRecord } from '../../db/db';
 import { useApp } from '../../store/appStore';
 import { Header } from '../components/AppShell';
+import { useBattleBackground } from '../battleBackground';
 export { Header };
 
 export { HomeScreen, DeckListScreen } from './Home';
@@ -45,6 +46,7 @@ export function SettingsScreen() {
                 <input value={settings.playerName} maxLength={20} placeholder="未設定" onChange={(e) => void updateSettings({ playerName: e.target.value })} />
               </div>
             </div>
+            <BattleBackgroundRow />
           </section>
 
           <section className="panel settings-group">
@@ -216,6 +218,41 @@ export function HistoryScreen() {
             )}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** 設定：対戦画面の背景画像 */
+function BattleBackgroundRow() {
+  const bg = useBattleBackground();
+  const [err, setErr] = useState('');
+  useEffect(() => { void bg.load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="setting-row">
+      <div className="setting-label">
+        <b>対戦の背景</b>
+        <small>好きな画像を対戦画面の背景にする（この端末に保存）。暗さでカードの見やすさを調整</small>
+        {err && <small style={{ color: 'var(--red, #f66)' }}>{err}</small>}
+      </div>
+      <div className="setting-control" style={{ flexWrap: 'wrap', gap: 8 }}>
+        {bg.url && <img src={bg.url} alt="背景のプレビュー" style={{ width: 96, height: 54, objectFit: 'cover', borderRadius: 4, filter: `brightness(${1 - bg.dim})` }} />}
+        <label className="button-like">
+          <input
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void bg.setImage(f).then(() => setErr(''), (x: Error) => setErr(x.message));
+            }}
+          />
+          <span role="button" style={{ cursor: 'pointer', textDecoration: 'underline' }}>画像を選ぶ</span>
+        </label>
+        {bg.url && <button onClick={() => void bg.clear()}>元に戻す</button>}
+        <span className="unit">暗さ</span>
+        <input type="range" min={0} max={0.8} step={0.05} value={bg.dim} onChange={(e) => bg.setDim(Number(e.target.value))} />
       </div>
     </div>
   );

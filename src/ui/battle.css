@@ -50,6 +50,13 @@
     url('./assets/battle/stage.webp') center / cover no-repeat,
     var(--bg-main);
 }
+/* ユーザーが選んだ背景画像（設定 → 対戦の背景）。--user-bg / --user-bg-dim は Battle.tsx が入れる */
+.battle-screen.custom-bg {
+  background:
+    linear-gradient(rgba(8, 13, 23, var(--user-bg-dim, 0.35)), rgba(8, 13, 23, var(--user-bg-dim, 0.35))),
+    var(--user-bg) center / cover no-repeat,
+    var(--bg-main);
+}
 .battle-screen button { border-radius: 7px; border-color: var(--border-main); background: linear-gradient(180deg, #1f2d42, #172235); transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
 .battle-screen button:hover:not(:disabled) { background: linear-gradient(180deg, #273a54, #1c2b42); border-color: var(--cyan); box-shadow: 0 0 10px rgba(93, 217, 245, 0.25); }
 .battle-screen button.primary { background: linear-gradient(180deg, #2f8fd8, #1d5ea6); border-color: #6cc4ff; color: #fff; font-weight: 700; }
