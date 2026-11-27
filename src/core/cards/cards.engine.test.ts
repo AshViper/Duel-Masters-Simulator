@@ -1520,6 +1520,11 @@ const C = {
   topBreaker: mk('b-143', ['このクリーチャーがシールドをブレイクする時、そのシールドをかわりに持ち主の山札の一番上に置く。']),
   graveShrink: spell('b-144', ['相手のクリーチャーを１体選ぶ。このターン、自分の墓地にあるカード１枚につき、そのクリーチャーのパワーを－1000する。']),
   aura: mk('b-150', ['これを付けたクリーチャーに「パワード・ブレイカー」を与える。', 'これをクリーチャーに付けた時、自分の山札の上から３枚を墓地に置いてもよい。'], { type: 'オレガ・オーラ', power: '6000', cost: '1' }),
+  jokerDraw: mk('b-160', ['このクリーチャーが出た時、カードを１枚引く。'], { race: 'ジョーカーズ' }),
+  tornado: mk('b-161', ['このクリーチャーが攻撃する時、Jトルネードしてもよい。そうしたら、そのJトルネードされたクリーチャーの「このクリーチャーが出た時」で始まる能力を１つ使う。（Jトルネード：自分の他のジョーカーズ・クリーチャーを１体、手札に戻す）'], { race: 'ジョーカーズ' }),
+  jbig: mk('b-162', ['このクリーチャーが出た時、Jビッグ１する。（自分の他のジョーカーズの、Jビッグ１以外の、出た時にトリガーする能力を１つ使う）'], { race: 'ジョーカーズ' }),
+  kizuna: mk('b-163', ['キズナ（このクリーチャーが出た時、自分のクリーチャーの[P]能力を１つ使う）', '[P]カードを１枚引く。']),
+  lateRevive: mk('b-164', ['自分のターンにこのクリーチャーが破壊された時、そのターンの終わりに自分の墓地から出す。']),
   discardJump: mk('b-117', ['相手のターンにこのクリーチャーが自分の手札から捨てられる時、墓地に置くかわりに出す。']),
   reanimSelf: mk('b-110', ['このクリーチャーが破壊された時、相手の手札が１枚もなければ、このクリーチャーを自分の墓地から出してもよい。']),
   kinDraw: mk('b-95', ['クロスギア', 'これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時、カードを１枚引いてもよい。'], { type: 'クロスギア', power: '' }),
@@ -2164,6 +2169,50 @@ describe('オーラ', () => {
     mana(s, 1);
     while (s.phase !== 'main') Object.assign(s, act(s, { type: 'NEXT_PHASE', player: 0 }));
     expect(canPlay(s, reg, 0, a, 'main')).toBe(false);
+  });
+});
+
+describe('Jトルネード・Jビッグ・キズナ・ターンの終わりに行う効果', () => {
+  const resolve = (s: GameState): GameState => {
+    let guard = 0;
+    while (s.pending && guard++ < 20) {
+      const p = s.pending;
+      if (p.kind === 'confirm') s = act(s, { type: 'RESPOND', player: p.player, accept: true });
+      else if (p.kind === 'selectCards') s = act(s, { type: 'RESPOND', player: p.player, selected: p.candidates.slice(0, Math.max(p.min, 1)) });
+      else s = act(s, { type: 'RESPOND', player: p.player, selected: ['0'] });
+    }
+    return s;
+  };
+  it('Jトルネード：他のジョーカーズを手札に戻し、その出た時の能力を使う', () => {
+    let s = toAttack(newGame());
+    const a = put(s, 0, C.tornado.id, 'battle');
+    const j = put(s, 0, C.jokerDraw.id, 'battle');
+    const hand = s.players[0].zones.hand.length;
+    s = resolve(act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'player' } }));
+    expect(s.cards[j].zone).toBe('hand');
+    // 戻した1枚＋出た時の能力で1枚引く
+    expect(s.players[0].zones.hand.length).toBe(hand + 2);
+  });
+  it('Jビッグ1：他のジョーカーズの出た時の能力を使う', () => {
+    let s = newGame();
+    put(s, 0, C.jokerDraw.id, 'battle');
+    const hand = s.players[0].zones.hand.length;
+    s = resolve(play(s, C.jbig.id).s);
+    expect(s.players[0].zones.hand.length).toBe(hand - 1 + 1);
+  });
+  it('キズナ：出た時、自分のクリーチャーの[P]能力を使う', () => {
+    let s = newGame();
+    const hand = s.players[0].zones.hand.length;
+    s = resolve(play(s, C.kizuna.id).s);
+    expect(s.players[0].zones.hand.length).toBe(hand - 1 + 1);
+  });
+  it('自分のターンに破壊されたら、そのターンの終わりに墓地から出る', () => {
+    let s = newGame();
+    const r = put(s, 0, C.lateRevive.id, 'battle');
+    s = resolve(play(s, C.killOwn.id).s);
+    expect(s.cards[r].zone).toBe('graveyard');
+    s = resolve(act(s, { type: 'END_TURN', player: 0 }));
+    expect(s.cards[r].zone).toBe('battle');
   });
 });
 

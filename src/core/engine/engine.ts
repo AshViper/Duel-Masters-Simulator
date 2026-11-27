@@ -427,6 +427,9 @@ export class Ctx {
         break;
       }
       case 'end':
+        // 「このターンの終わりに、〜」
+        for (const d of (s.delayed ?? []).filter((x) => x.turn === s.turn)) this.addTrigger(d.player, d.source, this.effectTasks(d.player, d.source, d.effects));
+        s.delayed = (s.delayed ?? []).filter((x) => x.turn !== s.turn);
         this.emit({ type: 'TURN_ENDED', player: pl, turn: s.turn });
         // 無月の門・絶など：「各ターンの終わりに」「自分のターンの終わりに」（ターンプレイヤーから）
         this.fireZoneGates(pl, 'turnEnd');
@@ -2625,6 +2628,37 @@ export class Ctx {
         // 「自分のツインパクトクリーチャー1体の呪文側を」：選んだクリーチャーの呪文側
         if (e.target) return this.withTargets(controller, source, e.target, '呪文側を唱える', false, (iid) => castFrom(iid));
         castFrom(source);
+        return false;
+      }
+      case 'atTurnEnd': {
+        // 「そのクリーチャー」はいま選んでいるカードに決めておく
+        const chosen = [...(s.lastChosen ?? [])];
+        const bind = (list: EffectDef[]): EffectDef[] =>
+          list.map((x) => {
+            let y = x;
+            if ('target' in y && typeof y.target === 'object' && y.target.ref === 'chosen') y = { ...y, target: { ...y.target, ref: undefined, iids: chosen, anyZone: true } } as EffectDef;
+            if (y.type === 'optional') y = { ...y, effects: bind(y.effects) };
+            return y;
+          });
+        (s.delayed ??= []).push({ player: controller, source, turn: s.turn, effects: bind(e.effects) });
+        return false;
+      }
+      case 'useAbilityOf': {
+        const picked: string[] = [];
+        const waiting = this.withTargets(controller, source, e.target, '能力を使う', false, (iid) => {
+          picked.push(iid);
+        });
+        if (waiting) return true;
+        const iid = picked[0];
+        if (!iid || !s.cards[iid]) return false;
+        const usesJbig = (ab: TriggeredAbility) => JSON.stringify(ab.effects).includes('"jbig":true');
+        const ab = (def(s, this.reg, iid).abilities ?? []).find((a) => a.when === e.when && !a.effects.some((x) => x.type === 'manual') && !(e.jbig && usesJbig(a)));
+        if (!ab) {
+          this.log(`${this.name(iid)}：使える能力がない`, controller);
+          return false;
+        }
+        this.log(`${this.name(iid)} の能力を使う`, controller);
+        this.insertFront(...this.abilityTasks({ ...ab, condition: undefined }, controller, iid));
         return false;
       }
       case 'swapGraveMana': {

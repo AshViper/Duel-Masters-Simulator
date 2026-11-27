@@ -229,6 +229,11 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
     if (d.cost > countQuantity(state, reg, owner, f.maxCostCount, true, source)) return false;
   }
   if (f.wasUnderSource && !(source && state.cards[source]?.formerUnder?.includes(iid))) return false;
+  if (f.hasAbilityWhen && !(d.abilities ?? []).some((a) => a.when === f.hasAbilityWhen)) return false;
+  if (f.maxCostSumOfChosen) {
+    const sum = (state.lastChosen ?? []).filter((x) => state.cards[x]).reduce((a, x) => a + def(state, reg, x).cost, 0);
+    if (d.cost > sum) return false;
+  }
   if (f.sameNameAsEquipped) {
     const host = source ? state.cards[source]?.equippedTo : undefined;
     if (!host || !state.cards[host] || def(state, reg, host).name !== d.name) return false;

@@ -128,6 +128,14 @@ export function normalizeText(s: string): string {
     // 「新しいシールドとして自分のシールドゾーンに加える」＝シールド化する
     .replace(/を、?裏向きのまま、?新しいシールドとして(?:自分の)?シールドゾーンに(?:加え|置)る/g, 'をシールド化する')
     .replace(/を、?裏向きのまま、?新しいシールドとして(?:自分の)?シールドゾーンに(?:加え|置い)てもよい/g, 'をシールド化してもよい')
+    // Jトルネード：自分の他のジョーカーズ・クリーチャーを1体、手札に戻す
+    .replace(/Jトルネードを(\d+)回までする/g, '自分の他のジョーカーズ・クリーチャーを$1体まで、手札に戻す')
+    .replace(/Jトルネードしてもよい/g, '自分の他のジョーカーズ・クリーチャーを1体、手札に戻してもよい')
+    .replace(/Jトルネードする/g, '自分の他のジョーカーズ・クリーチャーを1体、手札に戻す')
+    .replace(/そのJトルネードされたクリーチャーのコストの合計以下のコスト(?:を持つ|の)/g, '【選んだカードのコストの合計以下】の')
+    .replace(/そのJトルネードされたクリーチャー/g, 'その手札に戻したクリーチャー')
+    // 「そのターンの終わりに自分の墓地から出す」（このクリーチャー）
+    .replace(/(その|この)ターンの終わりに(?:、)?自分の墓地から(?:バトルゾーンに)?出す/g, '$1ターンの終わりに、このクリーチャーを自分の墓地から出す')
     // 「水または火のカードが合計7枚以上」
     .replace(/((?:光|水|闇|火|自然)(?:または(?:光|水|闇|火|自然))+のカードが)合計(\d+)枚以上/g, '$1$2枚以上')
     // 「そのターン、自分のクリーチャーを2体以上バトルゾーンに出していれば」＝自分のクリーチャーが2体以上出ていれば
@@ -593,6 +601,7 @@ function parseMods(mods: string, filter: CardFilter): boolean {
     [/^コスト(\d+)の/, (x) => (filter.minCost = filter.maxCost = n(x[1]))],
     [/^タップしている/, () => (filter.tapped = true)],
     [/^クロスギアをクロス(?:している|されている|された)/, () => (filter.crossed = true)],
+    [/^【選んだカードのコストの合計以下】の/, () => (filter.maxCostSumOfChosen = true)],
     [/^【(自分|相手)(マナゾーン|墓地)枚数以下】の/, (x) => (filter.maxCostCount = { who: x[1] === '自分' ? 'self' : 'opponent', zone: ZONE_WORD[x[2]] as Quantity['zone'] })],
     [/^これを(?:クロス|装備)したクリーチャーと同じ種族の/, () => (filter.sameRaceAsEquipped = true)],
     [/^これを(?:クロス|装備)したクリーチャーと同じ名前の/, () => (filter.sameNameAsEquipped = true)],
@@ -1019,6 +1028,14 @@ function parseSentence(s: string): EffectDef[] | null {
   // 「自分のツインパクトクリーチャー1体の呪文側を、バトルゾーンに置いたままコストを支払わずに唱える」
   if (/^自分のツインパクト・?クリーチャー1体の呪文側を、?バトルゾーンに置いたまま、?コストを支払わずに唱える$/.test(s))
     return [{ type: 'castOwnTwin', target: { owner: 'self', zone: 'battle', count: 1, filter: { twinpact: true } } }];
+  // 「その手札に戻したクリーチャーの「このクリーチャーが出た時」で始まる能力を1つ使う」（Jトルネード）
+  if (/^その手札に戻したクリーチャーの「このクリーチャーが(?:バトルゾーンに)?出た時」で始まる能力を1つ使う$/.test(s)) {
+    const target = refAnyZone();
+    return target && [{ type: 'useAbilityOf', target, when: 'onSummon' }];
+  }
+  // Jビッグ1：「自分の他のジョーカーズの、Jビッグ1以外の、出た時にトリガーする能力を1つ使う」
+  if (/^Jビッグ1する$/.test(s))
+    return [{ type: 'useAbilityOf', target: { owner: 'self', zone: 'battle', count: 1, filter: { race: 'ジョーカーズ', excludeSelf: true, hasOnSummonAbility: true } }, when: 'onSummon', jbig: true }];
   // 「下にあったカードをすべて墓地から手札に戻す」（このクリーチャーが破壊された時）
   const formerAll = s.match(/^下にあったカードをすべて、?(?:自分の)?墓地から(?:自分の)?(手札に戻す|手札に加える|マナゾーンに置く)$/);
   if (formerAll) return [{ type: 'move', target: { owner: 'self', zone: 'graveyard', count: 'all', filter: { wasUnderSource: true } }, to: formerAll[1].startsWith('マナ') ? 'mana' : 'hand' }];
@@ -1368,6 +1385,12 @@ function parseSentence(s: string): EffectDef[] | null {
   if (may) {
     const base = parseSentence(`${may[1]}${may[2] === 'し' ? 'する' : 'させる'}`);
     if (base) return [{ type: 'optional', effects: base }];
+  }
+  // 「このターンの終わりに、自分のクリーチャーを1体破壊する」：ターンの終わりに行う
+  const later = s.match(/^(?:この|その)ターンの終わりに、(.+)$/);
+  if (later) {
+    const inner = parseSentence(later[1]);
+    if (inner) return [{ type: 'atTurnEnd', effects: inner }];
   }
   return null;
 }
@@ -2593,6 +2616,21 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
       } else result.manualLines.push(tap.key, key);
       continue;
     }
+    // キズナ：「このクリーチャーが出た時、自分のクリーチャーの[P]能力を1つ使う」。[P] で始まる行がその能力
+    if (kind === 'creature' && /^キズナ\s*[（(]このクリーチャーが(?:バトルゾーンに)?出た時、自分のクリーチャーの\[P\]能力を[1１]つ使う[）)]$/.test(nfkc)) {
+      result.abilities.push({ when: 'onSummon', effects: [{ type: 'useAbilityOf', target: { owner: 'self', zone: 'battle', count: 1, filter: { hasAbilityWhen: 'onLabelP' } }, when: 'onLabelP' }] });
+      result.parsedLines.push(rawLine);
+      continue;
+    }
+    const pM = kind === 'creature' && !options.length ? nfkc.match(/^\[P\]\s*([\s\S]+)$/) : null;
+    if (pM) {
+      const effects = parseOverloadBody(pM[1], options);
+      if (effects) {
+        result.abilities.push({ when: 'onLabelP', effects });
+        result.parsedLines.push(rawLine);
+      } else result.manualLines.push(rawLine);
+      continue;
+    }
     // シールド・フォース：「このクリーチャーを出す時、自分のシールドを1つ選んでもよい。そのシールドがシールドゾーンにある間、このクリーチャーに次の{l}能力を与える」
     const sfM = kind === 'creature' ? nfkc.replace(/\s+/g, '').match(/^シールド・フォース[（(].*次の\{([a-zA-Z]+)\}能力を与える[）)]$/) : null;
     if (sfM) {
@@ -3680,7 +3718,7 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
 
 /** 能力語・特殊な記号・カード名の指定など、読み取りの対象外の書き方を含むか（キーワードの「」は読む） */
 function isUnsafe(t: string): boolean {
-  return /[:：\[{「]/.test(t.replace(/「[^「」]+」(?:と「[^「」]+」)*を(?:与え|得)|「S・トリガー」は使えない|「[^「」]+」(?:を持つ|付きの|つきの)/g, ''));
+  return /[:：\[{「]/.test(t.replace(/「[^「」]+」(?:と「[^「」]+」)*を(?:与え|得)|「S・トリガー」は使えない|「[^「」]+」(?:を持つ|付きの|つきの)|「このクリーチャーが(?:バトルゾーンに)?出た時」で始まる能力/g, ''));
 }
 
 /** 「このクリーチャーは攻撃できない」などを、このクリーチャーだけにかかる常在効果にする（条件つきで使う） */
@@ -3747,6 +3785,12 @@ const ALT_PLAYS: { re: RegExp; kinds: ('creature' | 'spell')[]; build: (m: RegEx
     },
   },
   { re: /^B・A・D(\d+)$/, kinds: ['creature'], build: (m) => ({ name: 'B・A・D', reduce: n(m[1]), endOfTurn: 'destroy' }) },
+  // 無月の大罪N：実行コストをN少なくしてもよい。そうしたら、このターンの終わりに、自分のクリーチャーを1体破壊する
+  {
+    re: /^無月の大罪(\d+)$/,
+    kinds: ['creature'],
+    build: (m) => ({ name: '無月の大罪', reduce: n(m[1]), then: [{ type: 'atTurnEnd', effects: [{ type: 'destroy', target: { owner: 'self', zone: 'battle', count: 1 } }] }] }),
+  },
   { re: /^J・O・E(\d+)$/, kinds: ['creature'], build: (m) => ({ name: 'J・O・E', reduce: n(m[1]), endOfTurn: 'deckBottomDraw' }) },
   {
     re: /^アビスラッシュ[:：]このクリーチャーを自分の墓地から召喚してもよい。そうしたら、このターン、このクリーチャーはプレイヤーを攻撃でき、ターンの終わりに山札の下に置かれる$/,

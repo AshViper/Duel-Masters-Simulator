@@ -312,6 +312,8 @@ export interface GameState {
   pending: Pending | null;
   combat: CombatState | null;
   turnStatics: TurnStatic[];
+  /** このターンの終わりに行う効果（「このターンの終わりに、〜」） */
+  delayed?: { player: PlayerId; source: string; turn: number; effects: EffectDef[] }[];
   /** このターンに使った「各ターンに1度」の能力（カードID:能力の番号） */
   usedThisTurn?: string[];
   /** 直前の「その中から選ぶ」効果で、1枚以上選んだか（「こうして実行しなければ」の判定用） */

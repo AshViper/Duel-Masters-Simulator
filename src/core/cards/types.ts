@@ -116,6 +116,10 @@ export interface CardFilter {
   maxCostCount?: Quantity;
   /** 効果の発生源（このクリーチャー）がバトルゾーンを離れた時に、その下にあったカード（「下にあったカード」） */
   wasUnderSource?: boolean;
+  /** コストが、直前に選んだカードのコストの合計以下（「そのJトルネードされたクリーチャーのコストの合計以下のコストを持つ」） */
+  maxCostSumOfChosen?: boolean;
+  /** その出来事の能力を持つ（キズナ：[P] 能力を持つクリーチャー） */
+  hasAbilityWhen?: TriggerEvent;
 }
 
 /** 効果の対象指定 */
@@ -464,6 +468,13 @@ export type EffectDef =
   | { type: 'shieldForce' }
   /** 自分の墓地にあるカードすべてと、マナゾーンにあるカードすべてを入れ替える */
   | { type: 'swapGraveMana' }
+  /** このターンの終わりに effects を行う（「このターンの終わりに、自分のクリーチャーを1体破壊する」） */
+  | { type: 'atTurnEnd'; effects: EffectDef[] }
+  /**
+   * 選んだクリーチャーの能力を1つ使う（「その〜の「このクリーチャーが出た時」で始まる能力を1つ使う」、キズナの [P] 能力、Jビッグ）。
+   * jbig: 「Jビッグ」の能力は使わない
+   */
+  | { type: 'useAbilityOf'; target: TargetSpec; when: TriggerEvent; jbig?: boolean }
   /**
    * 「〜1体につき、〜する」：数えた数だけ effects を行う（引く枚数・選ぶ数は掛け算にする）。
    * per: 'chosen' は直前の効果で選んだ（動かした）カードの数（「こうして破壊したクリーチャー1体につき」）。n: エンジン内部用
@@ -549,6 +560,8 @@ export const TRIGGER_EVENTS = [
   'onOtherTap',
   /** これ（オーラ）をクリーチャーに付けた時 */
   'onAttached',
+  /** [P] 能力（キズナで使う。出来事では誘発しない） */
+  'onLabelP',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
