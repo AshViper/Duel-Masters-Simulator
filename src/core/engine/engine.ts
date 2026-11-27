@@ -171,6 +171,32 @@ function describeTrigger(g: TriggerGroup): string {
   return `${EFFECT_HINT[e.type] ?? '能力'}${t.kind === 'confirmOptional' ? '（使ってもよい）' : ''}`;
 }
 
+/** 効果の対象の条件の中の「誘発の原因と比べる」部分を、そのカードの値に置き換える */
+function bindSubjectFilters<T>(x: T, subjectDef: CardDefinition | undefined, subjectPower: number): T {
+  if (Array.isArray(x)) return x.map((y) => bindSubjectFilters(y, subjectDef, subjectPower)) as unknown as T;
+  if (!x || typeof x !== 'object') return x;
+  const o = x as Record<string, unknown>;
+  if ('subjectRel' in o || 'sameRaceAsSubject' in o) {
+    const { subjectRel, sameRaceAsSubject, ...rest } = o as CardFilter & Record<string, unknown>;
+    const out: CardFilter = { ...(rest as CardFilter) };
+    if (!subjectDef) return { ...out, maxCost: -1 } as unknown as T;
+    if (subjectRel) {
+      const v = subjectRel.stat === 'cost' ? subjectDef.cost : subjectPower;
+      const lim = subjectRel.cmp === 'lt' ? v - 1 : v;
+      if (subjectRel.stat === 'cost') out.maxCost = lim;
+      else out.maxPower = lim;
+    }
+    if (sameRaceAsSubject) {
+      if (subjectDef.races.length) out.races = subjectDef.races;
+      else out.maxCost = -1;
+    }
+    return out as unknown as T;
+  }
+  const r: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) r[k] = bindSubjectFilters(v, subjectDef, subjectPower);
+  return r as T;
+}
+
 /** 条件の中の「そのクリーチャー（誘発の原因）」に、誘発したクリーチャーを入れる */
 function bindCondition(c: Condition, subject: string | undefined): Condition {
   if (c.type === 'subjectEnteredFree' || (c.type === 'entry' && !c.self)) return { ...c, iid: subject };
@@ -3629,7 +3655,13 @@ export class Ctx {
   // ───────────────────────── 誘発 ─────────────────────────
   private abilityTasks(ab: TriggeredAbility, controller: PlayerId, source: string, subject?: string): Task[] {
     if (ab.condition && !evalCondition(this.s, this.reg, controller, bindCondition(ab.condition, subject), false, source)) return [];
-    const effects = bindEvent(ab.effects, subject);
+    // 「こうして捨てたカード以下のコスト」「それよりパワーの小さい」：誘発の原因のカードの値にする
+    const subj = subject && this.s.cards[subject] ? subject : undefined;
+    const effects = bindSubjectFilters(
+      bindEvent(ab.effects, subject),
+      subj ? def(this.s, this.reg, subj) : undefined,
+      subj ? (this.s.cards[subj].zone === 'battle' ? power(this.s, this.reg, subj) : (def(this.s, this.reg, subj).power ?? 0)) : 0,
+    );
     if (ab.optional) return [{ kind: 'confirmOptional', controller, source, effects }];
     return this.effectTasks(controller, source, effects);
   }
@@ -3753,13 +3785,15 @@ export class Ctx {
         if (e.summoned) s.players[e.player].summonsThisTurn = (s.players[e.player].summonsThisTurn ?? 0) + 1;
         break;
       case 'CREATURE_DESTROYED':
+        if (s.cards[e.iid]) s.cards[e.iid].destroyedTurn = s.turn;
         // シールド・ゴー：墓地から表向きでシールド化する
         if (s.cards[e.iid]?.zone === 'graveyard' && def(s, this.reg, e.iid).keywords?.shieldGo) {
           this.moveCard(e.iid, 'shield');
           s.cards[e.iid].faceUp = true;
           this.log(`${this.name(e.iid)} のシールド・ゴー：表向きでシールド化`, s.cards[e.iid].owner);
         }
-        this.triggerFrom(e.iid, 'onDestroyed');
+        // 「このクリーチャーまたは他のクリーチャーが破壊された時、それより〜」：誘発の原因はこのクリーチャー自身
+        this.triggerFrom(e.iid, 'onDestroyed', undefined, e.iid);
         this.triggerOthers(e.iid, 'onOtherDestroyed', e.player);
         // 手札にある間の誘発：「自分のエグザイル・クリーチャーが破壊された時、このクリーチャーを自分の手札から出してもよい」（下の CREATURE_SUMMONED にも同じ形）
         for (const h of [...s.players[e.player].zones.hand]) {

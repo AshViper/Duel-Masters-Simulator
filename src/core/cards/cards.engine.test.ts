@@ -1525,6 +1525,11 @@ const C = {
   jbig: mk('b-162', ['このクリーチャーが出た時、Jビッグ１する。（自分の他のジョーカーズの、Jビッグ１以外の、出た時にトリガーする能力を１つ使う）'], { race: 'ジョーカーズ' }),
   kizuna: mk('b-163', ['キズナ（このクリーチャーが出た時、自分のクリーチャーの[P]能力を１つ使う）', '[P]カードを１枚引く。']),
   lateRevive: mk('b-164', ['自分のターンにこのクリーチャーが破壊された時、そのターンの終わりに自分の墓地から出す。']),
+  discardKill: mk('b-170', ['自分が手札を１枚捨てた時、こうして捨てたカード以下のコストの相手のクリーチャーを１体選び、破壊する。']),
+  selfDiscard: spell('b-171', ['自分の手札を１枚捨てる。']),
+  deathKill: mk('b-172', ['このクリーチャーまたは他のクリーチャーが破壊された時、それよりパワーの小さい相手のクリーチャーを１体破壊してもよい。'], { power: '4000' }),
+  kinBack: mk('b-173', ['自分のクリーチャーが出た時、そのクリーチャーと同じ種族を持つクリーチャーを１体、自分の墓地から手札に戻してもよい。'], { race: 'ゼニス' }),
+  reviveAll: mk('b-174', ['自分のターンの終わりに、このターンに破壊された自分のエレメントをすべて、自分の墓地から出してもよい。']),
   discardJump: mk('b-117', ['相手のターンにこのクリーチャーが自分の手札から捨てられる時、墓地に置くかわりに出す。']),
   reanimSelf: mk('b-110', ['このクリーチャーが破壊された時、相手の手札が１枚もなければ、このクリーチャーを自分の墓地から出してもよい。']),
   kinDraw: mk('b-95', ['クロスギア', 'これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時、カードを１枚引いてもよい。'], { type: 'クロスギア', power: '' }),
@@ -2213,6 +2218,62 @@ describe('Jトルネード・Jビッグ・キズナ・ターンの終わりに�
     expect(s.cards[r].zone).toBe('graveyard');
     s = resolve(act(s, { type: 'END_TURN', player: 0 }));
     expect(s.cards[r].zone).toBe('battle');
+  });
+});
+
+describe('誘発の原因と比べる・このターンに破壊されたカード', () => {
+  const resolve = (s: GameState, pick?: (cands: string[]) => string[]): GameState => {
+    let guard = 0;
+    while (s.pending && guard++ < 20) {
+      const p = s.pending;
+      if (p.kind === 'confirm') s = act(s, { type: 'RESPOND', player: p.player, accept: true });
+      else if (p.kind === 'selectCards') s = act(s, { type: 'RESPOND', player: p.player, selected: pick ? pick(p.candidates) : p.candidates.slice(0, Math.max(p.min, 1)) });
+      else s = act(s, { type: 'RESPOND', player: p.player, selected: ['0'] });
+    }
+    return s;
+  };
+  it('捨てたカード以下のコストの相手のクリーチャーだけを破壊できる', () => {
+    let s = newGame();
+    put(s, 0, C.discardKill.id, 'battle');
+    const cheap = put(s, 1, C.vanilla.id, 'battle');
+    const big = put(s, 1, C.big.id, 'battle');
+    s.players[0].zones.hand.splice(0).forEach((h) => delete s.cards[h]);
+    put(s, 0, C.vanilla.id, 'hand');
+    s = resolve(play(s, C.selfDiscard.id).s, (c) => c);
+    // 捨てたのはコスト1：コスト8は対象にならない
+    expect(s.cards[big].zone).toBe('battle');
+    expect(s.cards[cheap].zone).toBe('graveyard');
+  });
+  it('破壊されたクリーチャーよりパワーの小さい相手のクリーチャーを破壊する', () => {
+    let s = newGame();
+    const d = put(s, 0, C.deathKill.id, 'battle');
+    const small = put(s, 1, C.small.id, 'battle');
+    const v = put(s, 1, C.vanilla.id, 'battle');
+    s = resolve(play(s, C.killOwn.id).s, (c) => c.slice(0, 1));
+    expect(s.cards[d].zone).toBe('graveyard');
+    // パワー4000より小さいのは2000だけ
+    expect([s.cards[small].zone, s.cards[v].zone]).toEqual(['graveyard', 'battle']);
+  });
+  it('出たクリーチャーと同じ種族のクリーチャーを墓地から手札に戻す', () => {
+    let s = newGame();
+    put(s, 0, C.kinBack.id, 'battle');
+    const z = put(s, 0, C.zenith.id, 'graveyard');
+    const other = put(s, 0, C.vanilla.id, 'graveyard');
+    s = resolve(play(s, C.zenith.id).s);
+    expect(s.cards[z].zone).toBe('hand');
+    expect(s.cards[other].zone).toBe('graveyard');
+  });
+  it('ターンの終わりに、このターンに破壊された自分のクリーチャーを出す', () => {
+    let s = newGame();
+    put(s, 0, C.reviveAll.id, 'battle');
+    const a = put(s, 0, C.vanilla.id, 'battle');
+    const old = put(s, 0, C.small.id, 'graveyard');
+    // ルールどおりの手動の破壊（破壊された時が誘発する）
+    s = resolve(act(s, { type: 'MANUAL_MOVE', player: 0, iid: a, to: 'graveyard' }));
+    expect(s.cards[a].zone).toBe('graveyard');
+    s = resolve(act(s, { type: 'END_TURN', player: 0 }));
+    expect(s.cards[a].zone).toBe('battle');
+    expect(s.cards[old].zone).toBe('graveyard');
   });
 });
 

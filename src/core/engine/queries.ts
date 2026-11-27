@@ -230,6 +230,9 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   }
   if (f.wasUnderSource && !(source && state.cards[source]?.formerUnder?.includes(iid))) return false;
   if (f.hasAbilityWhen && !(d.abilities ?? []).some((a) => a.when === f.hasAbilityWhen)) return false;
+  // 誘発の原因と比べる条件が、誘発の時に置き換えられていない：何にも合わない
+  if (f.subjectRel || f.sameRaceAsSubject) return false;
+  if (f.destroyedThisTurn && inst.destroyedTurn !== state.turn) return false;
   if (f.maxCostSumOfChosen) {
     const sum = (state.lastChosen ?? []).filter((x) => state.cards[x]).reduce((a, x) => a + def(state, reg, x).cost, 0);
     if (d.cost > sum) return false;

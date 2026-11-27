@@ -120,6 +120,15 @@ export interface CardFilter {
   maxCostSumOfChosen?: boolean;
   /** その出来事の能力を持つ（キズナ：[P] 能力を持つクリーチャー） */
   hasAbilityWhen?: TriggerEvent;
+  /**
+   * 誘発の原因になったカードと比べる（「こうして捨てたカード以下のコストの」「それよりパワーの小さい」）。
+   * エンジンが誘発の時に maxCost / maxPower に置き換える（置き換えられなければ何にも合わない）
+   */
+  subjectRel?: { stat: 'cost' | 'power'; cmp: 'le' | 'lt' };
+  /** 誘発の原因になったクリーチャーと同じ種族を持つ（エンジンが races に置き換える） */
+  sameRaceAsSubject?: boolean;
+  /** このターンに破壊された */
+  destroyedThisTurn?: boolean;
 }
 
 /** 効果の対象指定 */
