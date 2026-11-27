@@ -2198,13 +2198,13 @@ describe('Jトルネード・Jビッグ・キズナ・ターンの終わりに�
     put(s, 0, C.jokerDraw.id, 'battle');
     const hand = s.players[0].zones.hand.length;
     s = resolve(play(s, C.jbig.id).s);
-    expect(s.players[0].zones.hand.length).toBe(hand - 1 + 1);
+    expect(s.players[0].zones.hand.length).toBe(hand + 1);
   });
   it('キズナ：出た時、自分のクリーチャーの[P]能力を使う', () => {
     let s = newGame();
     const hand = s.players[0].zones.hand.length;
     s = resolve(play(s, C.kizuna.id).s);
-    expect(s.players[0].zones.hand.length).toBe(hand - 1 + 1);
+    expect(s.players[0].zones.hand.length).toBe(hand + 1);
   });
   it('自分のターンに破壊されたら、そのターンの終わりに墓地から出る', () => {
     let s = newGame();
