@@ -717,6 +717,16 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       return (state.players[c.who === 'self' ? controller : other(controller)].summonsThisTurn ?? 0) > 0;
     case 'castThisTurn':
       return (state.players[c.who === 'self' ? controller : other(controller)].spellsThisTurn ?? 0) > 0;
+    case 'turnTally': {
+      const p = state.players[c.who === 'self' ? controller : other(controller)];
+      const n =
+        c.what === 'attacks'
+          ? (p.attacksThisTurn ?? 0)
+          : c.what === 'draws'
+            ? (p.drawnThisTurn ?? 0)
+            : (p.playedThisTurn ?? []).filter((x) => state.cards[x] && matchFace(playFace(def(state, reg, x)), def(state, reg, x), c.filter)).length;
+      return n >= c.min;
+    }
     case 'chosenDistinctNames': {
       const names = (state.lastChosen ?? []).filter((x) => state.cards[x]).map((x) => def(state, reg, x).name);
       return names.length > 0 && new Set(names).size === names.length;

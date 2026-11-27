@@ -174,6 +174,11 @@ export type Condition =
   | { type: 'selfIsEvolution' }
   /** このターンにそのプレイヤーが呪文を唱えていた（「そのターン自分が呪文を唱えていれば」） */
   | { type: 'castThisTurn'; who: 'self' | 'opponent' }
+  /**
+   * このターンに、そのプレイヤーが min 回以上〜した（attacks: クリーチャーが攻撃した、draws: カードを引いた、played: filter に合うカードを使った）
+   * 「このターンに他のクリーチャーが攻撃していなければ」「このターンに自分がカードを2枚以上引いていなければ」は not で包む
+   */
+  | { type: 'turnTally'; what: 'attacks' | 'draws' | 'played'; who: 'self' | 'opponent'; min: number; filter?: CardFilter }
   /** このターン、クリーチャーを召喚していれば */
   | { type: 'summonedThisTurn'; who: 'self' | 'opponent' }
   /** このターンにそのプレイヤーのシールドが min 個以上ブレイクされた */

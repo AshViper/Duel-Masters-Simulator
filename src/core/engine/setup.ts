@@ -93,6 +93,8 @@ export function createGame(opts: NewGameOptions, reg: CardRegistry): GameState {
     }
     ctx.draw(p, config.initialHand);
   }
+  // 最初の手札は「このターンに引いた枚数」に数えない
+  for (const pl of state.players) pl.drawnThisTurn = 0;
   let first = opts.firstPlayer;
   if (first === undefined) {
     const [v, next] = nextRandom(state.rngState);

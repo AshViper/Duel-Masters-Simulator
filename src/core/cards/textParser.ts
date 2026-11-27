@@ -117,8 +117,14 @@ export function normalizeText(s: string): string {
     .replace(/(自分|相手)のマナゾーンに(\d+)枚以上カードがあれば/g, '$1のマナゾーンにカードが$2枚以上あれば')
     .replace(/を無限の数、?/g, 'をすべて')
     .replace(/カードをもう(\d+)枚/g, 'カードを$1枚')
-    // 「攻撃またはブロックした時」＝「攻撃する時、またはブロックした時」
+    // 「攻撃またはブロックした時」＝「攻撃する時、またはブロックした時」（「あるいは」も同じ。「出した時、または、〜」の読点は除く）
+    .replace(/が攻撃あるいはブロックした時/g, 'が攻撃またはブロックした時')
+    .replace(/時、または、/g, '時、または')
     .replace(/が攻撃またはブロックした時/g, 'が攻撃する時、またはブロックした時')
+    // 「相手がコストを支払わずにクリーチャーを出した時」「相手のクリーチャーが相手のマナゾーンのカードをタップせずに出た時」
+    // ＝「相手のクリーチャーが出た時、そのクリーチャーがコストを支払わずに出ていたら」
+    .replace(/^相手が(?:コストを支払わずに|マナゾーンのカードをタップせずに)クリーチャーを(?:バトルゾーンに)?出した時、/, '相手のクリーチャーが出た時、そのクリーチャーがコストを支払わずに出ていたら、')
+    .replace(/^相手のクリーチャーが(?:相手の)?マナゾーンのカードをタップせずに(?:バトルゾーンに)?出た時、/, '相手のクリーチャーが出た時、そのクリーチャーがコストを支払わずに出ていたら、')
     // 「自分の墓地にあるコスト7以下の呪文を1枚、コストを支払わずに唱える」＝「〜を1枚、自分の墓地からコストを支払わずに唱える」
     .replace(/^自分の(墓地|手札)にある([^、。]+?)を1(枚|体)、コストを支払わずに/, '$2を1$3、自分の$1からコストを支払わずに')
     // 「山札の上から3枚を、すべてのプレイヤーに見せる」＝表向きにする。「その中から光と闇のカード」＝光または闇のカード
@@ -262,9 +268,10 @@ const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArr
   ['攻撃中、このクリーチャーのパワーは無限大になる', { powerAttacker: 1_000_000_000 }],
   // 補足説明の言い方：「このクリーチャーはシールドを6つブレイクする」（H・ブレイカーなど）、Evoチャージャー
   [/^このクリーチャーはシールドを(\d+)(?:つ|枚)?ブレイクする$/, (m) => ({ breaker: Number(m[1]) })],
-  ['この呪文を唱えた後、墓地に置くかわりに自分のマナゾーンに置く', { charger: true }],
-  ['この呪文を唱えた後、墓地に置くかわりに自分の超次元ゾーンに置く', { spellToHyperspatial: true }],
-  [['この呪文を唱えた後、墓地に置くかわりに自分の手札に戻す', 'この呪文を唱えた後、墓地に置くかわりに自分の手札に加える'], { spellToHand: 'always' }],
+  // 「自分の」が付かない書き方もある（「墓地に置くかわりに手札に戻す」）
+  [/^この呪文を唱えた後、墓地に置くかわりに(?:自分の)?マナゾーンに置く$/, { charger: true }],
+  [/^この呪文を唱えた後、墓地に置くかわりに(?:自分の)?超次元ゾーンに置く$/, { spellToHyperspatial: true }],
+  [/^この呪文を唱えた後、墓地に置くかわりに(?:自分の)?手札に(?:戻す|加える)$/, { spellToHand: 'always' }],
   // サイクロン
   ['このターン、この呪文を唱える直前にクリーチャーを召喚していれば、この呪文を唱えた後、墓地に置くかわりに自分の手札に戻す', { spellToHand: 'afterSummon' }],
   // ∞ブレイカー：相手のシールドをすべてブレイクする
@@ -1870,11 +1877,15 @@ function parseStatic(t: string): StaticAbility[] | null {
     return [{ type: 'costMod', amount: both[4] === '多く' ? n(both[3]) : -n(both[3]), appliesTo: { owner: both[1] === '自分' ? 'self' : 'opponent', filter } }];
   }
   // 「自分のターンに一度、魔導具クリーチャーを1体、自分の墓地から召喚してもよい」
-  const sfz = t.match(/^自分のターンに(?:1|一)度、(.+?)を1体、自分の(墓地|マナゾーン)から召喚してもよい$/);
+  // 「自分のターンに一度、自分の墓地からクリーチャーを召喚してもよい」「自分のマナゾーンからドラゴンを召喚してもよい」（回数の制限なし）
+  const sfz =
+    t.match(/^(自分のターンに(?:1|一)度、)?(.+?)を1体、自分の(墓地|マナゾーン)から召喚してもよい$/) ??
+    t.match(/^(自分のターンに(?:1|一)度、)?自分の(?<z>墓地|マナゾーン)から(?<s>.+?)を(?:1体)?召喚してもよい$/);
   if (sfz) {
+    const [subj, zone] = sfz.groups ? [sfz.groups.s, sfz.groups.z] : [sfz[2], sfz[3]];
     const filter: CardFilter = { cardType: 'creature' };
-    if (!parseSubject(sfz[1], filter)) return null;
-    return [{ type: 'summonFromZone', zone: sfz[2] === '墓地' ? 'graveyard' : 'mana', filter, oncePerTurn: true }];
+    if (!parseSubject(subj, filter)) return null;
+    return [{ type: 'summonFromZone', zone: zone === '墓地' ? 'graveyard' : 'mana', filter, ...(sfz[1] ? { oncePerTurn: true } : {}) }];
   }
   // 卍 新世壊 卍
   const stu = t.match(/^自分の(.+?)呪文を唱えた時、唱えた後で墓地に置くかわりに、このフィールドの下に置いてカードを(\d+)枚引いてもよい$/);
@@ -1962,6 +1973,13 @@ function parseStatic(t: string): StaticAbility[] | null {
     }
     return out;
   }
+  // マナ武装など：「このクリーチャーがバトル中、〜あれば、このクリーチャーのパワーを+13000する」＝バトル中だけのパワー
+  const inBattle = t.match(/^このクリーチャーがバトル中、(.+)$/);
+  if (inBattle) {
+    const inner = parseStatic(inBattle[1]);
+    if (!inner || inner.some((x) => x.type !== 'powerMod' || !('onlySelf' in x.appliesTo && x.appliesTo.onlySelf))) return null;
+    return inner.map((x) => ({ ...x, battleOnly: true }));
+  }
   // 「〜があれば、このクリーチャーは攻撃されない」：条件つきの常在効果
   const cond = splitCondition(t);
   if (cond.condition && cond.body) {
@@ -2027,7 +2045,7 @@ function parseStatic(t: string): StaticAbility[] | null {
   if (/^相手のターンに相手のクリーチャーが召喚以外の方法で(?:バトルゾーンに)?出る時、相手はかわりにそのクリーチャーを墓地に置く$/.test(t))
     return [{ type: 'nonSummonEntryToGrave', who: 'opponent', duringTurn: 'opponent' }];
   // 「各ターン、自分の闇のクリーチャー1体目の召喚コストを1少なくしてもよい」「各ターンに1度、自分の、名前に《X》とあるカードの実行コストを1少なくしてもよい」
-  m = t.match(/^各ターン(?:に1度)?、(自分|相手)の、?(.+?)(?:1体目|1枚目)?の(?:召喚|実行|使用)コストを(\d+)少なくしてもよい(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/);
+  m = t.match(/^各ターン(?:に1度)?、(自分|相手)の、?(.+?)(?:1体目|1枚目)?の(?:召喚|実行|使用)コストを(\d+)少なく(?:してもよい|する)(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/);
   if (m) {
     const filter: CardFilter = {};
     const subj = m[2];
@@ -2046,7 +2064,7 @@ function parseStatic(t: string): StaticAbility[] | null {
   if (/^相手は、?(?:自身の)?(?:カードを)?マナゾーンに(?:カードを)?置く時、タップして置く$/.test(t) ||t === '相手のカードはマナゾーンにタップして置かれる') return [{ type: 'manaEntersTapped', who: 'opponent' }];
   m = t.match(/^相手はコスト(\d+)(以下|以上)の呪文を唱えられない$/);
   if (m) return [{ type: 'cannotCast', who: 'opponent', filter: m[2] === '以下' ? { maxCost: n(m[1]) } : { minCost: n(m[1]) } }];
-  m = t.match(/^(自分|相手)の(.*?)(クリーチャー|呪文|カード)(?:の召喚|を召喚する|の唱える|を唱える|を実行する|の)?コストを(\d+)(多く|少なく)する(?:。ただし、?コストは0以下に(?:は)?ならない)?$/);
+  m = t.match(/^(自分|相手)の(.*?)(クリーチャー|呪文|カード)(?:の召喚|を召喚する|の唱える|を唱える|を実行する|の)?コストを(?:最大)?(\d+)(多く|少なく)(?:する|してもよい)(?:。ただし、?コストは0以下に(?:は)?ならない)?$/);
   if (m) {
     const filter: CardFilter = m[3] === 'カード' ? {} : { cardType: m[3] === '呪文' ? 'spell' : 'creature' };
     // 「自分の魔導具クリーチャーを召喚するコスト」：修飾語でなければ種族
@@ -2057,7 +2075,7 @@ function parseStatic(t: string): StaticAbility[] | null {
     return [{ type: 'costMod', amount: m[5] === '多く' ? n(m[4]) : -n(m[4]), appliesTo: { owner: owner(m[1]), ...(Object.keys(filter).length ? { filter } : {}) } }];
   }
   // 「自分のマフィ・ギャングを召喚するコストを1少なくする。ただし、コストは0以下にならない」「自分のゼニスを召喚するコストは3少なくなる。ただし、コストは5より少なくならない」
-  m = t.match(/^(自分|相手)の(.+?)(?:を召喚する|の召喚)コスト(?:を(\d+)(多く|少なく)する|は(\d+)(多く|少なく)なる)(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/);
+  m = t.match(/^(自分|相手)の(.+?)(?:を召喚する|の召喚)コスト(?:を(?:最大)?(\d+)(多く|少なく)(?:する|してもよい)|は(\d+)(多く|少なく)なる)(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/);
   if (m) {
     const filter: CardFilter = {};
     if (!parseSubject(m[2], filter)) return null;
@@ -2555,6 +2573,20 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
   }
   const summoned = body.match(/^(?:その|この)ターン(?:中)?(?:に)?、?(自分|相手)がクリーチャーを召喚していれば、(.+)$/);
   if (summoned) return { body: summoned[2], condition: { type: 'summonedThisTurn', who: summoned[1] === '自分' ? 'self' : 'opponent' } };
+  // 「このターンに他のクリーチャーが攻撃していなければ、」「このターンに自分がカードを2枚以上引いていなければ、」
+  // 「このターンに自分がクリーチャーではないカードを実行していなければ、」
+  const tally =
+    body.match(/^(?:この|その)ターン(?:に|中)?、?(?<w>)他のクリーチャーが攻撃して(?<neg>いれば|いなければ)、(?<body>.+)$/) ??
+    body.match(/^(?:この|その)ターン(?:に|中)?、?(?<w>自分|相手)がカードを(?<n>\d+)枚以上引いて(?<neg>いれば|いなければ)、(?<body>.+)$/) ??
+    body.match(/^(?:この|その)ターン(?:に|中)?、?(?<w>自分|相手)が、?(?<f>[^、。]*?)カードを(?:実行|使用)して(?<neg>いれば|いなければ)、(?<body>.+)$/);
+  if (tally?.groups) {
+    const g = tally.groups;
+    const filter: CardFilter = {};
+    if (g.f !== undefined && !parseMods(g.f, filter)) return { body: null };
+    const what = g.f !== undefined ? 'played' : g.n !== undefined ? 'draws' : 'attacks';
+    const cond: Condition = { type: 'turnTally', what, who: g.w === '相手' ? 'opponent' : 'self', min: g.n ? n(g.n) : 1, ...(Object.keys(filter).length ? { filter } : {}) };
+    return { body: g.body, condition: g.neg === 'いなければ' ? { type: 'not', condition: cond } : cond };
+  }
   // 「そのターン自分が呪文を唱えていれば、」
   const cast = body.match(/^(?:その|この)ターン、?(自分|相手)が呪文を唱えていれば、(.+)$/);
   if (cast) return { body: cast[2], condition: { type: 'castThisTurn', who: cast[1] === '自分' ? 'self' : 'opponent' } };
@@ -2617,8 +2649,11 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
       return { body: m[6], condition: m[5] === 'なければ' ? { type: 'not', condition: cond } : cond };
     }
   }
-  m = body.match(/^(自分|相手)の手札が(\d+)枚(以上|以下)(?:なら|あれば)、(.+)$/);
-  if (m) return { body: m[4], condition: { type: 'compare', left: { who: who(m[1]), zone: 'hand' }, op: m[3] === '以下' ? '<=' : '>=', right: n(m[2]) } };
+  m = body.match(/^(自分|相手)の手札が(\d+)枚(以上|以下)(なら|あれば|でなければ)、(.+)$/);
+  if (m) {
+    const cond: Condition = { type: 'compare', left: { who: who(m[1]), zone: 'hand' }, op: m[3] === '以下' ? '<=' : '>=', right: n(m[2]) };
+    return { body: m[5], condition: m[4] === 'でなければ' ? { type: 'not', condition: cond } : cond };
+  }
   return { body };
 }
 

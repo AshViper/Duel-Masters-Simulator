@@ -1440,6 +1440,17 @@ const C = {
   dragon: mk('b-49', [], { race: 'アーマード・ドラゴン' }),
   reveal: spell('b-50', ['自分の山札の上から３枚を、すべてのプレイヤーに見せる。その中から光と闇のカードをすべて自分の手札に加え、残りを墓地に置く。']),
   stInline: mk('b-51', ['S・トリガー(この呪文をシールドゾーンから手札に加える時、コストを支払わずにすぐ唱えてもよい)カードを２枚まで引く。その後、自分の手札を１枚捨てる。'], { type: '呪文', power: '' }),
+  // 実カードの言い方（2026-11-27 に自動処理にした分）
+  noAtkAlone: mk('b-52', ['このターンに他のクリーチャーが攻撃していなければ、このクリーチャーは攻撃できない。']),
+  noAtkDraw: mk('b-53', ['このターンに自分がカードを２枚以上引いていなければ、このクリーチャーは攻撃できない。']),
+  noAtkSpell: mk('b-54', ['このターンに自分がクリーチャーではないカードを実行していなければ、このクリーチャーは攻撃できない。']),
+  noAtkHand: mk('b-55', ['自分の手札が１枚以下でなければ、このクリーチャーは攻撃できない。']),
+  manaArms: mk('b-56', ['マナ武装 ３：このクリーチャーがバトル中、自分のマナゾーンに火のカードが３枚以上あれば、このクリーチャーのパワーを+5000する。']),
+  freeKill: mk('b-57', ['相手がコストを支払わずにクリーチャーをバトルゾーンに出した時、そのクリーチャーを破壊する。']),
+  manaDragon: mk('b-58', ['自分のマナゾーンからドラゴンを召喚してもよい。']),
+  spellBack: spell('b-59', ['カードを１枚引く。', 'この呪文を唱えた後、墓地に置くかわりに手札に戻す。']),
+  tapAll: mk('b-60', ['このクリーチャーをバトルゾーンに出した時、または、このクリーチャーが攻撃あるいはブロックした時、バトルゾーンにある相手のクリーチャーを２体まで選び、タップしてもよい。']),
+  zenithDiscount: mk('b-61', ['自分のゼニスの召喚コストを最大３少なくしてもよい。']),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
 const filler = Array.from({ length: 40 }, () => 'S01-043');
@@ -1483,12 +1494,50 @@ describe('読み取り', () => {
     expect(C.atkOrBlock.abilities?.map((a) => a.when)).toEqual(['onAttack', 'onBlock']);
     expect(C.discardOnEnterTurn.abilities?.[0]).toMatchObject({ when: 'onAttack', condition: { type: 'selfEnteredThisTurn' } });
     expect(C.noBlockTurn.statics?.[0]).toMatchObject({ keywords: { unblockable: true }, condition: { type: 'selfEnteredThisTurn' } });
+    expect(C.spellBack.keywords).toMatchObject({ spellToHand: 'always' });
+    expect(C.tapAll.abilities?.map((a) => a.when)).toEqual(['onSummon', 'onAttack', 'onBlock']);
+    expect(C.freeKill.abilities?.[0]).toMatchObject({ when: 'onOtherSummon', who: 'opponent', condition: { type: 'subjectEnteredFree' }, effects: [{ type: 'destroy' }] });
+    expect(C.zenithDiscount.statics).toEqual([{ type: 'costMod', amount: -3, appliesTo: { owner: 'self', filter: { race: 'ゼニス', cardType: 'creature' } } }]);
     // 「バトルゾーンにある、〜を選び」は両方のプレイヤーのカードの言い方のまま
     expect(parseAbilityText('バトルゾーンにあるクリーチャーを１体選び、持ち主の手札に戻す。', 'spell').manualLines).toEqual([]);
   });
 });
 
 describe('攻撃・ブロック', () => {
+  it('このターンに〜していなければ攻撃できない：攻撃した回数・引いた枚数・使ったカード・手札の枚数で決まる', () => {
+    const s = newGame();
+    const alone = put(s, 0, C.noAtkAlone.id, 'battle');
+    const draw = put(s, 0, C.noAtkDraw.id, 'battle');
+    const spellOnly = put(s, 0, C.noAtkSpell.id, 'battle');
+    expect([canAttackWith(s, reg, 0, alone), canAttackWith(s, reg, 0, draw), canAttackWith(s, reg, 0, spellOnly)]).toEqual([false, false, false]);
+    s.players[0].attacksThisTurn = 1;
+    s.players[0].drawnThisTurn = 2;
+    s.players[0].playedThisTurn = [put(s, 0, C.spellBack.id, 'graveyard')];
+    expect([canAttackWith(s, reg, 0, alone), canAttackWith(s, reg, 0, draw), canAttackWith(s, reg, 0, spellOnly)]).toEqual([true, true, true]);
+    // クリーチャーを使っただけでは攻撃できない
+    s.players[0].playedThisTurn = [put(s, 0, C.vanilla.id, 'graveyard')];
+    expect(canAttackWith(s, reg, 0, spellOnly)).toBe(false);
+
+    const s2 = newGame();
+    const hand = put(s2, 0, C.noAtkHand.id, 'battle');
+    s2.players[0].zones.hand.splice(0);
+    put(s2, 0, C.vanilla.id, 'hand');
+    expect(canAttackWith(s2, reg, 0, hand)).toBe(true);
+    put(s2, 0, C.vanilla.id, 'hand');
+    expect(canAttackWith(s2, reg, 0, hand)).toBe(false);
+  });
+  it('マナ武装：バトル中で、マナの条件を満たす時だけパワーが上がる', () => {
+    let s = toAttack(newGame());
+    const a = put(s, 0, C.manaArms.id, 'battle');
+    const t = put(s, 1, C.vanilla.id, 'battle');
+    s.cards[t].tapped = true;
+    mana(s, 3);
+    expect(power(s, reg, a)).toBe(3000);
+    s = act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'creature', iid: t } });
+    while (s.pending?.kind === 'block') s = act(s, { type: 'RESPOND', player: 1, selected: [] });
+    expect(s.cards[t].zone).toBe('graveyard');
+    expect(s.cards[a].zone).toBe('battle');
+  });
   it('「可能ならこのクリーチャーを攻撃する」：攻撃できるなら攻撃先はそれだけ', () => {
     const s = newGame();
     const a = put(s, 0, C.vanilla.id, 'battle');
@@ -1539,6 +1588,14 @@ describe('攻撃・ブロック', () => {
 });
 
 describe('出る時・離れる時', () => {
+  it('「自分のマナゾーンからドラゴンを召喚してもよい」：マナゾーンのドラゴンだけ召喚できる', () => {
+    const s = newGame();
+    put(s, 0, C.manaDragon.id, 'battle');
+    const d = put(s, 0, C.dragon.id, 'mana');
+    const v = put(s, 0, C.vanilla.id, 'mana');
+    expect(canSummonFromZone(s, reg, 0, d)).toBe(true);
+    expect(canSummonFromZone(s, reg, 0, v)).toBe(false);
+  });
   it('バトルゾーンに置く時、タップして置く', () => {
     const s = newGame();
     const i = put(s, 0, C.entersTapped.id, 'battle');
