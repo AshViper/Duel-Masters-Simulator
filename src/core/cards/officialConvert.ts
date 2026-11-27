@@ -248,6 +248,7 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
       ...twin,
       keywords: twinKeywords(twinParsed.keywords),
       abilities: twinParsed.abilities.length ? twinParsed.abilities : undefined,
+      ...(twinParsed.selfCost ? { selfCost: twinParsed.selfCost } : {}),
     };
   }
   const manual =

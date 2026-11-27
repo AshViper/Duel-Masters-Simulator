@@ -2,7 +2,7 @@
 // 能力テキストの読み取り（textParser）が読めない文に、エンジンの部品（EffectDef など）で書いた定義を持たせる。
 // キーはカードに書かれた能力の文（1つの能力。選択肢は「▶」でつなぐ）。全角・半角、空白、カッコの補足説明の違いは無視して照合する。
 // 同じ文を持つカードすべてに効く。読み取りより優先するので、読み取りが間違う文の直しにも使える。
-import { TRIGGER_EVENTS, type HandTrigger, type AltPlay, type Condition, type Keywords, type ReplacementAbility, type StaticAbility, type TriggeredAbility } from './types';
+import { TRIGGER_EVENTS, type HandTrigger, type AltPlay, type CardFilter, type Condition, type EffectDef, type Keywords, type ReplacementAbility, type StaticAbility, type TriggeredAbility } from './types';
 
 export interface LineDef {
   keywords?: Keywords;
@@ -34,6 +34,21 @@ const noShield: Condition = { type: 'compare', left: { who: 'self', zone: 'shiel
 
 /** 直前に墓地に置いた（選んだ）カードの中から選ぶ対象 */
 const fromChosen = (filter?: { maxCost: number }) => ({ owner: 'self' as const, zone: 'graveyard' as const, count: 1, upTo: true, ref: 'chosen' as const, refPick: true, ...(filter ? { filter } : {}) });
+
+/** 《邪幽 ジャガイスト》：コスト以下のアビス・クリーチャーを墓地から出し、そのターン相手プレイヤーを攻撃でき、攻撃したらターンの終わりに山札の下へ */
+const jagaistRevive = (cost: CardFilter): EffectDef => ({
+  type: 'move',
+  target: { owner: 'self', zone: 'graveyard', count: 1, upTo: true, filter: { race: 'アビス', cardType: 'creature', ...cost } },
+  to: 'battle',
+  grant: { keywords: { attackPlayersOnEnterTurn: true } },
+  endOfTurn: 'deckBottomIfAttacked',
+});
+
+/** 進化クリーチャーまたはアビス・クリーチャー */
+const EVO_OR_ABYSS: CardFilter = { cardType: 'creature', anyOf: [{ evolution: true }, { race: 'アビス' }] };
+
+/** 直前に選んだ相手の墓地のカード */
+const chosenInOppGrave = { owner: 'opponent' as const, zone: 'graveyard' as const, count: 'all' as const, ref: 'chosen' as const, anyZone: true };
 
 /** アプリに入っている定義。新しい定義はここに足す */
 export const BUILT_IN_LINE_DEFS: LineDefs = {
@@ -458,6 +473,100 @@ export const BUILT_IN_LINE_DEFS: LineDefs = {
   'このクリーチャーが破壊された時、そのターン、自分はゲームに負けず、相手は勝てない。': {
     note: '不敗のダイハード・リュウセイ',
     abilities: [{ when: 'onDestroyed', effects: [{ type: 'turnStatic', static: { type: 'cannotLose', who: 'self' } }] }],
+  },
+  // ───── SD1 その4 ─────
+  '各ターンに一度、自分がゲームに負ける時、かわりに自分のハンターを1つ破壊してもよい。': {
+    note: '「必然」の頂 リュウセイ（負けないほうが必ず得なので確認しない。破壊するハンターはコストの小さいものから自動で選ぶ。このクリーチャー自身も選べる）',
+    replacements: [{ event: 'lose', subject: 'anyOwn', instead: 'destroyOwn', filter: { race: 'ハンター' }, oncePerTurn: true, optional: true }],
+  },
+  'このクリーチャーがタップしていれば、相手は「S・トリガー」を使えない。': {
+    note: '超神龍バイラス・カースド（S・トリガーを使う時に調べる）',
+    statics: [{ type: 'noShieldTrigger', who: 'opponent', condition: { type: 'selfTapped' } }],
+  },
+  '各ターンに一度、自分の山札からクリーチャーが出た時、そのクリーチャーのコスト以下のアビス・クリーチャーを1体、自分の墓地から出してもよい。そのターン、そのアビスは相手プレイヤーを攻撃でき、そのターン中に攻撃したら、ターンの終わりに山札の下に置く。': {
+    note: '邪幽 ジャガイスト（このクリーチャー自身が山札から出た時も。そのクリーチャー＝このクリーチャーならコスト5以下）',
+    abilities: [
+      { when: 'onSummon', filter: { enteredFrom: 'deck' }, oncePerTurn: true, onceKey: 'deckEnter', effects: [jagaistRevive({ maxCost: 5 })] },
+      { when: 'onOtherSummon', who: 'self', filter: { enteredFrom: 'deck' }, oncePerTurn: true, onceKey: 'deckEnter', effects: [jagaistRevive({ subjectRel: { stat: 'cost', cmp: 'le' } })] },
+    ],
+  },
+  '各ターン、はじめて自分の、進化クリーチャーまたはアビス・クリーチャーをタップした時、それをアンタップする。': {
+    note: '至高の魂 アビスベル＝ジャシン帝（このクリーチャーが出る前のタップも数える。2回目以降のタップ・2体目以降は何もしない）',
+    abilities: [
+      { when: 'onTap', condition: { type: 'firstTapThisTurn', filter: EVO_OR_ABYSS }, effects: [{ type: 'selfAction', action: 'untap' }] },
+      {
+        when: 'onOtherTap',
+        who: 'self',
+        filter: EVO_OR_ABYSS,
+        condition: { type: 'firstTapThisTurn', filter: EVO_OR_ABYSS },
+        effects: [{ type: 'untap', target: { owner: 'self', zone: 'battle', count: 'all', ref: 'event' } }],
+      },
+    ],
+  },
+  'シビルカウント3：このクリーチャーが攻撃する時、自分の闇のクリーチャーまたは闇のタマシードが合計3つ以上あれば、相手の墓地にあるカードを1枚選んでもよい。そのカードの、出た時にトリガーする能力を、自分が1つ使ってもよい。その後、相手はそのカードを山札の下に置く。': {
+    note: '深淵の壊炉 マーダン=ロウ（能力を使わなくても、選んだカードは山札の下へ）',
+    abilities: [
+      {
+        when: 'onAttack',
+        condition: {
+          type: 'compare',
+          left: { who: 'self', zone: 'battle', withPermanents: true, filter: { civilization: 'darkness', anyOf: [{ cardType: 'creature' }, { cardType: 'tamaseed' }] } },
+          op: '>=',
+          right: 3,
+        },
+        effects: [
+          { type: 'choose', target: { owner: 'opponent', zone: 'graveyard', count: 1, upTo: true } },
+          {
+            type: 'ifChosen',
+            then: [
+              {
+                type: 'optional',
+                effects: [{ type: 'useAbilityOf', target: chosenInOppGrave, when: 'onSummon', thenDeckBottom: true }],
+                otherwise: [{ type: 'move', target: chosenInOppGrave, to: 'deckBottom' }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  '手札が1枚もないプレイヤー1人につき、このクリーチャーのパワーを+5000する。': {
+    note: '謀遠 テレスコ=テレス（自分と相手それぞれ、手札が0枚なら+5000）',
+    statics: (['self', 'opponent'] as const).map(
+      (who): StaticAbility => ({ type: 'powerMod', amount: 5000, appliesTo: { owner: 'self', onlySelf: true }, condition: { type: 'compare', left: { who, zone: 'hand' }, op: '<=', right: 0 } }),
+    ),
+  },
+  'このクリーチャーが出た時、次のうちいずれか1つを選ぶ。▶自分の山札の上から2枚を、タップしてマナゾーンに置く。その後、カードを1枚、自分のマナゾーンから手札に戻す。▶プレイヤーを1人選ぶ。そのプレイヤーは、自身の墓地をシャッフルし、山札の下に置く。▶相手は、自身のコスト5以下の、クリーチャーではないエレメントをすべてマナゾーンに置く。': {
+    note: 'ア:エヌ:マクア',
+    abilities: [
+      {
+        when: 'onSummon',
+        effects: [
+          {
+            type: 'chooseOne',
+            options: [
+              {
+                label: '自分の山札の上から2枚をタップしてマナゾーンに置き、その後マナゾーンから1枚を手札に戻す',
+                effects: [{ type: 'deckTopTo', count: 2, to: 'mana', tapped: true }, { type: 'move', target: { owner: 'self', zone: 'mana', count: 1 }, to: 'hand' }],
+              },
+              { label: 'プレイヤーを1人選び、その墓地をシャッフルして山札の下に置く', effects: [{ type: 'graveToDeckBottom', who: 'choose' }] },
+              {
+                label: '相手のコスト5以下の、クリーチャーではないエレメントをすべてマナゾーンに置く',
+                effects: [{ type: 'move', target: { owner: 'opponent', zone: 'battle', count: 'all', element: true, filter: { maxCost: 5, not: { cardType: 'creature' } } }, to: 'mana' }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  'このクリーチャーがバトルゾーンに出た時、「シールドいらねえー！」と言ってもよい。そうしたら、そのターン、自分のクリーチャー3体に「G・ブレイカー」を与える。': {
+    note: 'めっちゃ！デンヂャラスG3（「言ってもよい」は使うかどうかの確認）',
+    abilities: [{ when: 'onSummon', optional: true, effects: [{ type: 'grantKeyword', target: { owner: 'self', zone: 'battle', count: 3 }, keywords: { breaker: 99, gBreaker: true } }] }],
+  },
+  '「気に入らねぇやつは消す」と言ってもよい。そうしたら、このターン、相手のクリーチャーの能力すべてを無視する。': {
+    note: 'ケッシング・ゼロ（めっちゃ！デンヂャラスG3 の呪文側。元から持つ能力を無視する。他のカードから与えられた効果は残る）',
+    abilities: [{ when: 'onCast', effects: [{ type: 'optional', effects: [{ type: 'turnStatic', static: { type: 'ignoreAbilities', who: 'opponent' } }] }] }],
   },
 };
 

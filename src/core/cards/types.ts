@@ -129,6 +129,8 @@ export interface CardFilter {
   sameRaceAsSubject?: boolean;
   /** このターンに破壊された */
   destroyedThisTurn?: boolean;
+  /** そのゾーンからバトルゾーンに出た（「自分の山札からクリーチャーが出た時」） */
+  enteredFrom?: ZoneName;
   /** コストが、直前に選んだ（動かした）カードの枚数以下（「こうして山札の下に置かれたカードの枚数以下のコストを持つ」） */
   maxCostChosenCount?: boolean;
 }
@@ -264,7 +266,12 @@ export type Condition =
   /** このターンに、その名前の能力をすでに使っていた（「そのターン中に他の「ファイナル革命」をまだ使っていなければ」は not で包む） */
   | { type: 'usedThisTurn'; key: string }
   /** 直前に選んだ（動かした）カードが条件に合う（「自分の山札の上から1枚目をマナゾーンに置く。それがドラゴンなら、〜」） */
-  | { type: 'chosenMatches'; filter: CardFilter };
+  | { type: 'chosenMatches'; filter: CardFilter }
+  /** このターンにタップした自分の（filter に合う）クリーチャーが、いまタップしたものだけ（「各ターン、はじめて自分の〜をタップした時」） */
+  | { type: 'firstTapThisTurn'; filter?: CardFilter };
+
+/** バトルゾーンに出したカードを、このターンの終わりにどうするか（deckBottomIfAttacked: そのターン中に攻撃していれば山札の下へ） */
+export type EndOfTurnLeave = 'destroy' | 'deckBottom' | 'deckBottomDraw' | 'deckBottomIfAttacked';
 
 /** 効果でカードを動かす先（deckTop / deckBottom は山札の上 / 下） */
 /** under: 効果の発生源（このクリーチャー）の下に置く */
@@ -298,7 +305,8 @@ export type EffectDef =
   /** withGears: そのクリーチャーにクロスされているクロスギアも同じところへ（「そのクリーチャーとそれにクロスされているクロスギアをすべて」） */
   /** endOfTurn: バトルゾーンに出したクリーチャーを、このターンの終わりに破壊する／山札の下に置く／山札の下に置いて1枚引く（「このターンの終わりに、それらを山札の下に置き、〜1体につき、カードを1枚引く」） */
   /** deckPos: to が deckTop の時、持ち主の山札の上から何枚目の位置に置くか。sideways: 横向きに刺す（《Q.Q.QX.》） */
-  | { type: 'move'; target: TargetSpec; to: MoveDest; tapped?: boolean; faceUp?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean }; withGears?: boolean; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; deckPos?: number; sideways?: boolean }
+  /** endOfTurn: deckBottomIfAttacked は「そのターン中に攻撃したら、ターンの終わりに山札の下に置く」（《邪幽 ジャガイスト》） */
+  | { type: 'move'; target: TargetSpec; to: MoveDest; tapped?: boolean; faceUp?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean }; withGears?: boolean; endOfTurn?: EndOfTurnLeave; deckPos?: number; sideways?: boolean }
   /**
    * 選んだクロスギアを、コストを支払わずにクロスする。to: self はこのクリーチャーに、choose は自分のクリーチャーを1つずつ選んで。
    * iids: エンジン内部用（クロス先を聞いているクロスギア）
@@ -450,6 +458,8 @@ export type EffectDef =
   | { type: 'discardUnder'; count: number }
   /** 直前の効果でカードを1枚以上選んだ（動かした）時だけ続きを処理する（「〜してもよい。そうしたら、〜」）。n: エンジン内部用（選んだ枚数） */
   | { type: 'ifChosen'; then: EffectDef[]; n?: number }
+  /** エンジン内部用：S・バック（shield: シールドから手札に加えたカード、spell: S・バックを持つ呪文）。両方が手札にあれば、shield を捨てて spell をコストを支払わずに唱える */
+  | { type: 'sBack'; shield: string; spell: string }
   /** マジボンバーN：山札の上から1枚目を見て、コストN以下のクリーチャーを1体、手札または山札の上から出してもよい */
   | { type: 'magibomber'; maxCost: number }
   /**
@@ -527,7 +537,8 @@ export type EffectDef =
    * 選んだクリーチャーの能力を1つ使う（「その〜の「このクリーチャーが出た時」で始まる能力を1つ使う」、キズナの [P] 能力、Jビッグ）。
    * jbig: 「Jビッグ」の能力は使わない
    */
-  | { type: 'useAbilityOf'; target: TargetSpec; when: TriggerEvent; jbig?: boolean }
+  /** thenDeckBottom: その後、選んだカードを持ち主の山札の下に置く（能力がなくても置く。《深淵の壊炉 マーダン=ロウ》） */
+  | { type: 'useAbilityOf'; target: TargetSpec; when: TriggerEvent; jbig?: boolean; thenDeckBottom?: boolean }
   /**
    * 「〜1体につき、〜する」：数えた数だけ effects を行う（引く枚数・選ぶ数は掛け算にする）。
    * per: 'chosen' は直前の効果で選んだ（動かした）カードの数（「こうして破壊したクリーチャー1体につき」）。n: エンジン内部用
@@ -758,6 +769,10 @@ export type StaticAbility = (
   | { type: 'manaEntersUntapped'; filter?: CardFilter }
   /** 持ち主の zones 以外からはバトルゾーンに出ない（「相手のエレメントは、相手の手札以外から出ない」。who: カードの持ち主） */
   | { type: 'entryOnlyFrom'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; zones: Array<'hand' | 'deck'> }
+  /** そのプレイヤーは「S・トリガー」を使えない（「このクリーチャーがタップしていれば、相手は「S・トリガー」を使えない」は condition: selfTapped） */
+  | { type: 'noShieldTrigger'; who: 'self' | 'opponent' | 'both' }
+  /** そのプレイヤーのバトルゾーンのクリーチャーが元から持つ能力をすべて無視する（「このターン、相手のクリーチャーの能力すべてを無視する」） */
+  | { type: 'ignoreAbilities'; who: 'self' | 'opponent' }
 ) & {
   /** 有効なターン（「自分のターン中」= self）。省略時は常に有効 */
   duringTurn?: 'self' | 'opponent';
@@ -783,7 +798,8 @@ export interface ReplacementAbility {
   /** faceUpShieldToGrave: かわりにいずれかのシールドゾーンにある表向きのカードを1枚、持ち主の墓地に置く */
   /** avertCost: かわりに自分の表向きのカードを count 枚破壊するか、自分のシールドを shieldAlt 個墓地に置く（CRY-S-MAX進化） */
   /** payCards: かわりに自分のカードを動かす（pay。「かわりにカードを3枚、自分のマナゾーンから墓地に置いてもよい」） */
-  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'toDeckTop' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther' | 'shedTop' | 'unflip' | 'faceUpShieldToGrave' | 'avertCost' | 'underToDeckBottom' | 'payCards';
+  /** destroyOwn: かわりに自分の（filter に合う）カードを1つ破壊する。このクリーチャー自身も選べる（event: lose。「かわりに自分のハンターを1つ破壊してもよい」） */
+  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'toDeckTop' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther' | 'shedTop' | 'unflip' | 'faceUpShieldToGrave' | 'avertCost' | 'underToDeckBottom' | 'payCards' | 'destroyOwn';
   pay?: { from: 'mana' | 'hand' | 'graveyard' | 'deckTop'; count: number; filter?: CardFilter; to: 'graveyard' | 'deckBottom' | 'deckShuffle' };
   /** 各ターンに1度だけ */
   oncePerTurn?: boolean;
@@ -964,6 +980,12 @@ export interface Keywords {
   discardToBattleCause?: 'opponentEffect';
   /** discardToBattle で出した後の効果（「そうした場合、〜」。このカードの持ち主が使う） */
   discardToBattleThen?: EffectDef[];
+  /** 出たターンでも、相手プレイヤーを攻撃できる（クリーチャーは攻撃できない） */
+  attackPlayersOnEnterTurn?: boolean;
+  /** G・ブレイカー（与えられた時）：シールドをすべてブレイクし、その攻撃の後、自分のシールドをすべてブレイクする（breaker: 99 と合わせて与える） */
+  gBreaker?: boolean;
+  /** S・バック：この文明のカードを自分のシールドゾーンから手札に加える時、そのカードを捨ててもよい。そうしたら、コストを支払わずにこの呪文を唱える */
+  sBack?: Civilization;
 }
 
 /** 禁断の鼓動の裏側（禁断クリーチャー） */
@@ -981,6 +1003,8 @@ export interface TwinSide {
   text: string;
   keywords?: Pick<Keywords, 'shieldTrigger' | 'charger' | 'crystalCharger' | 'manaTapped' | 'spellToHand' | 'spellToHyperspatial'>;
   abilities?: TriggeredAbility[];
+  /** この呪文を唱えるコストを少なくする（「相手のクリーチャー1体につき、この呪文を唱えるコストを1少なくする」） */
+  selfCost?: CardDefinition['selfCost'];
 }
 
 /** 侵略・革命チェンジ・アタック・チャンス（攻撃する時に使う） */

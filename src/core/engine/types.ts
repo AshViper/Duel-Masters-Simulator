@@ -1,4 +1,4 @@
-import type { EffectDef, Keywords, StaticAbility, ZoneName } from '../cards/types';
+import type { EffectDef, EndOfTurnLeave, Keywords, StaticAbility, ZoneName } from '../cards/types';
 
 export type PlayerId = 0 | 1;
 export const other = (p: PlayerId): PlayerId => (p === 0 ? 1 : 0);
@@ -67,7 +67,7 @@ export interface CardInstance {
   /** 「革命チェンジ」で出た */
   enteredByRevolution?: boolean;
   /** このターン（turn）の終わりにバトルゾーンを離れる（B・A・D・J・O・E・アビスラッシュ） */
-  leaveAtTurnEnd?: { turn: number; how: 'destroy' | 'deckBottom' | 'deckBottomDraw' };
+  leaveAtTurnEnd?: { turn: number; how: EndOfTurnLeave };
   /** 覚醒リンクでこのクリーチャーとリンクしているサイキック・セル（バトルゾーンの一覧には入らない） */
   links?: string[];
 }
@@ -214,7 +214,7 @@ export type Task =
   | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin'; after?: 'deckBottom' | 'hand'; paid?: boolean; from?: ZoneName }
   /** summoned: 召喚で出る（効果で「出す」のではない） */
   /** godLinkTo: G・リンクするゴッド（'' はリンクしない。未定なら出る前に選ぶ） */
-  | { kind: 'enterBattle'; godLinkTo?: string; player: PlayerId; iid: string; evolveFrom?: string[]; evolveDeck?: { count: number; creatureOnly?: boolean }; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; paid?: boolean; byRevolution?: boolean; equipTo?: string; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
+  | { kind: 'enterBattle'; godLinkTo?: string; player: PlayerId; iid: string; evolveFrom?: string[]; evolveDeck?: { count: number; creatureOnly?: boolean }; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; paid?: boolean; byRevolution?: boolean; equipTo?: string; endOfTurn?: EndOfTurnLeave; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
   /** 呪文を解決し終えたら墓地へ */
   | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin'; after?: 'deckBottom' | 'hand'; from?: ZoneName }
   | { kind: 'hyperize'; player: PlayerId; iid: string }

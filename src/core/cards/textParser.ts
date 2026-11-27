@@ -228,6 +228,9 @@ export function normalizeText(s: string): string {
     .replace(/^このクリーチャーは、?進化クリーチャーである時しか攻撃できない/, 'これが進化クリーチャーでなければ、このクリーチャーは攻撃できない')
     // 「自分のシールドが1つもなければ」＝0つ以下なら
     .replace(/(自分|相手)のシールドが1(?:つ|枚)もなければ、/g, '$1のシールドが0つ以下なら、')
+    .replace(/(自分|相手)のシールドが0(?:つ|枚)なら、/g, '$1のシールドが0つ以下なら、')
+    // 「〜時、山札の上から2枚を〜」：誰の山札か書いていない時は自分の山札
+    .replace(/(^|。|時、)山札の上から/g, '$1自分の山札の上から')
     .replace(/^相手のターン中に、相手のクリーチャーが/, '相手のターンに相手のクリーチャーが')
     // 「バトルゾーンにある、コスト7以下のカードを1枚選び」：どちらのプレイヤーのものでも
     .replace(/^バトルゾーンにある、?([^、。]*?)カードを(\d+)(?:枚|つ)選び/, '$1エレメントを$2つ選び')
@@ -237,6 +240,8 @@ export function normalizeText(s: string): string {
     .replace(/カードをさらに(\d+)枚引/g, 'カードを$1枚引')
     // 「相手のシールドが2枚以下ならば」＝「相手のシールドが2つ以下なら」
     .replace(/シールドが(\d+)枚(以下|以上)/g, 'シールドが$1つ$2')
+    // 「相手のシールドが5つ以上あれば」＝5つ以上なら
+    .replace(/(自分|相手)のシールドが(\d+)つ以上あれば、/g, '$1のシールドが$2つ以上なら、')
     .replace(/ならば、/g, 'なら、')
     // 「このカードを墓地から手札に戻す」（このクリーチャーが破壊された時）
     .replace(/このカードを(?:自分の)?墓地から/g, 'このクリーチャーを自分の墓地から')
@@ -297,6 +302,10 @@ function normalizeKeepSpace(s: string): string {
  */
 const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArray | string[]) => Keywords)][] = [
   ['マッハファイター', { machFighter: true }],
+  // 「このクリーチャーは、出たターン、相手プレイヤーを攻撃できる」
+  [/^このクリーチャーは出たターン、?相手プレイヤーを攻撃できる$/, { attackPlayersOnEnterTurn: true }],
+  // S・バック：闇（闇のカードを自分のシールドゾーンから手札に加える時、そのカードを捨ててもよい。そうしたら、コストを支払わずにこの呪文を唱える）
+  [/^S・バック[:：](光|水|闇|火|自然)(?:[（(].*[）)])?$/, (m) => ({ sBack: CIV[m[1]] })],
   ['パワード・ブレイカー', { poweredBreaker: true }],
   ['チャージャー', { charger: true }],
   ['EXライフ', { exLife: true }],
@@ -1114,11 +1123,11 @@ function parseSentence(s: string): EffectDef[] | null {
   if (/^このクリーチャーを、?《[^》]+》のほうに裏返す$/.test(s)) return [{ type: 'flipSelf', to: 'toggle' }];
   // メテオバーン覚醒：「このクリーチャーの下にあるカードをすべて墓地に置く」
   if (/^このクリーチャーの下にあるカードをすべて、?(?:自分の)?墓地に置く$/.test(s)) return [{ type: 'discardUnder', count: 0 }];
-  // メクレイド：「アビス・メクレイド5する」＝山札の上から3枚を見て、コスト5以下のアビスを1枚（W・メクレイドは2枚まで）、コストを支払わずに使ってもよい。残りは山札の下
+  // メクレイド：「アビス・メクレイド5する」＝山札の上から3枚を見て、コスト5以下のアビスを1枚（W・メクレイドは6枚を見て2枚まで）、コストを支払わずに使ってもよい。残りは山札の下
   if ((m = s.match(/^(?:自分は)?(.+?)・(W・)?メクレイド(\d+|∞)する$/))) {
     const pickFilter: CardFilter = { race: m[1], ...(m[3] === '∞' ? {} : { maxCost: n(m[3]) }) };
     return [
-      { type: 'lookAtTop', count: 3, pickCount: m[2] ? 2 : 1, pickFilter, pickTo: 'none', restTo: 'deckBottom' },
+      { type: 'lookAtTop', count: m[2] ? 6 : 3, pickCount: m[2] ? 2 : 1, pickFilter, pickTo: 'none', restTo: 'deckBottom' },
       { type: 'playFree', target: { owner: 'self', zone: 'deck', count: 'all', ref: 'chosen', anyZone: true } },
     ];
   }
@@ -1370,6 +1379,9 @@ function parseSentence(s: string): EffectDef[] | null {
   // 「相手の手札を見て1枚選び、捨てさせる」：中身を見て選ぶ
   if ((m = s.match(/^相手の手札を見て(?:その中から)?(\d+)枚(まで)?選び、捨てさせる$/)))
     return [move({ owner: 'opponent', zone: 'hand', count: n(m[1]), ...(m[2] ? { upTo: true } : {}) }, 'graveyard')];
+  // 「相手の手札を見てクリーチャーを1体選び、捨てさせる」
+  if ((m = s.match(/^相手の手札を見て(?:その中から)?(クリーチャー|呪文)を(\d+)(?:体|枚)(まで)?選び、捨てさせる$/)))
+    return [move({ owner: 'opponent', zone: 'hand', count: n(m[2]), filter: { cardType: m[1] === '呪文' ? 'spell' : 'creature' }, ...(m[3] ? { upTo: true } : {}) }, 'graveyard')];
   // 「各プレイヤーは、バトルゾーン、手札、シールドゾーン、墓地にある自身のカードをすべて山札に加えてシャッフルする」
   if ((m = s.match(/^各プレイヤーは、?((?:(?:バトルゾーン|手札|シールドゾーン|マナゾーン|墓地)(?:、|と|および)?)+)にある自身のカードをすべて(?:自身の)?山札に(?:加えて|戻して)シャッフルする$/))) {
     const Z: Record<string, TargetSpec['zone']> = { バトルゾーン: 'battle', 手札: 'hand', シールドゾーン: 'shield', マナゾーン: 'mana', 墓地: 'graveyard' };
@@ -2382,7 +2394,8 @@ function parsePer(t: string): { per: Quantity; unit: number } | null {
 function parseSelfCost(t: string): ParsedAbilities['selfCost'] | null {
   const m =
     t.match(/^この(?:クリーチャー|カード)の(?:召喚|実行)コスト(?:を|は)、(.+?につき)(\d+)少なく(?:する|なる)(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/) ??
-    t.match(/^(.+?につき)、?このクリーチャーの召喚コスト(?:は|を)(\d+)少なく(?:なる|する)(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/);
+    t.match(/^(.+?につき)、?このクリーチャーの召喚コスト(?:は|を)(\d+)少なく(?:なる|する)(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/) ??
+    t.match(/^(.+?につき)、?この呪文を唱えるコスト(?:は|を)(\d+)少なく(?:なる|する)(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/);
   if (!m) return null;
   const min = m[3] === undefined ? 1 : m[4] === '以下' ? n(m[3]) + 1 : n(m[3]);
   const pe = m[1].match(/^(?:このクリーチャーの)?進化元(?:クリーチャー|カード)(\d+)(?:体|枚)につき$/);
@@ -4174,6 +4187,12 @@ function isUnsafe(t: string): boolean {
 /** 「このクリーチャーは攻撃できない」などを、このクリーチャーだけにかかる常在効果にする（条件つきで使う） */
 function selfKeywordStatic(t: string): StaticAbility[] | null {
   const kw: Keywords = {};
+  // 「このクリーチャーに「スピードアタッカー」を与える」「このクリーチャーは「W・ブレイカー」を得る」
+  const g = t.match(/^このクリーチャー(?:に|は)、?((?:「[^「」]+」と?)+)を(?:与える|得る)。?$/);
+  if (g) {
+    for (const k of g[1].match(/「[^「」]+」/g) ?? []) if (!applyKeywordLine(k.slice(1, -1), kw)) return null;
+    return [{ type: 'grantKeyword', keywords: kw, appliesTo: { owner: 'self', onlySelf: true } }];
+  }
   if (!applyKeywordLine(t, kw)) return null;
   return [{ type: 'grantKeyword', keywords: kw, appliesTo: { owner: 'self', onlySelf: true } }];
 }

@@ -52,6 +52,8 @@ import {
   defaultEvolveSources,
   evolveSourceCandidates,
   ignoresAttackLocks,
+  abilitiesIgnored,
+  shieldTriggerLocked,
   withoutAttackLocks,
   altCost,
   altPayment,
@@ -136,6 +138,7 @@ const INSTEAD_LABEL: Record<ReplacementAbility['instead'], string> = {
   faceUpShieldToGrave: 'シールドゾーンにある表向きのカードを1枚墓地に置く',
   avertCost: '表向きのカードを破壊するか、シールドを墓地に置く',
   underToDeckBottom: '下に重ねたカードを山札の下に置く',
+  destroyOwn: '自分のカードを1つ破壊する',
 };
 
 /** 効果の中の「誘発の原因になったカード」（ref: 'event'）を、実際のカードに決める */
@@ -488,6 +491,8 @@ export class Ctx {
         for (const b of [...s.players[0].zones.battle, ...s.players[1].zones.battle]) {
           const l = s.cards[b].leaveAtTurnEnd;
           if (!l || l.turn !== s.turn) continue;
+          // 「そのターン中に攻撃したら、ターンの終わりに山札の下に置く」：攻撃していなければそのまま
+          if (l.how === 'deckBottomIfAttacked' && !(s.usedThisTurn ?? []).includes(`atk:${b}`)) continue;
           if (l.how === 'destroy') s.queue.push({ kind: 'leave', iid: b, to: 'graveyard', cause: 'destroy' });
           else s.queue.push({ kind: 'leave', iid: b, to: 'deck', cause: 'effect', toTop: false });
           if (l.how === 'deckBottomDraw') s.queue.push(...this.effectTasks(s.cards[b].owner, b, [{ type: 'draw', count: 1 }]));
@@ -1423,6 +1428,10 @@ export class Ctx {
           const atk = task.attacker;
           if (keywords(s, this.reg, atk).untapAtFirstAttackEnd && (s.usedThisTurn ?? []).filter((k) => k === `atk:${atk}`).length <= 1)
             this.addTrigger(s.cards[atk].owner, atk, this.effectTasks(s.cards[atk].owner, atk, [{ type: 'selfAction', action: 'untap' }]));
+          // 与えられた「G・ブレイカー」：その攻撃の後、自分のシールドをすべてブレイクする（元から G・ブレイカーを持つクリーチャーは、その能力で行う）
+          const selfG = (def(s, this.reg, atk).abilities ?? []).some((ab) => ab.when === 'onAttackEnd' && ab.effects.some((x) => x.type === 'breakShields' && x.self));
+          if (keywords(s, this.reg, atk).gBreaker && (!selfG || abilitiesIgnored(s, this.reg, atk)))
+            this.addTrigger(s.cards[atk].owner, atk, this.effectTasks(s.cards[atk].owner, atk, [{ type: 'breakShields', count: 99, self: true }]));
           if (s.cards[task.attacker]) this.triggerOthers(task.attacker, 'onOtherAttackEnd', s.cards[task.attacker].owner);
           this.flushTriggers();
         }
@@ -1658,6 +1667,17 @@ export class Ctx {
           if (burn) continue;
           const d = def(s, this.reg, sh);
           if (d.keywords?.shieldTrigger || d.twin?.keywords?.shieldTrigger || this.conditionalTrigger(task.defender, sh)) triggers.push({ kind: 'shieldTrigger', player: task.defender, iid: sh });
+          // S・バック：「（その文明の）カードを自分のシールドゾーンから手札に加える時、そのカードを捨ててもよい。そうしたら、コストを支払わずにこの呪文を唱える」
+          for (const h of s.players[task.defender].zones.hand) {
+            const civ = h === sh ? undefined : def(s, this.reg, h).keywords?.sBack;
+            if (!civ || !d.civilizations.includes(civ)) continue;
+            triggers.push({
+              kind: 'confirmOptional',
+              controller: task.defender,
+              source: h,
+              effects: [{ type: 'sBack', shield: sh, spell: h }],
+            });
+          }
           // G・ストライク：相手のクリーチャーを1体選んでもよい。このターン、そのクリーチャーは攻撃できない
           // 「このクリーチャーの攻撃中、相手は「G・ストライク」を使えない」
           const noG = task.byAttack && s.cards[task.source]?.zone === 'battle' && !!keywords(s, this.reg, task.source).noGStrikeAgainst;
@@ -1713,6 +1733,12 @@ export class Ctx {
     if (!inst || inst.zone !== 'hand') return false;
     const d = def(s, this.reg, iid);
     const sides = (['main', 'twin'] as const).filter((side) => (side === 'main' ? d.keywords?.shieldTrigger || this.conditionalTrigger(player, iid) : d.twin?.keywords?.shieldTrigger));
+    // 「相手は「S・トリガー」を使えない」
+    const locked = shieldTriggerLocked(s, this.reg, player);
+    if (locked) {
+      this.log(`${this.name(locked)} の能力により、${this.name(iid)} の「S・トリガー」は使えない`, player);
+      return false;
+    }
     const r = this.takeResponse();
     if (!r) {
       if (sides.length === 1) s.pending = { kind: 'confirm', player, source: iid, prompt: `S・トリガー「${playFace(d, sides[0]).name}」を使いますか？` };
@@ -2265,6 +2291,7 @@ export class Ctx {
     // 自分自身の置換効果を優先し、次に自分の他のクリーチャーのもの
     const sources = [iid, ...battleAndFields(s, this.reg, owner).filter((x) => x !== iid)];
     for (const src of sources) {
+      if (abilitiesIgnored(s, this.reg, src)) continue;
       const reps = def(s, this.reg, src).replacements ?? [];
       for (let i = 0; i < reps.length; i++) {
         const ab = reps[i];
@@ -2469,6 +2496,16 @@ export class Ctx {
         // 「相手は〜してもよい」：相手に聞いて、相手が行う
         this.insertFront({ kind: 'confirmOptional', controller: opp, source, effects: e.effects });
         return false;
+      case 'sBack': {
+        // S・バック：シールドから手札に加えたカードと、この呪文がまだ手札にあれば、そのカードを捨て、この呪文をコストを支払わずに唱える
+        if (s.cards[e.shield]?.zone !== 'hand' || s.cards[e.spell]?.zone !== 'hand') return false;
+        // 手札にある呪文自身は「手札の対象」から外れるので、唱える効果の発生源は捨てたカードにする
+        this.insertFront(
+          ...this.effectTasks(controller, source, [{ type: 'move', target: { owner: 'self', zone: 'hand', count: 'all', iids: [e.shield] }, to: 'graveyard' }]),
+          ...this.effectTasks(controller, e.shield, [{ type: 'playFree', target: { owner: 'self', zone: 'hand', count: 'all', iids: [e.spell] } }]),
+        );
+        return false;
+      }
       case 'ifChosen': {
         const count = e.n ?? (s.lastChosen ?? []).length;
         if (count > 0) this.insertFront(...this.effectTasks(controller, source, e.then));
@@ -2886,6 +2923,10 @@ export class Ctx {
         if (waiting) return true;
         const iid = picked[0];
         if (!iid || !s.cards[iid]) return false;
+        // 「その後、相手はそのカードを山札の下に置く」：能力を使った後（使える能力がなくても）
+        const tail: Task[] = e.thenDeckBottom
+          ? this.effectTasks(controller, source, [{ type: 'move', target: { owner: 'any', zone: 'graveyard', count: 'all', iids: [iid], anyZone: true }, to: 'deckBottom' }])
+          : [];
         const usesJbig = (ab: TriggeredAbility) => JSON.stringify(ab.effects).includes('"jbig":true');
         const usable = (def(s, this.reg, iid).abilities ?? []).filter((a) => a.when === e.when && !a.effects.some((x) => x.type === 'manual') && !(e.jbig && usesJbig(a)));
         let ab = usable[0];
@@ -2900,10 +2941,11 @@ export class Ctx {
         }
         if (!ab) {
           this.log(`${this.name(iid)}：使える能力がない`, controller);
+          this.insertFront(...tail);
           return false;
         }
         this.log(`${this.name(iid)} の能力を使う`, controller);
-        this.insertFront(...this.abilityTasks({ ...ab, condition: undefined }, controller, iid));
+        this.insertFront(...this.abilityTasks({ ...ab, condition: undefined }, controller, iid), ...tail);
         return false;
       }
       case 'godLink': {
@@ -4035,6 +4077,8 @@ export class Ctx {
     const s = this.s;
     const inst = s.cards[iid];
     if (!inst || isIgnored(s, this.reg, iid)) return;
+    // 「このターン、相手のクリーチャーの能力すべてを無視する」
+    if (abilitiesIgnored(s, this.reg, iid)) return;
     const d = def(s, this.reg, iid);
     if (!isCreatureType(d.type) && !isNonCreaturePermanent(d.type)) return;
     (d.abilities ?? []).forEach((ab, i) => {
@@ -4234,6 +4278,8 @@ export class Ctx {
         this.offerHandTriggers(e.player, (ht) => ht.when === 'anyAttack' || (ht.when === 'ownAttack' && matchFilter(s, this.reg, e.attacker, ht.filter)));
         break;
       case 'CREATURE_TAPPED':
+        // 「各ターン、はじめて自分の〜をタップした時」のために、このターンにタップしたクリーチャーを記録する
+        (s.usedThisTurn ??= []).push(`tap:${e.iid}`);
         this.triggerFrom(e.iid, 'onTap');
         if (s.cards[e.iid]) this.triggerOthers(e.iid, 'onOtherTap', s.cards[e.iid].owner);
         break;
@@ -4592,7 +4638,7 @@ export class Ctx {
     const s = this.s;
     if (s.gameOverReason !== null) return;
     // 鬼S-MAX進化：「自分がゲームに負ける時、かわりに自分の表向きのカードを3枚破壊してもよい」（投了は除く）
-    if (winner !== null && reason !== '投了' && (this.avertLoss(other(winner)) || this.avertLossUnder(other(winner)) || this.avertLossFromHand(other(winner)))) return;
+    if (winner !== null && reason !== '投了' && (this.avertLoss(other(winner)) || this.avertLossUnder(other(winner)) || this.avertLossFromHand(other(winner)) || this.avertLossDestroyOwn(other(winner)))) return;
     // 「自分はゲームに負けない」「相手はゲームに勝てない」
     if (winner !== null && reason !== '投了' && cannotLose(s, this.reg, other(winner), reason === '山札切れ')) return;
     // 「自分がゲームに負ける時、または相手が勝つ時、かわりにこのクリーチャーを破壊する」
@@ -4646,7 +4692,7 @@ export class Ctx {
     const used = (s.usedThisTurn ?? []).filter((k) => k.startsWith(`diehard:${loser}:`)).map((k) => k.split(':')[2]);
     if (used.some((iid) => queued.has(iid) || s.cards[iid]?.zone !== 'battle')) return true;
     for (const iid of battleCards(s, this.reg, loser)) {
-      if (queued.has(iid) || !(def(s, this.reg, iid).replacements ?? []).some((r) => r.event === 'lose' && r.instead === 'destroySelf')) continue;
+      if (queued.has(iid) || abilitiesIgnored(s, this.reg, iid) || !(def(s, this.reg, iid).replacements ?? []).some((r) => r.event === 'lose' && r.instead === 'destroySelf')) continue;
       this.log(`${this.name(iid)} の能力：ゲームに負けるかわりに、このクリーチャーを破壊する`, loser);
       (s.usedThisTurn ??= []).push(`diehard:${loser}:${iid}`);
       this.insertFront({ kind: 'leave', iid, to: 'graveyard', cause: 'destroy' });
@@ -4655,11 +4701,39 @@ export class Ctx {
     return false;
   }
 
+  /**
+   * 《「必然」の頂 リュウセイ》：各ターンに一度、自分がゲームに負ける時、かわりに自分のハンターを1つ破壊してもよい。
+   * 負けないほうが必ず得なので確認しない。破壊するカードはコストの小さいものから（同じならこのクリーチャー以外を先に）自動で選ぶ
+   */
+  private avertLossDestroyOwn(loser: PlayerId): boolean {
+    const s = this.s;
+    const queued = new Set(s.queue.flatMap((t) => (t.kind === 'leave' ? [t.iid] : [])));
+    for (const iid of battleCards(s, this.reg, loser)) {
+      if (queued.has(iid) || abilitiesIgnored(s, this.reg, iid)) continue;
+      const reps = def(s, this.reg, iid).replacements ?? [];
+      for (let i = 0; i < reps.length; i++) {
+        const r = reps[i];
+        if (r.event !== 'lose' || r.instead !== 'destroyOwn') continue;
+        const key = `rep:${iid}:${i}`;
+        if (r.oncePerTurn && (s.usedThisTurn ?? []).includes(key)) continue;
+        const cands = battleAndFields(s, this.reg, loser)
+          .filter((x) => !queued.has(x) && matchFilter(s, this.reg, x, r.filter, iid))
+          .sort((a, b) => def(s, this.reg, a).cost - def(s, this.reg, b).cost || (a === iid ? 1 : 0) - (b === iid ? 1 : 0));
+        if (!cands.length) continue;
+        if (r.oncePerTurn) (s.usedThisTurn ??= []).push(key);
+        this.log(`${this.name(iid)} の能力：ゲームに負けるかわりに、${this.name(cands[0])} を破壊する`, loser);
+        this.insertFront({ kind: 'leave', iid: cands[0], to: 'graveyard', cause: 'destroy' });
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** 《大魔王 ウラギリダムス》：自分がゲームに負ける時、かわりに下に重ねたカードを山札の下に置く */
   private avertLossUnder(loser: PlayerId): boolean {
     const s = this.s;
     for (const iid of battleCards(s, this.reg, loser)) {
-      const rep = (def(s, this.reg, iid).replacements ?? []).find((r) => r.instead === 'underToDeckBottom' && r.alsoLose && s.cards[iid].under.length >= (r.count ?? 5));
+      const rep = abilitiesIgnored(s, this.reg, iid) ? undefined : (def(s, this.reg, iid).replacements ?? []).find((r) => r.instead === 'underToDeckBottom' && r.alsoLose && s.cards[iid].under.length >= (r.count ?? 5));
       if (!rep) continue;
       this.log(`${this.name(iid)} の能力：ゲームに負けるかわりに`, loser);
       this.sendUnderToDeckBottom(iid, rep.count ?? 5);

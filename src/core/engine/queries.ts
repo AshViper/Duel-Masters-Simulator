@@ -264,6 +264,8 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   // 誘発の原因と比べる条件が、誘発の時に置き換えられていない：何にも合わない
   if (f.subjectRel || f.sameRaceAsSubject) return false;
   if (f.destroyedThisTurn && inst.destroyedTurn !== state.turn) return false;
+  // 「自分の山札からクリーチャーが出た時」：そのゾーンからバトルゾーンに出たカード
+  if (f.enteredFrom && (inst.zone !== 'battle' || inst.enteredFrom !== f.enteredFrom)) return false;
   // 「こうして山札の下に置かれたカードの枚数以下のコストを持つ」
   if (f.maxCostChosenCount && d.cost > (state.lastChosen ?? []).length) return false;
   if (f.maxCostSumOfChosen) {
@@ -285,7 +287,8 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   // 常在効果の中からは元の能力で判定する（循環防止）
   if (f.hasKeyword && !(inst.zone === 'battle' && !noPower ? keywords(state, reg, iid) : (d.keywords ?? {}))[f.hasKeyword]) return false;
   if (f.multicolor && d.civilizations.length < 2) return false;
-  if (f.evolution && d.type !== 'evolution') return false;
+  // NEO進化・G-NEO進化で重ねたクリーチャーも進化クリーチャー
+  if (f.evolution && d.type !== 'evolution' && !(inst.zone === 'battle' && inst.under.length > 0)) return false;
   if (f.nameIncludes && !d.name.replace(/\s/g, '').includes(f.nameIncludes.replace(/\s/g, ''))) return false;
   // 「このクリーチャーよりパワーが小さい」：効果の発生源と比べる
   if (f.relativeToSource && source && state.cards[source]) {
@@ -371,6 +374,7 @@ function activeStaticsImpl(state: GameState, reg: CardRegistry): ActiveStatic[] 
   const out: ActiveStatic[] = [];
   for (const p of state.players) {
     for (const iid of battleAndFields(state, reg, p.id)) {
+      if (abilitiesIgnored(state, reg, iid)) continue;
       for (const s of def(state, reg, iid).statics ?? []) {
         if (s.duringTurn && (s.duringTurn === 'self') !== (state.activePlayer === p.id)) continue;
         // 条件つきの常在効果（循環を避けるため、条件はパワーを見ずに数える）
@@ -381,6 +385,25 @@ function activeStaticsImpl(state: GameState, reg: CardRegistry): ActiveStatic[] 
   }
   for (const t of state.turnStatics ?? []) if (t.onlyDuringTurnOf === undefined || t.onlyDuringTurnOf === state.activePlayer) out.push(t);
   return out;
+}
+
+/**
+ * 「このターン、相手のクリーチャーの能力すべてを無視する」：このクリーチャーが元から持つ能力（キーワード・誘発・常在・置換）を無視するか。
+ * 他のカードから与えられた能力・効果（「攻撃できない」など）は無視しない
+ */
+export function abilitiesIgnored(state: GameState, reg: CardRegistry, iid: string): boolean {
+  const inst = state.cards[iid];
+  if (!inst || inst.zone !== 'battle' || !state.turnStatics?.length || !isCreatureType(def(state, reg, iid).type)) return false;
+  return state.turnStatics.some((t) => t.static.type === 'ignoreAbilities' && (t.static.who === 'self') === (t.controller === inst.owner));
+}
+
+/** そのプレイヤーが「S・トリガー」を使えないなら、その効果の発生源を返す */
+export function shieldTriggerLocked(state: GameState, reg: CardRegistry, player: PlayerId): string | null {
+  for (const a of activeStatics(state, reg)) {
+    const s = a.static;
+    if (s.type === 'noShieldTrigger' && (s.who === 'both' || (s.who === 'self') === (a.controller === player))) return a.source;
+  }
+  return null;
 }
 
 function ownerMatches(owner: Applies['owner'], controller: PlayerId, target: PlayerId): boolean {
@@ -418,7 +441,8 @@ function keywordsImpl(state: GameState, reg: CardRegistry, iid: string): Keyword
   // 「相手のカードによる攻撃できない効果を無視して攻撃できる」：相手が与えた攻撃の制限を外す
   const free = inst.zone === 'battle' && ignoresAttackLocks(state, reg, iid);
   const until = inst.keywordsUntil;
-  let kw = mergeKeywords(mergeKeywords({ ...(def(state, reg, iid).keywords ?? {}) }, inst.keywordsTurn), until && free && until.player !== inst.owner ? withoutAttackLocks(until.keywords) : until?.keywords);
+  const printed = abilitiesIgnored(state, reg, iid) ? {} : (def(state, reg, iid).keywords ?? {});
+  let kw = mergeKeywords(mergeKeywords({ ...printed }, inst.keywordsTurn), until && free && until.player !== inst.owner ? withoutAttackLocks(until.keywords) : until?.keywords);
   if (inst.zone !== 'battle') return kw;
   for (const a of activeStatics(state, reg)) {
     if (a.static.type === 'grantKeyword' && appliesToCreature(state, reg, a, a.static.appliesTo, iid))
@@ -563,8 +587,9 @@ function effectiveCostImpl(state: GameState, reg: CardRegistry, player: PlayerId
     cost -= d.neoCostReduce;
     floor = Math.min(face.cost, Math.max(floor, 1));
   }
-  if (side === 'main' && d.selfCost) {
-    const sc = d.selfCost;
+  const selfCost = side === 'main' ? d.selfCost : d.twin?.selfCost;
+  if (selfCost) {
+    const sc = selfCost;
     const cnt = sc.perEvolve ? (state.evolveCountHint ?? evolveSourceCandidates(state, reg, player, iid).length) : countQuantity(state, reg, player, sc.per, true, iid);
     cost -= sc.amount * Math.floor(cnt / sc.unit);
     floor = Math.min(face.cost, Math.max(floor, sc.min));
@@ -746,8 +771,8 @@ function canAttackWithImpl(state: GameState, reg: CardRegistry, player: PlayerId
   if (playLimitReached(state, reg, player, 'attack')) return false;
   // 「出たターンに攻撃できない」：スピードアタッカー・マッハファイターがあっても
   if (kw.noAttackOnEnterTurn && inst.enteredTurn >= state.turn) return false;
-  // マッハファイターは出たターンでもクリーチャーを攻撃できる（「出したターン、アンタップしているクリーチャーを攻撃できる」も）
-  return !isSummoningSick(state, reg, iid) || ((!!kw.machFighter || !!kw.untappedTargetsOnEnterTurn) && inst.enteredTurn === state.turn);
+  // マッハファイターは出たターンでもクリーチャーを攻撃できる（「出したターン、アンタップしているクリーチャーを攻撃できる」「出たターン、相手プレイヤーを攻撃できる」も）
+  return !isSummoningSick(state, reg, iid) || ((!!kw.machFighter || !!kw.untappedTargetsOnEnterTurn || !!kw.attackPlayersOnEnterTurn) && inst.enteredTurn === state.turn);
 }
 
 export function attackTargets(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): AttackTarget[] {
@@ -761,8 +786,10 @@ function attackTargetsImpl(state: GameState, reg: CardRegistry, player: PlayerId
   const out: AttackTarget[] = [];
   // 「自分は、このクリーチャーよりパワーが小さいクリーチャーに攻撃されない」
   const shielded = activeStatics(state, reg).some((a) => a.static.type === 'protectFromWeaker' && a.controller === other(player) && state.cards[a.source]?.zone === 'battle' && power(state, reg, iid) < power(state, reg, a.source));
-  if (!kw.cannotAttackPlayers && !machOnly && !shielded) out.push({ kind: 'player' });
+  if (!kw.cannotAttackPlayers && (!machOnly || kw.attackPlayersOnEnterTurn) && !shielded) out.push({ kind: 'player' });
   if (kw.cannotAttackCreatures) return out;
+  // 「出たターン、相手プレイヤーを攻撃できる」だけなら、出たターンはクリーチャーを攻撃できない
+  if (machOnly && !kw.machFighter && !kw.untappedTargetsOnEnterTurn) return out;
   for (const t of battleCards(state, reg, other(player))) {
     if (cannotBeAttacked(state, reg, t)) continue;
     // 「これよりコストが小さいクリーチャーに攻撃されない」
@@ -970,6 +997,11 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
     case 'chosenMatches': {
       const chosen = (state.lastChosen ?? []).filter((x) => state.cards[x]);
       return chosen.length > 0 && chosen.every((x) => matchFilter(state, reg, x, c.filter, source, noPower));
+    }
+    case 'firstTapThisTurn': {
+      // タップした記録（tap:iid）のうち、自分の条件に合うクリーチャーが、いまタップした1回だけ
+      const taps = (state.usedThisTurn ?? []).filter((k) => k.startsWith('tap:')).map((k) => k.slice(4));
+      return taps.filter((x) => state.cards[x]?.owner === controller && matchFilter(state, reg, x, c.filter, source, true)).length === 1;
     }
   }
 }
