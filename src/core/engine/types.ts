@@ -22,6 +22,8 @@ export interface CardInstance {
   under: string[];
   /** シールドが表向きかどうか（公開情報） */
   faceUp: boolean;
+  /** 山札に横向きに刺したカード（《Q.Q.QX.》。山札を離れたら消える） */
+  sideways?: boolean;
   /** EXライフで置いたシールド */
   exLifeShield?: string;
   /** エクストラEXライフで置いたシールド（2つ目以降） */
@@ -238,7 +240,8 @@ export type Task =
   /** confirmed: 使うと答えた任意の置換効果（続けて対象を選ぶ時に、もう一度聞かない） */
   /** shieldTop: 表向きにして持ち主のシールド1つの上に置く（to は 'shield'） */
   /** by: 破壊したクリーチャー（バトルの相手・破壊する能力の持ち主） */
-  | { kind: 'leave'; by?: string; tapped?: boolean; shieldTop?: boolean; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[]; confirmed?: string; chosen?: string }
+  /** deckPos・sideways: 山札の上から何枚目の位置に置くか・横向きに刺すか（to は 'deck'） */
+  | { kind: 'leave'; by?: string; tapped?: boolean; shieldTop?: boolean; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[]; confirmed?: string; chosen?: string; deckPos?: number; sideways?: boolean }
   /** 自動フェイズを進める（開始時誘発などを解決してから次へ） */
   | { kind: 'phase'; phase: Phase }
   /** ターン終了時の後片付けと手番の交代（追加ターンを含む） */

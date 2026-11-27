@@ -192,6 +192,8 @@ export function zoneSummonSource(state: GameState, reg: CardRegistry, player: Pl
   for (const a of activeStatics(state, reg)) {
     const st = a.static;
     if (st.type !== 'summonFromZone' || a.controller !== player || st.zone !== inst.zone) continue;
+    // 山札からは、上から1枚目だけ
+    if (st.zone === 'deck' && state.players[player].zones.deck.at(-1) !== iid) continue;
     if (st.oncePerTurn && (state.activePlayer !== player || state.usedThisTurn?.includes(`sfz:${a.source}`))) continue;
     if (matchFilter(state, reg, iid, st.filter)) return a.source;
   }

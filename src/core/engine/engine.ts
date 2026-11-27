@@ -628,7 +628,7 @@ export class Ctx {
       // コストの支払いとして破壊する（召喚より先に）
       s.queue.push(...sacrifice.map((x): Task => ({ kind: 'leave', iid: x, to: 'graveyard', cause: 'destroy' })));
     }
-    const verb = face.type === 'spell' ? '唱える' : face.type === 'field' ? 'バトルゾーンに出す' : face.type === 'tamaseed' ? '使う' : inst.zone === 'hand' ? '召喚' : `${inst.zone === 'graveyard' ? '墓地' : 'マナゾーン'}から召喚`;
+    const verb = face.type === 'spell' ? '唱える' : face.type === 'field' ? 'バトルゾーンに出す' : face.type === 'tamaseed' ? '使う' : inst.zone === 'hand' ? '召喚' : `${inst.zone === 'graveyard' ? '墓地' : inst.zone === 'deck' ? '山札の上' : 'マナゾーン'}から召喚`;
     this.log(`${face.name} を${verb}（${cost}マナ）`, player);
     this.emit({ type: 'CARD_PLAYED', player, iid });
     s.queue.push(face.type === 'spell' ? { kind: 'castSpell', player, iid, side, paid: cost > 0, from: inst.zone } : { kind: 'enterBattle', player, iid, evolveOn, ...(evolveFrom?.length ? { evolveFrom } : {}), ...(mspec?.deckTop ? { evolveDeck: mspec.deckTop } : {}), paid: cost > 0, ...(isCreatureType(face.type) ? { summoned: true } : {}) });
@@ -1640,6 +1640,11 @@ export class Ctx {
             this.moveCard(sh, 'deck', { toTop: true });
             continue;
           }
+          // 5.S.D.：「相手はそのシールドのカードを手札に加えるかわりに、自身の山札の上から4枚目の位置に、横向きに刺す」
+          if (srcKw?.shieldBreakTo === 'deckFourthSideways') {
+            this.moveCard(sh, 'deck', { deckPos: 4, sideways: true });
+            continue;
+          }
           if (toBottom) {
             this.moveCard(sh, 'deck', { toTop: false });
             bottomed++;
@@ -2238,7 +2243,7 @@ export class Ctx {
       this.emit({ type: 'CREATURE_LEFT', player: inst.owner, iid: task.iid, to: 'shield' });
       return false;
     }
-    this.moveCard(task.iid, task.to, { toTop: task.toTop ?? true });
+    this.moveCard(task.iid, task.to, { toTop: task.toTop ?? true, ...(task.deckPos !== undefined ? { deckPos: task.deckPos, sideways: task.sideways } : {}) });
     if (task.tapped && task.to === 'mana') inst.tapped = true;
     if (task.cause === 'destroy') this.emit({ type: 'CREATURE_DESTROYED', player: inst.owner, iid: task.iid, ...(task.by ? { by: task.by } : {}) });
     this.emit({ type: 'CREATURE_LEFT', player: inst.owner, iid: task.iid, to: task.to });
@@ -2266,7 +2271,7 @@ export class Ctx {
         const key = `${src}:${i}`;
         if (used.includes(key)) continue;
         if (ab.event === 'destroyed' && cause !== 'destroy') continue;
-        if (ab.event === 'loseFromHand') continue;
+        if (ab.event === 'loseFromHand' || ab.event === 'lose') continue;
         const subjectOk = ab.subject === 'self' ? src === iid : ab.subject === 'otherOwn' ? src !== iid : ab.subject === 'equipped' ? s.cards[src].equippedTo === iid : true;
         if (!subjectOk || !matchFilter(s, this.reg, iid, ab.filter, src)) continue;
         if (ab.instead === 'destroySelf' && src === iid) continue;
@@ -3261,9 +3266,10 @@ export class Ctx {
         return false;
       }
       case 'shuffleDeck':
-        for (const p of e.both ? [controller, other(controller)] : [controller]) {
+        for (const p of e.both ? [controller, other(controller)] : [e.who === 'opponent' ? opp : controller]) {
+          const locked = this.deckLockedBy(p);
           this.shuffle(p);
-          this.log('山札をシャッフル', p);
+          if (!locked) this.log('山札をシャッフル', p);
         }
         return false;
       case 'graveToDeckBottom': {
@@ -3358,7 +3364,13 @@ export class Ctx {
         this.log(`山札の上から ${d.name} を公開`, controller);
         const creature = isCreatureType(d.type) && d.type !== 'evolution';
         const spell = d.type === 'spell' || !!d.twin;
-        if (creature && e.ifCreature) this.insertFront(...this.effectTasks(controller, source, [{ type: 'playRevealed', iid: top, as: 'creature' }]));
+        // 「それがクリーチャーなら、バトルゾーンに出す」：確認せずに出す
+        if (isCreatureType(d.type) && e.ifCreature && e.mustPlay) {
+          // 進化クリーチャーは出せないので、山札の上に残る（クリーチャーなので「それ以外なら」にもならない）
+          s.cards[top].faceUp = false;
+          if (creature) this.playFree(controller, top, 'creature');
+          else this.log(`${d.name} はバトルゾーンに出せない`, controller);
+        } else if (creature && e.ifCreature) this.insertFront(...this.effectTasks(controller, source, [{ type: 'playRevealed', iid: top, as: 'creature' }]));
         else if (spell && e.ifSpell) this.insertFront(...this.effectTasks(controller, source, [{ type: 'playRevealed', iid: top, as: 'spell' }]));
         else if (!creature && e.otherwise === 'mana') {
           this.moveCard(top, 'mana');
@@ -3495,6 +3507,13 @@ export class Ctx {
           this.putUnder(iid, source, controller);
           return;
         case 'deckTop':
+          // 「山札の上から4枚目の位置に、横向きに刺す」
+          if (e.deckPos !== undefined) {
+            if (s.cards[iid].zone === 'battle') return { kind: 'leave', iid, to: 'deck', cause: 'effect', deckPos: e.deckPos, ...(e.sideways ? { sideways: true } : {}) };
+            this.moveCard(iid, 'deck', { deckPos: e.deckPos, sideways: e.sideways });
+            this.log(`${this.name(iid)} を山札の上から${e.deckPos}枚目に${e.sideways ? '横向きに刺した' : '置いた'}`, controller);
+            return;
+          }
           if (s.cards[iid].zone === 'battle') return this.moveTo(iid, 'deck', controller);
           this.moveCard(iid, 'deck');
           this.log(`${e.target.zone === 'hand' ? 'カード1枚' : this.name(iid)} を山札の上に置いた`, controller);
@@ -3649,6 +3668,12 @@ export class Ctx {
     // 「相手の山札を見る」：見る山札の持ち主
     const deckOwner = e.deckOf === 'opponent' ? other(controller) : controller;
     const deck = s.players[deckOwner].zones.deck;
+    // 「相手は、自身の山札を見たり〜できない」：自分の山札を見る効果は何もしない
+    const lock = !e.from && deckOwner === (e.chooser === 'opponent' ? other(controller) : controller) ? this.deckLockedBy(deckOwner) : null;
+    if (lock) {
+      this.log(`${this.name(lock)} の能力：${s.players[deckOwner].name} は自身の山札を見られない`, deckOwner);
+      return false;
+    }
     const top = e.from ? e.from.filter((iid) => s.cards[iid]?.zone === 'deck' && s.cards[iid].owner === deckOwner) : deck.slice(-e.count).reverse();
     if (top.length === 0) return false;
     const candidates = top.filter((iid) => matchFilter(s, this.reg, iid, e.pickFilter, source));
@@ -4316,6 +4341,12 @@ export class Ctx {
   }
 
   shuffle(player: PlayerId): void {
+    // 「相手は、自身の山札を見たり、順番を入れ替えたりできない」（《Q.Q.QX.》）
+    const lock = this.deckLockedBy(player);
+    if (lock) {
+      this.log(`${this.name(lock)} の能力：${this.s.players[player].name} の山札はシャッフルできない`, player);
+      return;
+    }
     const deck = this.s.players[player].zones.deck;
     for (let i = deck.length - 1; i > 0; i--) {
       const j = Math.floor(this.random() * (i + 1));
@@ -4332,8 +4363,19 @@ export class Ctx {
   draw(player: PlayerId, n: number): void {
     for (let i = 0; i < n; i++) {
       const top = this.topOfDeck(player);
-      if (!top) break;
+      if (!top) {
+        // 「自分がカードを引く時、自分の山札が0枚なら、かわりに〜」：引けなかった1枚ごとに置き換える
+        const rep = activeStatics(this.s, this.reg).find((a) => a.static.type === 'emptyDrawInstead' && a.controller === player);
+        if (rep && rep.static.type === 'emptyDrawInstead') {
+          const tasks: Task[] = [];
+          for (let k = i; k < n; k++) tasks.push(...this.effectTasks(player, rep.source, rep.static.effects));
+          this.log(`${this.name(rep.source)} の能力：山札が0枚なので、カードを引くかわりに`, player);
+          this.insertFront(...tasks);
+        }
+        break;
+      }
       this.moveCard(top, 'hand');
+      if (this.s.gameOverReason !== null) return;
       this.s.players[player].drawnThisTurn = (this.s.players[player].drawnThisTurn ?? 0) + 1;
       this.emit({ type: 'CARD_DRAWN', player, iid: top });
       // 山札の最後の1枚を引く時、負けるかわりに勝つ（シャコガイルなど）
@@ -4354,10 +4396,13 @@ export class Ctx {
     );
   }
 
-  moveCard(iid: string, to: ZoneName, opts: { toTop?: boolean } = {}): void {
+  moveCard(iid: string, to: ZoneName, opts: { toTop?: boolean; deckPos?: number; sideways?: boolean } = {}): void {
     const s = this.s;
     const inst = s.cards[iid];
     const from = inst.zone;
+    // 横向きに刺したカードが山札を離れる：手札に加えたなら「ゲームに負ける」（《Q.Q.QX.》）
+    const wasSideways = from === 'deck' && !!inst.sideways;
+    if (from === 'deck') delete inst.sideways;
     // 山札からマナ・シールド・バトルゾーン・超次元ゾーンへ：「かわりに墓地に置く」
     if (from === 'deck' && (to === 'mana' || to === 'shield' || to === 'battle' || to === 'hyperspatial') && this.deckToGrave(inst.owner)) to = 'graveyard';
     // サイキック・クリーチャーはバトルゾーン以外に行く時、超次元ゾーンに戻る
@@ -4436,7 +4481,12 @@ export class Ctx {
         if (a.static.type === 'manaEntersTapped' && (a.static.who === 'both' || (a.static.who === 'self') === (a.controller === inst.owner))) inst.tapped = true;
       }
     }
-    if (to === 'deck' && opts.toTop === false) owner.zones.deck.unshift(iid);
+    if (to === 'deck' && opts.deckPos !== undefined) {
+      // 山札の上から N 枚目の位置（山札が足りなければ一番下）
+      const deck = owner.zones.deck;
+      deck.splice(Math.max(0, deck.length - (opts.deckPos - 1)), 0, iid);
+      if (opts.sideways) inst.sideways = true;
+    } else if (to === 'deck' && opts.toTop === false) owner.zones.deck.unshift(iid);
     else if (to === 'grZone' && from === 'battle') owner.zones.grZone.unshift(iid);
     else owner.zones[to].push(iid);
     this.emit({ type: 'CARD_MOVED', iid, from, to });
@@ -4480,6 +4530,19 @@ export class Ctx {
       if (s.cards[x].zone === 'seal') this.moveCard(x, 'graveyard');
     }
     if (sealHolder) this.afterSealRemoved(sealHolder);
+    if (wasSideways && to === 'hand' && s.gameOverReason === null) {
+      const rule = activeStatics(s, this.reg).find((a) => a.static.type === 'sidewaysToHandLoses' && (a.static.who === 'self') === (a.controller === inst.owner));
+      if (rule) {
+        this.log(`${s.players[inst.owner].name} は山札の横向きのカードを手札に加えた（${this.name(rule.source)}）`, inst.owner);
+        this.gameOver(other(inst.owner), `${this.name(rule.source)} の能力`);
+      }
+    }
+  }
+
+  /** 「自身の山札を見たり、順番を入れ替えたりできない」が、このプレイヤーに効いているか（効かせている発生源） */
+  private deckLockedBy(player: PlayerId): string | null {
+    const a = activeStatics(this.s, this.reg).find((x) => x.static.type === 'deckLocked' && (x.static.who === 'self') === (x.controller === player));
+    return a?.source ?? null;
   }
 
   checkStateBased(): void {
@@ -4532,6 +4595,8 @@ export class Ctx {
     if (winner !== null && reason !== '投了' && (this.avertLoss(other(winner)) || this.avertLossUnder(other(winner)) || this.avertLossFromHand(other(winner)))) return;
     // 「自分はゲームに負けない」「相手はゲームに勝てない」
     if (winner !== null && reason !== '投了' && cannotLose(s, this.reg, other(winner), reason === '山札切れ')) return;
+    // 「自分がゲームに負ける時、または相手が勝つ時、かわりにこのクリーチャーを破壊する」
+    if (winner !== null && reason !== '投了' && this.avertLossDestroySelf(other(winner))) return;
     s.winner = winner;
     s.gameOverReason = reason;
     s.pending = null;
@@ -4565,6 +4630,26 @@ export class Ctx {
       if (!rep) continue;
       this.log(`${this.name(iid)} を相手に見せ、ゲームに負けるかわりに山札の下に置いた`, loser);
       this.moveCard(iid, 'deck', { toTop: false });
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 《不敗のダイハード・リュウセイ》：自分がゲームに負ける時（相手が勝つ時）、かわりにこのクリーチャーを破壊する（任意ではない）。
+   * 破壊してから「破壊された時」の能力（そのターン負けない）を解決するまでの間に、同じ理由（山札切れなど）でもう一度負けないよう、
+   * そのターンにこの置換で破壊した（破壊を待っている）ものがあれば、負けるかわりにそのままにする
+   */
+  private avertLossDestroySelf(loser: PlayerId): boolean {
+    const s = this.s;
+    const queued = new Set(s.queue.flatMap((t) => (t.kind === 'leave' ? [t.iid] : [])));
+    const used = (s.usedThisTurn ?? []).filter((k) => k.startsWith(`diehard:${loser}:`)).map((k) => k.split(':')[2]);
+    if (used.some((iid) => queued.has(iid) || s.cards[iid]?.zone !== 'battle')) return true;
+    for (const iid of battleCards(s, this.reg, loser)) {
+      if (queued.has(iid) || !(def(s, this.reg, iid).replacements ?? []).some((r) => r.event === 'lose' && r.instead === 'destroySelf')) continue;
+      this.log(`${this.name(iid)} の能力：ゲームに負けるかわりに、このクリーチャーを破壊する`, loser);
+      (s.usedThisTurn ??= []).push(`diehard:${loser}:${iid}`);
+      this.insertFront({ kind: 'leave', iid, to: 'graveyard', cause: 'destroy' });
       return true;
     }
     return false;

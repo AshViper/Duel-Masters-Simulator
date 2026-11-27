@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/textParser.ts（4552行）
+# src/core/cards/textParser.ts（4574行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -43,39 +43,39 @@ generated: 2026-11-27
 - L1576 fn `hasRealEffect`
 - L1586 fn `parseBothCondition`
 - L1618 fn `parseBody`
-- L2040 fn `pushGroup`
-- L2049 fn `parseLook`
-- L2185 fn `parseLookMulti`
-- L2249 fn `parseRevealAll`
-- L2268 fn `parseRevealIf`
-- L2295 fn `parsePickWhat`
-- L2355 fn `parsePer`
-- L2377 fn `parseSelfCost`
-- L2390 fn `parseStatic`
-- L2706 fn `parseFromReminder`
-- L2761 fn `mergeParsed`
-- L2773 fn `parseGateTrigger`
-- L2796 fn `parseZoneGate`
-- L2819 fn `parseGrantFrame`
-- L2828 **export** fn `splitAbilityLines`
-- L2881 **export** fn `parseAbilityText`
-- L3138 fn `parseOverloadBody`
-- L3156 fn `readByGrammar`
-- L3163 fn `mergeGrammar`
-- L3172 type `Snapshot`
-- L3173 fn `snapshot`
-- L3177 fn `restore`
-- L3190 fn `parseAwakenLink`
-- L3198 fn `splitCondition`
-- L3498 fn `parseLine`
-- L4148 fn `isUnsafe`
-- L4153 fn `selfKeywordStatic`
-- L4161 fn `parseMark`
-- L4249 fn `parseAltPlay`
-- L4310 fn `evolveFilter`
-- L4332 fn `parseEvolveSpec`
-- L4371 fn `sClassZones`
-- L4387 fn `parseSwapCondition`
-- L4423 fn `parseReplacement`
-- L4535 **export** fn `explainManual`
+- L2045 fn `pushGroup`
+- L2054 fn `parseLook`
+- L2190 fn `parseLookMulti`
+- L2254 fn `parseRevealAll`
+- L2273 fn `parseRevealIf`
+- L2300 fn `parsePickWhat`
+- L2360 fn `parsePer`
+- L2382 fn `parseSelfCost`
+- L2395 fn `parseStatic`
+- L2711 fn `parseFromReminder`
+- L2766 fn `mergeParsed`
+- L2778 fn `parseGateTrigger`
+- L2801 fn `parseZoneGate`
+- L2824 fn `parseGrantFrame`
+- L2833 **export** fn `splitAbilityLines`
+- L2886 **export** fn `parseAbilityText`
+- L3143 fn `parseOverloadBody`
+- L3161 fn `readByGrammar`
+- L3168 fn `mergeGrammar`
+- L3177 type `Snapshot`
+- L3178 fn `snapshot`
+- L3182 fn `restore`
+- L3195 fn `parseAwakenLink`
+- L3203 fn `splitCondition`
+- L3503 fn `parseLine`
+- L4170 fn `isUnsafe`
+- L4175 fn `selfKeywordStatic`
+- L4183 fn `parseMark`
+- L4271 fn `parseAltPlay`
+- L4332 fn `evolveFilter`
+- L4354 fn `parseEvolveSpec`
+- L4393 fn `sClassZones`
+- L4409 fn `parseSwapCondition`
+- L4445 fn `parseReplacement`
+- L4557 **export** fn `explainManual`
 

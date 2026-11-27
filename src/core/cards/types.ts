@@ -297,7 +297,8 @@ export type EffectDef =
    */
   /** withGears: そのクリーチャーにクロスされているクロスギアも同じところへ（「そのクリーチャーとそれにクロスされているクロスギアをすべて」） */
   /** endOfTurn: バトルゾーンに出したクリーチャーを、このターンの終わりに破壊する／山札の下に置く／山札の下に置いて1枚引く（「このターンの終わりに、それらを山札の下に置き、〜1体につき、カードを1枚引く」） */
-  | { type: 'move'; target: TargetSpec; to: MoveDest; tapped?: boolean; faceUp?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean }; withGears?: boolean; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw' }
+  /** deckPos: to が deckTop の時、持ち主の山札の上から何枚目の位置に置くか。sideways: 横向きに刺す（《Q.Q.QX.》） */
+  | { type: 'move'; target: TargetSpec; to: MoveDest; tapped?: boolean; faceUp?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean }; withGears?: boolean; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; deckPos?: number; sideways?: boolean }
   /**
    * 選んだクロスギアを、コストを支払わずにクロスする。to: self はこのクリーチャーに、choose は自分のクリーチャーを1つずつ選んで。
    * iids: エンジン内部用（クロス先を聞いているクロスギア）
@@ -353,7 +354,8 @@ export type EffectDef =
       evolveSelfOnto?: boolean;
     }
   /** 山札をシャッフルする（both: 両方のプレイヤー） */
-  | { type: 'shuffleDeck'; both?: boolean }
+  /** who: opponent は相手の山札（「相手は自身の山札をシャッフルする」） */
+  | { type: 'shuffleDeck'; both?: boolean; who?: 'opponent' }
   /**
    * 自分の墓地のカードをすべて山札に加えてシャッフルする。
    * who: choose はプレイヤーを1人選び、そのプレイヤーの墓地で行う。pick: 墓地からカードを1枚以上好きな数選び、それらだけを加える
@@ -365,7 +367,8 @@ export type EffectDef =
    */
   | { type: 'graveToDeckBottom'; who: 'self' | 'opponent' | 'choose' }
   /** 山札の上から1枚目を公開し、クリーチャーなら出してもよい／呪文なら唱えてもよい／それ以外は otherwise へ */
-  | { type: 'revealTopCard'; ifCreature?: 'battle'; ifSpell?: 'cast'; otherwise?: 'mana' }
+  /** mustPlay: クリーチャーなら確認せずに出す（「それがクリーチャーなら、バトルゾーンに出す」） */
+  | { type: 'revealTopCard'; ifCreature?: 'battle'; ifSpell?: 'cast'; otherwise?: 'mana'; mustPlay?: boolean }
   /** 相手に自分のシールドを1つ選ばせて見る。呪文ならコストを支払わずに唱えてもよい（ラッキー・ダーツ） */
   | { type: 'shieldGamble' }
   /** 超魂レイド：山札の上から3枚を表向きにし、このクリーチャーの進化元になれるカードを1枚この下に置いてもよい。残りは山札の下へ */
@@ -720,7 +723,14 @@ export type StaticAbility = (
   /** このクリーチャーは、数えた数 unit ごとに amount だけ多くシールドをブレイクする（クルー・ブレイカー） */
   | { type: 'breakerBonus'; amount: number; perCount: Quantity; unit: number }
   /** 条件に合うクリーチャーを、そのゾーンから召喚してもよい（「自分のターンに一度、魔導具クリーチャーを1体、自分の墓地から召喚してもよい」） */
-  | { type: 'summonFromZone'; zone: 'graveyard' | 'mana'; filter?: CardFilter; oncePerTurn?: boolean }
+  /** zone: deck は山札の上から1枚目（「自分の山札の上から1枚目をいつでも見てもよい。それがクリーチャーなら、召喚してもよい」） */
+  | { type: 'summonFromZone'; zone: 'graveyard' | 'mana' | 'deck'; filter?: CardFilter; oncePerTurn?: boolean }
+  /** 自分がカードを引く時、山札が0枚なら、かわりに effects を行う（引く1枚ごと。《不死鳥縫合 ブラック・ビッグバン》） */
+  | { type: 'emptyDrawInstead'; effects: EffectDef[] }
+  /** そのプレイヤーは、自身の山札の横向きのカードを手札に加えた時、ゲームに負ける（《Q.Q.QX.》） */
+  | { type: 'sidewaysToHandLoses'; who: 'self' | 'opponent' }
+  /** そのプレイヤーは、自身の山札を見たり、順番を入れ替えたりできない（シャッフルしない・山札を見る効果は何もしない） */
+  | { type: 'deckLocked'; who: 'self' | 'opponent' }
   /** 自分の（filter に合う）呪文を唱えた後、墓地に置くかわりにこのフィールドの下に置いて draw 枚引いてもよい（卍 新世壊 卍） */
   | { type: 'spellToUnder'; filter?: CardFilter; draw: number }
   /** 自分の（filter に合う）呪文を唱えられなくする効果を無視する */
@@ -759,7 +769,8 @@ export type StaticAbility = (
 export interface ReplacementAbility {
   /** destroyed: 破壊される時 / leaveBattle: バトルゾーンを離れる時（破壊・バウンス・マナ送りなど） */
   /** loseFromHand: 自分がゲームに負ける時（相手がゲームに勝つ時）、このカードが手札にあれば（instead は toDeckBottom：手札にあるこのカードを見せ、山札の下に置く） */
-  event: 'destroyed' | 'leaveBattle' | 'loseFromHand';
+  /** lose: 自分がゲームに負ける時、または相手が勝つ時（instead は destroySelf：かわりにこのクリーチャーを破壊する。《不敗のダイハード・リュウセイ》） */
+  event: 'destroyed' | 'leaveBattle' | 'loseFromHand' | 'lose';
   /** self: このクリーチャー / otherOwn: 自分の他のクリーチャー / anyOwn: 自分のクリーチャー / equipped: これ（クロスギア・ウエポン）をクロス・装備したクリーチャー */
   subject: 'self' | 'otherOwn' | 'anyOwn' | 'equipped';
   filter?: CardFilter;
@@ -842,7 +853,8 @@ export interface Keywords {
   /** avertLoss のかわりに、自分のシールドをこの数だけ墓地に置いてもよい（CRY-S-MAX進化） */
   avertLossShield?: number;
   /** ブレイクしたシールドを手札に加えるかわりに置く場所（墓地は shieldBurn） */
-  shieldBreakTo?: 'deckBottom' | 'deckTop';
+  /** deckFourthSideways: 持ち主の山札の上から4枚目の位置に横向きに刺す（《Q.Q.QX.》の 5.S.D.） */
+  shieldBreakTo?: 'deckBottom' | 'deckTop' | 'deckFourthSideways';
   /** shieldBreakTo の後、各プレイヤーはその数だけカードを引く */
   shieldBreakEachDraws?: boolean;
   /** 唱えた後、墓地のかわりに自分の超次元ゾーンに置く */

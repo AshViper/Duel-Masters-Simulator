@@ -1803,6 +1803,11 @@ function parseBody(body: string, options: string[], allowPartial = false): Group
       for (; j < sentences.length; j++) {
         const x = sentences[j];
         if (/^(?:そのカードが|それが)?クリーチャー(?:であれば|なら)、?(?:それを)?(?:バトルゾーンに)?出してもよい$/.test(x)) e.ifCreature = 'battle';
+        // 「それがクリーチャーなら、バトルゾーンに出す。それ以外なら、自分のマナゾーンに置く」
+        else if (/^(?:そのカードが|それが)?クリーチャー(?:であれば|なら)、?(?:それを)?(?:バトルゾーンに)?出す$/.test(x)) {
+          e.ifCreature = 'battle';
+          e.mustPlay = true;
+        } else if (/^(?:そのカードが|それが)?(?:クリーチャーでなければ|それ以外なら)、(?:それを)?(?:自分の)?マナゾーンに置く$/.test(x) && e.ifCreature && !e.ifSpell) e.otherwise = 'mana';
         else if (/^(?:そのカードが|それが)?呪文(?:であれば|なら)、?コストを支払わずに唱えてもよい$/.test(x)) e.ifSpell = 'cast';
         else if (/^(?:そのカードが|それが)?クリーチャーでなければ、(?:それを)?(?:自分の)?マナゾーンに置く$/.test(x)) e.otherwise = 'mana';
         else break;
@@ -2548,7 +2553,7 @@ function parseStatic(t: string): StaticAbility[] | null {
   // 「相手の呪文の効果やクリーチャーの能力によって、自分の手札は捨てられない」
   if (/^相手の(?:呪文の効果|クリーチャーの能力)(?:や|または|と|か)(?:相手の)?(?:呪文の効果|クリーチャーの能力)によって、?自分の手札(?:のカード)?は捨てられない$/.test(t)) return [{ type: 'handProtected' }];
   // 「自分はゲームに負けない」「自分はゲームに負けず、相手はゲームに勝てない」「自分の山札にカードがなくなっても、自分はゲームに負けない」
-  const noLose = t.match(/^(自分の山札にカードがなくなっても、)?(?:自分はゲームに負けない|相手はゲームに勝てない|自分はゲームに負けず、相手はゲームに勝てない)$/);
+  const noLose = t.match(/^(自分の山札(?:にカードがなくなって|が0枚で)も、)?(?:自分はゲームに負けない|相手はゲームに勝てない|自分はゲームに負けず、相手はゲームに勝てない)$/);
   if (noLose) return [{ type: 'cannotLose', who: 'self', ...(noLose[1] ? { deckOutOnly: true } : {}) }];
   // 「エレメントは、持ち主の手札以外から出ない」「相手のエレメントは、相手の手札または山札以外から出ない」
   const onlyFrom = t.match(/^(相手の|自分の)?(エレメント|クリーチャー)は、?(?:持ち主|相手|自分)の手札(または山札)?以外から(?:バトルゾーンに)?出ない$/);
@@ -3499,6 +3504,8 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   const t = normalizeText(line);
   const opts = options.map(normalizeText);
   if (kind === 'other') return false;
+  // デッキを組む時のきまり（デッキの枚数の制限はデッキのルールで処理する）。ゲーム中の効果はない
+  if (/^このカードは、?(?:4枚より多くデッキに入れることができる|デッキに何枚入れてもよい)。?$/.test(t)) return true;
   // バラエティ・ブレイカー：コストが異なる自分のクリーチャーの数だけシールドをブレイクする
   if (kind === 'creature' && /^(?:バラエティ・ブレイカー|このクリーチャーは、?コストが異なる自分のクリーチャーの数、?シールドをブレイクする)。?$/.test(t)) {
     out.keywords.breaker = 0;
@@ -3799,6 +3806,21 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     const last = out.abilities[out.abilities.length - 1];
     const active: Condition = { type: 'not', condition: { type: 'compare', left: { who: 'any', zone: 'shield' }, op: '<=', right: n(oniIgnore[1]) } };
     last.condition = last.condition ? { type: 'and', conditions: [last.condition, active] } : active;
+    return true;
+  }
+  // ムゲンクライムN：「自分のクリーチャーをN体タップし、[wd02]支払って、このクリーチャーを自分の手札または墓地から召喚してもよい」
+  const mugen = t.match(/^ムゲンクライム(\d+)。?$/);
+  if (mugen && kind === 'creature') {
+    const mk = line.normalize('NFKC').match(/\[([a-z]+)(\d+)\]/);
+    if (!mk) return false;
+    const k = n(mugen[1]);
+    const base: AltPlay = {
+      name: `ムゲンクライム${k}`,
+      ...parseMark(mk[1], mk[2]),
+      condition: { type: 'compare', left: { who: 'self', zone: 'battle', filter: { untapped: true } }, op: '>=', right: k },
+      payFirst: [{ type: 'tap', target: { owner: 'self', zone: 'battle', count: k, filter: { untapped: true } } }],
+    };
+    (out.altPlays ??= []).push(base, { ...base, name: `ムゲンクライム${k}（墓地から）`, from: 'graveyard' });
     return true;
   }
   // 別のコストでの使い方（リサイクル・キリフダッシュ・ギャラクシールド・フシギバース・B・A・D など）

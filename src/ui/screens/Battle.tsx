@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type CSSProperties } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isCreatureType, isNonCreaturePermanent, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
-import { altCost, battleCards, canCross, canTapAbility, isCrossGear, isGrCard, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canSummonFromZone, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
+import { activeStatics, altCost, battleCards, canCross, canTapAbility, isCrossGear, isGrCard, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canSummonFromZone, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
@@ -756,7 +756,7 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
   }
   // 墓地・マナゾーンから召喚できるクリーチャー（「このクリーチャーを自分の墓地から召喚してもよい」）
   if (inst.zone !== 'hand' && canSummonFromZone(g, registry, owner, iid) && canControl(owner)) {
-    rule.push({ label: `${inst.zone === 'graveyard' ? '墓地' : 'マナゾーン'}から召喚する`, run: () => play(iid), disabled: !canPlay(g, registry, owner, iid), primary: true });
+    rule.push({ label: `${inst.zone === 'graveyard' ? '墓地' : inst.zone === 'deck' ? '山札の上' : 'マナゾーン'}から召喚する`, run: () => play(iid), disabled: !canPlay(g, registry, owner, iid), primary: true });
   }
   // 別のコストでの使い方（リサイクル・ギャラクシールド・フシギバース・B・A・D など）。キリフダッシュのように決まった時に聞かれるものは出さない
   if ((inst.zone === 'hand' || inst.zone === 'graveyard') && canControl(owner)) {
@@ -1097,8 +1097,12 @@ function ZoneViewer({ g, player, zone, onClose, renderCard, canControl, act }: {
   act: (a: Action) => boolean;
 }) {
   const [reveal, setReveal] = useState(false);
+  const registry = useApp((s) => s.registry);
   const list = g.players[player].zones[zone];
   const hidden = zone === 'deck' && !reveal;
+  // 「自分のターン中、自分の山札の上から1枚目をいつでも見てもよい。それがクリーチャーなら、召喚してもよい」
+  const top = list.at(-1);
+  const peek = zone === 'deck' && !reveal && canControl(player) && top !== undefined && activeStatics(g, registry).some((a) => a.controller === player && a.static.type === 'summonFromZone' && a.static.zone === 'deck');
   return (
     <Modal onClose={onClose} wide>
       <h3>
@@ -1113,6 +1117,15 @@ function ZoneViewer({ g, player, zone, onClose, renderCard, canControl, act }: {
         >
           山札の中身を見る（手動処理・ログに残ります）
         </button>
+      )}
+      {peek && top && (
+        <div>
+          <p className="muted small">山札の上から1枚目（能力で見ています）</p>
+          <div className="zone-cards wrap">{renderCard(top, 'sm')}</div>
+          <button disabled={!canPlay(g, registry, player, top)} onClick={() => act({ type: 'PLAY_CARD', player, iid: top })}>
+            山札の上から召喚する
+          </button>
+        </div>
       )}
       {!hidden && <p className="muted small">右クリックで手動移動できます。{zone === 'deck' ? '右端が山札の上です。' : ''}</p>}
       <div className="zone-cards wrap">{hidden ? <p className="muted">非公開</p> : list.map((iid) => renderCard(iid, 'sm'))}</div>

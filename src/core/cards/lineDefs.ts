@@ -339,6 +339,126 @@ export const BUILT_IN_LINE_DEFS: LineDefs = {
     note: '永遠のリュウセイ・カイザー',
     keywords: { discardToBattle: 'may', discardToBattleCause: 'opponentEffect' },
   },
+  '相手の、「このクリーチャーがバトルゾーンに出た時」で始まる能力を持つクリーチャーがバトルゾーンに出た時、そのクリーチャーを持ち主のマナゾーンに置く。': {
+    note: '黒豆だんしゃく',
+    abilities: [{ when: 'onOtherSummon', who: 'opponent', filter: { hasOnSummonAbility: true }, effects: [{ type: 'move', target: { owner: 'opponent', zone: 'battle', count: 1, ref: 'event' }, to: 'mana' }] }],
+  },
+  'このクリーチャーが出た時、次のうちいずれか1つを選ぶ。▶他のクリーチャーを1体選び、持ち主の手札に戻す。▶自分の山札の上から2枚を墓地に置き、その後、そのうちのどちらか1枚を手札に戻してもよい。': {
+    note: '闇参謀グラン・ギニョール',
+    abilities: [
+      {
+        when: 'onSummon',
+        effects: [
+          {
+            type: 'chooseOne',
+            options: [
+              { label: '他のクリーチャーを1体選び、持ち主の手札に戻す', effects: [{ type: 'move', target: { owner: 'any', zone: 'battle', count: 1, filter: { excludeSelf: true } }, to: 'hand' }] },
+              {
+                label: '自分の山札の上から2枚を墓地に置き、その後、そのうちのどちらか1枚を手札に戻してもよい',
+                effects: [{ type: 'deckTopTo', count: 2, to: 'graveyard' }, { type: 'move', target: fromChosen(), to: 'hand' }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  'このクリーチャーがバトルゾーンに出た時、相手は自身の手札から7枚選び、捨てる。': {
+    note: 'ニコル・ボーラス（手札が7枚より少なければ、すべて捨てる）',
+    abilities: [{ when: 'onSummon', effects: [{ type: 'move', target: { owner: 'opponent', zone: 'hand', count: 7, chooser: 'owner' }, to: 'graveyard' }] }],
+  },
+  '自分がカードを引く時、自分の山札が0枚なら、かわりにクリーチャーを1体、墓地から出してもよい。': {
+    note: '不死鳥縫合 ブラック・ビッグバン（引けなかった1枚ごとに、出すかを選ぶ）',
+    statics: [{ type: 'emptyDrawInstead', effects: [{ type: 'move', target: { owner: 'self', zone: 'graveyard', count: 1, upTo: true, filter: { cardType: 'creature' } }, to: 'battle' }] }],
+  },
+  'このクリーチャーが出た時、自分の山札の上から4枚を見る。その中からコストの合計が9以下になるよう、多色クリーチャーを好きな数選び、出す。残りを好きな順序で山札の下に置く。': {
+    note: '勝災電融王 ギュカウツ・マグル',
+    abilities: [
+      {
+        when: 'onSummon',
+        effects: [{ type: 'lookAtTop', count: 4, pickCount: 4, pickFilter: { multicolor: true, cardType: 'creature' }, pickMaxTotalCost: 9, pickTo: 'battle', restTo: 'deckBottom' }],
+      },
+    ],
+  },
+  '自分のターン中、自分の山札の上から1枚目をいつでも見てもよい。それがクリーチャーなら、召喚してもよい。': {
+    note: '斬龍電融 オロチリュウセイ（山札の一覧で上の1枚が見え、そこから召喚できる）',
+    statics: [{ type: 'summonFromZone', zone: 'deck', filter: { cardType: 'creature' }, duringTurn: 'self' }],
+  },
+  'このクリーチャーの攻撃の終わりに、相手とガチンコ・ジャッジする。自分が勝ったら、自分の山札を見る。その中から、《特攻の忠剣ハチ公》を1体、バトルゾーンに出してもよい。その後、山札をシャッフルする。': {
+    note: '特攻の忠剣ハチ公',
+    abilities: [
+      {
+        when: 'onAttackEnd',
+        effects: [{ type: 'gachinko', then: [{ type: 'lookAtTop', count: 99, pickCount: 1, pickFilter: { nameIncludes: '特攻の忠剣ハチ公' }, pickTo: 'battle', restTo: 'shuffle' }] }],
+      },
+    ],
+  },
+  'このクリーチャーを召喚する時、自分の手札を1枚捨ててもよい。そうしたら、このクリーチャーの召喚コストを2少なくする。': {
+    note: 'D2V3 終断のレッドトロン（別の使い方として選ぶ）',
+    altPlays: [
+      {
+        name: '手札を1枚捨てて召喚コストを2少なくする',
+        reduce: 2,
+        condition: { type: 'compare', left: { who: 'self', zone: 'hand' }, op: '>=', right: 2 },
+        payFirst: [{ type: 'move', target: { owner: 'self', zone: 'hand', count: 1, filter: { excludeSelf: true } }, to: 'graveyard' }],
+      },
+    ],
+  },
+  'このクリーチャーが出た時、これよりパワーが小さい相手のクリーチャーをすべて破壊する。': {
+    note: 'ストーム・ハイパーXX（パワーは能力を解決する時に比べる）',
+    abilities: [{ when: 'onSummon', effects: [{ type: 'destroy', target: { owner: 'opponent', zone: 'battle', count: 'all', filter: { relativeToSource: { stat: 'power', cmp: 'less' } } } }] }],
+  },
+  '5.S.D.：このクリーチャーがシールドをブレイクする時、相手はそのシールドのカードを手札に加えるかわりに、自身の山札の上から4枚目の位置に、横向きに刺す。': {
+    note: 'Q.Q.QX.（山札が3枚以下なら一番下に刺す）',
+    keywords: { shieldBreakTo: 'deckFourthSideways' },
+  },
+  '相手は、自身の山札の横向きのカードを手札に加えた時、ゲームに負ける。': {
+    note: 'Q.Q.QX.（引いた時に限らず、山札から手札に加えた時）',
+    statics: [{ type: 'sidewaysToHandLoses', who: 'opponent' }],
+  },
+  '相手は、自身の山札を見たり、順番を入れ替えたりできない。': {
+    note: 'Q.Q.QX.（相手の山札はシャッフルされず、相手が自身の山札を見る効果は何もしない）',
+    statics: [{ type: 'deckLocked', who: 'opponent' }],
+  },
+  'このクリーチャーがバトルゾーンを離れた時、相手は自身の山札をシャッフルする。': {
+    note: 'Q.Q.QX.',
+    abilities: [{ when: 'onLeave', effects: [{ type: 'shuffleDeck', who: 'opponent' }] }],
+  },
+  '相手のクリーチャーを1体選ぶ。相手はそれを、自身の山札の上から4枚目の位置に、横向きに刺す。': {
+    note: '終葬 5.S.D.（Q.Q.QX. の呪文側）',
+    abilities: [{ when: 'onCast', effects: [{ type: 'move', target: { owner: 'opponent', zone: 'battle', count: 1 }, to: 'deckTop', deckPos: 4, sideways: true }] }],
+  },
+  'このクリーチャーがバトルゾーンに出たとき、自分の手札からカードを1枚選び、自分のマナゾーンに置いてよい。': {
+    note: 'シビレアシダケ（古い書き方）',
+    abilities: [{ when: 'onSummon', effects: [{ type: 'move', target: { owner: 'self', zone: 'hand', count: 1, upTo: true }, to: 'mana' }] }],
+  },
+  '自分のコマンドはすべて「スピードアタッカー」と「マッハファイター」を持ち、ブロックされない。': {
+    note: '轟く革命 レッドギラゾーン',
+    statics: [{ type: 'grantKeyword', keywords: { speedAttacker: true, machFighter: true, unblockable: true }, appliesTo: { owner: 'self', filter: { race: 'コマンド' } } }],
+  },
+  '相手のクリーチャーが出た時、相手とガチンコ・ジャッジをする。自分が勝ったら、カードを1枚引き、このターン、相手のクリーチャーはすべて攻撃できない。': {
+    note: '「合体」の頂 アクア・TITAAANS',
+    abilities: [
+      {
+        when: 'onOtherSummon',
+        who: 'opponent',
+        effects: [
+          {
+            type: 'gachinko',
+            then: [{ type: 'draw', count: 1 }, { type: 'turnStatic', static: { type: 'grantKeyword', keywords: { cannotAttack: true }, appliesTo: { owner: 'opponent' } } }],
+          },
+        ],
+      },
+    ],
+  },
+  '自分がゲームに負ける時、または相手が勝つ時、かわりにこのクリーチャーを破壊する。': {
+    note: '不敗のダイハード・リュウセイ（任意ではない。破壊してから「破壊された時」を解決するまでの間も、そのターンは負けない）',
+    replacements: [{ event: 'lose', subject: 'self', instead: 'destroySelf' }],
+  },
+  'このクリーチャーが破壊された時、そのターン、自分はゲームに負けず、相手は勝てない。': {
+    note: '不敗のダイハード・リュウセイ',
+    abilities: [{ when: 'onDestroyed', effects: [{ type: 'turnStatic', static: { type: 'cannotLose', who: 'self' } }] }],
+  },
 };
 
 /** 利用者が設定画面から取り込んだ定義（アプリに入っている定義より優先する） */
