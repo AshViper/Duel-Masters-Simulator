@@ -812,6 +812,11 @@ export class Ctx {
             s.afterAttackPlays = [...(s.afterAttackPlays ?? []), { player, iid: h }];
             continue;
           }
+          // 革命0トリガー：手札から見せて、このカードの効果を使ってもよい
+          if (ht.effects) {
+            this.addTrigger(player, h, this.effectTasks(player, h, [{ type: 'optional', effects: ht.effects }]));
+            continue;
+          }
           this.addTrigger(
             player,
             h,
@@ -984,6 +989,9 @@ export class Ctx {
           const next = s.queue.find((t) => t.kind === 'effect' && t.source === task.source && t.controller === task.controller && !bound(t.effect));
           if (next?.kind === 'effect' && (next.effect.type === 'ifChosen' || (next.effect.type === 'repeat' && next.effect.per === 'chosen')))
             next.effect = { ...next.effect, n: (s.lastChosen ?? []).length };
+          // 「それと同じ数の〜が出るまで」：選んだカードを覚える（離れたかどうかは表向きにする時に調べる）
+          else if (next?.kind === 'effect' && next.effect.type === 'revealUntil' && next.effect.countChosen && !next.effect.chosen)
+            next.effect = { ...next.effect, chosen: [...(s.lastChosen ?? [])] };
         }
         return waiting;
       }
@@ -1512,7 +1520,7 @@ export class Ctx {
           const cap = keywords(s, this.reg, me).battleImmuneVsPowerAtMost;
           if (cap !== undefined && losers.includes(me) && power(s, this.reg, opp) <= cap) losers.splice(losers.indexOf(me), 1);
         }
-        const leaves = losers.map((l): Task => ({ kind: 'leave', iid: l, to: 'graveyard', cause: 'destroy' }));
+        const leaves = losers.map((l): Task => ({ kind: 'leave', iid: l, to: 'graveyard', cause: 'destroy', by: l === attacker ? defender : attacker }));
         // 「バトルに勝った時」は負けた側の破壊を処理してから誘発させる
         const winner = winsA !== winsD ? (winsA ? attacker : defender) : winsA ? null : pa > pd ? attacker : pd > pa ? defender : null;
         this.insertFront(...leaves, ...(winner && !losers.includes(winner) ? [{ kind: 'battleWon', winner, loser: winner === attacker ? defender : attacker } as Task] : []));
@@ -2039,7 +2047,7 @@ export class Ctx {
           }
           this.popTop(task.iid);
           this.moveCard(task.iid, task.to, { toTop: task.toTop ?? true });
-          if (task.cause === 'destroy') this.emit({ type: 'CREATURE_DESTROYED', player: inst.owner, iid: task.iid });
+          if (task.cause === 'destroy') this.emit({ type: 'CREATURE_DESTROYED', player: inst.owner, iid: task.iid, ...(task.by ? { by: task.by } : {}) });
           this.emit({ type: 'CREATURE_LEFT', player: inst.owner, iid: task.iid, to: task.to });
           return false;
         }
@@ -2193,7 +2201,7 @@ export class Ctx {
     }
     this.moveCard(task.iid, task.to, { toTop: task.toTop ?? true });
     if (task.tapped && task.to === 'mana') inst.tapped = true;
-    if (task.cause === 'destroy') this.emit({ type: 'CREATURE_DESTROYED', player: inst.owner, iid: task.iid });
+    if (task.cause === 'destroy') this.emit({ type: 'CREATURE_DESTROYED', player: inst.owner, iid: task.iid, ...(task.by ? { by: task.by } : {}) });
     this.emit({ type: 'CREATURE_LEFT', player: inst.owner, iid: task.iid, to: task.to });
     return false;
   }
@@ -2486,7 +2494,13 @@ export class Ctx {
         const deck = s.players[controller].zones.deck;
         const revealed: string[] = [];
         const hits: string[] = [];
-        for (let i = deck.length - 1; i >= 0 && hits.length < e.count; i--) {
+        // 「それと同じ数」：直前に選んだカードのうち、バトルゾーンを離れた数（破壊が置き換えられて残ったものは数えない）
+        const count = e.countChosen ? (e.chosen ?? []).filter((x) => s.cards[x] && s.cards[x].zone !== 'battle').length : e.count;
+        if (count <= 0) {
+          this.log(`${this.name(source)}：表向きにするカードはない`, controller);
+          return false;
+        }
+        for (let i = deck.length - 1; i >= 0 && hits.length < count; i--) {
           revealed.push(deck[i]);
           if (matchFilter(s, this.reg, deck[i], e.filter, source)) hits.push(deck[i]);
         }
@@ -3184,7 +3198,7 @@ export class Ctx {
         return false;
       case 'destroy':
         return this.withTargets(controller, source, e.target, '破壊する', true, (iid) =>
-          s.cards[iid].zone === 'battle' ? { kind: 'leave', iid, to: 'graveyard', cause: 'destroy' } : this.moveCard(iid, 'graveyard'),
+          s.cards[iid].zone === 'battle' ? { kind: 'leave', iid, to: 'graveyard', cause: 'destroy', by: source } : this.moveCard(iid, 'graveyard'),
         );
       case 'tap':
         return this.withTargets(controller, source, e.target, 'タップする', true, (iid) => this.setTapped(iid, controller));
@@ -3586,7 +3600,12 @@ export class Ctx {
         const t = this.putIntoBattle(iid, controller);
         if (t) {
           // 出すまでは手札を経由しないよう、山札から直接出す
-          followUps.push(t);
+          followUps.push(e.pickGrant && t.kind === 'enterBattle' ? { ...t, grant: { keywords: e.pickGrant.keywords, by: controller } } : t);
+          // 「このクリーチャーをその上に置く」：手札にあるこのカードを、出したクリーチャーの上に進化として置く
+          if (e.evolveSelfOnto && s.cards[source]?.zone === 'hand') {
+            followUps.push({ kind: 'enterBattle', player: controller, iid: source, evolveOn: iid });
+            this.log(`${this.name(source)} を ${this.name(iid)} の上に置く`, controller);
+          }
           continue;
         }
       }
@@ -3613,6 +3632,7 @@ export class Ctx {
       for (const iid of rest) {
         if (e.restTo === 'deckBottom') this.moveCard(iid, 'deck', { toTop: false });
         else this.moveCard(iid, e.restTo);
+        if (e.restTapped && e.restTo === 'mana') s.cards[iid].tapped = true;
       }
       if (rest.length) this.log(`残り${rest.length}枚を${e.restTo === 'deckBottom' ? '山札の下' : ZONE_LABEL[e.restTo]}へ`, controller);
     }
@@ -4029,6 +4049,11 @@ export class Ctx {
         // 「このクリーチャーまたは他のクリーチャーが破壊された時、それより〜」：誘発の原因はこのクリーチャー自身
         this.triggerFrom(e.iid, 'onDestroyed', undefined, e.iid);
         this.triggerOthers(e.iid, 'onOtherDestroyed', e.player);
+        // 「相手のクリーチャーがこのクリーチャーに破壊された時」：破壊したクリーチャーがバトルゾーンにある時
+        if (e.by && e.by !== e.iid && s.cards[e.by]?.zone === 'battle') {
+          const by = e.by;
+          this.triggerFrom(by, 'onDestroyedByThis', (ab) => this.whoMatches(ab.who, s.cards[by].owner, e.player) && matchFilter(s, this.reg, e.iid, ab.filter, by), e.iid);
+        }
         // 手札にある間の誘発：「自分のエグザイル・クリーチャーが破壊された時、このクリーチャーを自分の手札から出してもよい」（下の CREATURE_SUMMONED にも同じ形）
         for (const h of [...s.players[e.player].zones.hand]) {
           for (const ht of def(s, this.reg, h).handTriggers ?? []) {

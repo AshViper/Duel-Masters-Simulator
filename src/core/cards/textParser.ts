@@ -223,7 +223,7 @@ export function normalizeText(s: string): string {
     // 「このクリーチャーは、進化クリーチャーである時しか攻撃できない」
     .replace(/^このクリーチャーは、?進化クリーチャーである時しか攻撃できない/, 'これが進化クリーチャーでなければ、このクリーチャーは攻撃できない')
     // 「自分のシールドが1つもなければ」＝0つ以下なら
-    .replace(/(自分|相手)のシールドが1つもなければ、/g, '$1のシールドが0つ以下なら、')
+    .replace(/(自分|相手)のシールドが1(?:つ|枚)もなければ、/g, '$1のシールドが0つ以下なら、')
     .replace(/^相手のターン中に、相手のクリーチャーが/, '相手のターンに相手のクリーチャーが')
     // 「バトルゾーンにある、コスト7以下のカードを1枚選び」：どちらのプレイヤーのものでも
     .replace(/^バトルゾーンにある、?([^、。]*?)カードを(\d+)(?:枚|つ)選び/, '$1エレメントを$2つ選び')
@@ -248,6 +248,8 @@ export function normalizeText(s: string): string {
     // 「山札の上から10枚を表向きにし、その中から〜」「4枚を見て、そのうちの〜」は2つの文として読む
     .replace(/(山札(?:の上|を、?上)から\d+枚(?:目まで)?を)見て、(?=その)/g, '$1見る。')
     .replace(/表向きにし、(?=その(?:中|うち|\d+体))/g, '表向きにする。')
+    // 「山札の上から、相手の人数と同じ枚数、見る」：このアプリは2人対戦なので相手は1人
+    .replace(/山札の上から、?相手の人数と同じ枚数(?:を)?、?(見る|表向きにする)/g, '山札の上から1枚を$1')
     // 「相手のマナゾーンにあるカードの枚数よりコストが大きい相手のクリーチャー」：持ち主のマナの枚数と比べる修飾語にまとめる
     .replace(/(?:相手|自分)のマナゾーンにあるカードの枚数よりコストが大きい(相手|自分)の/g, '$1のコストがマナ枚数より大きい');
 }
@@ -435,6 +437,7 @@ const EVENTS: { re: RegExp; self?: TriggerEvent; other?: TriggerEvent; ownInclud
   { re: /^(?:召喚によって)?(?:バトルゾーンに)?出た時/, self: 'onSummon', other: 'onOtherSummon', ownIncludesSelf: true },
   { re: /^攻撃する時/, self: 'onAttack', other: 'onOtherAttack', ownIncludesSelf: true },
   { re: /^破壊された時/, self: 'onDestroyed', other: 'onOtherDestroyed' },
+  { re: /^このクリーチャーに破壊された時/, other: 'onDestroyedByThis' },
   { re: /^(?:バトルゾーンを)?離れた時/, self: 'onLeave', other: 'onOtherLeave' },
   { re: /^ブロック(?:した|する)時/, self: 'onBlock' },
   { re: /^進化する時/, self: 'onEvolved' },
@@ -677,6 +680,11 @@ function parseMods(mods: string, filter: CardFilter): boolean {
     [/^(?:その捨てたカード|それ|そのクリーチャー)と同じ文明を持つ/, () => (filter.refCivs = true)],
     // 「サイキック・クリーチャー」：超次元ゾーンから出すクリーチャー（種族ではない）
     [/^サイキック・(?:スーパー・)?$/, () => undefined],
+    // 「ドラゴン以外の」：その種族を持たない（文明・サイキック・進化クリーチャーは上の規則で読む）
+    [/^(?!この|その|それ|自分|相手|他)([^、のをにがで「」《》]+?)以外の/, (x) => {
+      if (/クリーチャー|カード|呪文|ゾーン/.test(x[1])) throw new Error('not a race');
+      filter.not = { race: x[1] };
+    }],
     // 種族：「ドラゴン・」「アビス・」（後ろに クリーチャー/カード が続く）。「AまたはB・」もある
     [/^([^、のをにがで「」・]+(?:・[^、のをにがで「」・]+)*?)・$/, (x) => setRaces(filter, x[1])],
   ];
@@ -1635,11 +1643,16 @@ function parseBody(body: string, options: string[], allowPartial = false): Group
     const untilS = stripOptional(s);
     const until =
       untilS.text.match(/^自分の山札の上から、?(.+?)が(?:(\d+)体)?出るまで、?(?:カードを)?(?:表向きにする|すべてのプレイヤーに見せる)$/) ??
-      untilS.text.match(/^(.+?)が()出るまで、自分の山札の上からカードを(?:表向きにする|すべてのプレイヤーに見せる)$/);
+      untilS.text.match(/^(.+?)が(?:(\d+)体)?出るまで、自分の山札の上からカードを(?:表向きにする|すべてのプレイヤーに見せる)$/);
     if (until) {
       const filter: CardFilter = {};
-      if (!parsePickWhat(until[1], filter)) return null;
-      const then = (sentences[i + 1] ?? '').match(/^その(?:\d+体|カード|クリーチャー)を(?:自分の)?(手札に加える|(?:バトルゾーンに)?出す|(?:バトルゾーンに)?出し、残りを(?:自分の)?墓地に置く)$/);
+      // 「〜をすべて破壊する。その後、それと同じ数の〜が出るまで」：数は直前に破壊した数
+      const sameNum = until[1].match(/^それと同じ数の(.+)$/);
+      const lastGU = groups[groups.length - 1];
+      const prevU = lastGU?.effects[lastGU.effects.length - 1];
+      if (sameNum && (until[2] || prevU?.type !== 'destroy')) return null;
+      if (!parsePickWhat(sameNum ? sameNum[1] : until[1], filter)) return null;
+      const then = (sentences[i + 1] ?? '').match(/^(?:その(?:\d+体|カード|クリーチャー)を|こうして(?:見せた|表向きにした).+?をすべて、?)(?:自分の)?(手札に加える|(?:バトルゾーンに)?出す|(?:バトルゾーンに)?出し、残りを(?:自分の)?墓地に置く)$/);
       if (!then) return null;
       i++;
       let restTo: 'graveyard' | 'shuffle' | 'deckBottom' = then[1].includes('墓地') ? 'graveyard' : 'deckBottom';
@@ -1650,7 +1663,7 @@ function parseBody(body: string, options: string[], allowPartial = false): Group
         else return null;
         i++;
       }
-      pushGroup(groups, untilS.optional, [{ type: 'revealUntil', filter, count: until[2] ? n(until[2]) : 1, to: then[1].startsWith('手札') ? 'hand' : 'battle', restTo }], chain);
+      pushGroup(groups, untilS.optional, [{ type: 'revealUntil', filter, count: until[2] ? n(until[2]) : 1, to: then[1].startsWith('手札') ? 'hand' : 'battle', restTo, ...(sameNum ? { countChosen: true } : {}) }], chain);
       continue;
     }
     // 「次の能力を2回行う」：▶ の行がその能力。決まった回数、同じ効果を続けて行う
@@ -1894,9 +1907,16 @@ function parseBody(body: string, options: string[], allowPartial = false): Group
       continue;
     }
     // 「〜を出す。次の自分のターンのはじめまで、そのクリーチャーに「ブロッカー」を与える」
-    const give = s.match(/^(このターン|次の自分のターンのはじめまで)、そのクリーチャーに(「.+」を与える)$/);
+    const give = s.match(/^(このターン|次の自分のターンのはじめまで)、(?:そのクリーチャー|それら(?:の[^、。「」]+)?)に(「.+」を与える)$/);
     const lastG = groups[groups.length - 1];
     const lastE = lastG?.effects[lastG.effects.length - 1];
+    // 「その中から〜を出し、〜。このターン、それらのドラゴンに「スピードアタッカー」を与える」：山札から出したカードに与える
+    if (give && give[1] === 'このターン' && lastE?.type === 'lookAtTop' && lastE.pickTo === 'battle' && !lastE.pickGrant) {
+      const kw = parseGrant(give[2]);
+      if (!kw) return null;
+      lastE.pickGrant = { keywords: kw };
+      continue;
+    }
     if (give && lastE?.type === 'move' && lastE.to === 'battle') {
       const kw = parseGrant(give[2]);
       if (!kw) return null;
@@ -1974,6 +1994,8 @@ function parseLook(count: number, next: string[]): { effect: EffectDef; used: nu
   // 選ぶ時の決まり文句（「表向きにして」「相手に見せてから」）
   const SHOW = '(?:表向きにして(?:から)?|表向きにし|相手に見せて(?:から)?|相手に見せ)?';
   let pickAll = false;
+  // 「好きな数」：0枚でもよい（必ず選ぶのではない）
+  let anyNumber = false;
   let chooser: 'opponent' | undefined;
   let what: string, pc: string, dest: string, restInline: string | undefined;
   const keepM = text.match(/^(?:その中から|そのうちの|その中の)、?(.*?)を?(\d+)(?:枚|体|つ)(?:まで)?選ぶ$/);
@@ -1992,6 +2014,7 @@ function parseLook(count: number, next: string[]): { effect: EffectDef; used: nu
     what = any[1] ?? any[2] ?? '';
     [, , , dest, restInline] = any;
     pc = String(count);
+    anyNumber = true;
   } else {
     const m = text.match(new RegExp(`^(?:その中から|そのうちの|その中の)、?(.*?)(\\d+)(?:枚|体|つ)(?:まで)?(?:選び|選んで|を)?、?(相手に選ばせ、?)?${SHOW}、?(?:自分の)?${DEST}(?:、(.+))?$`));
     if (!m) return null;
@@ -2060,7 +2083,8 @@ function parseLook(count: number, next: string[]): { effect: EffectDef; used: nu
       ...(Object.keys(pickFilter).length ? { pickFilter } : {}),
       pickTo,
       restTo,
-      ...(pickAll ? { pickAll: true } : !optional && count !== 99 ? { mustPick: true } : {}),
+      ...(pickAll ? { pickAll: true } : !optional && !anyNumber && count !== 99 ? { mustPick: true } : {}),
+      ...(restTo === 'mana' && /タップして/.test(restText ?? '') ? { restTapped: true } : {}),
       ...(chooser ? { chooser } : {}),
       ...(/タップして/.test(dest) ? { pickTapped: true } : {}),
       ...(/表向きで/.test(dest) ? { pickFaceUp: true } : {}),
@@ -2175,9 +2199,13 @@ function parseRevealIf(next: string[]): { effect: EffectDef; used: number } | nu
   if (!m) return null;
   const filter: CardFilter = {};
   if (!parsePickWhat(m[1], filter) && !parseSubject(m[1], filter)) return null;
-  const { text, optional } = stripOptional(m[2]);
+  const { text: body, optional } = stripOptional(m[2]);
+  // 「バトルゾーンに出し、このクリーチャーをその上に置く」：出したクリーチャーの上に、手札にあるこのカードを置く（革命0トリガー）
+  const onto = body.match(/^(.+?出)し、このクリーチャーをその上に置く$/);
+  const text = onto ? `${onto[1]}す` : body;
   const TO: Record<string, 'hand' | 'battle' | 'mana' | null> = { 出す: 'battle', バトルゾーンに出す: 'battle', 手札に加える: 'hand', マナゾーンに置く: 'mana' };
   const pickTo = TO[text.replace(/^自分の/, '')];
+  if (onto && pickTo !== 'battle') return null;
   if (!pickTo) return null;
   let used = 1;
   let restTo: Extract<EffectDef, { type: 'lookAtTop' }>['restTo'] = 'top';
@@ -2187,7 +2215,7 @@ function parseRevealIf(next: string[]): { effect: EffectDef; used: number } | nu
     used = 2;
   }
   return {
-    effect: { type: 'lookAtTop', count: 1, pickCount: 1, ...(Object.keys(filter).length ? { pickFilter: filter } : {}), pickTo, restTo, ...(optional ? {} : { pickAll: true }) },
+    effect: { type: 'lookAtTop', count: 1, pickCount: 1, ...(Object.keys(filter).length ? { pickFilter: filter } : {}), pickTo, restTo, ...(optional ? {} : { pickAll: true }), ...(onto ? { evolveSelfOnto: true } : {}) },
     used,
   };
 }
@@ -2219,6 +2247,15 @@ function parsePickWhat(w: string, filter: CardFilter): boolean {
   if (w === 'クロスギア' || w === 'ドラグハート') {
     filter.typeLabelIncludes = w;
     return true;
+  }
+  // 「進化ではないドラゴン」：名詞のない種族に、進化ではない条件がつく
+  const nonEvo = w.match(/^進化(?:クリーチャー)?では(?:ない|なく)、?(.+)$/);
+  if (nonEvo && !/クリーチャー|呪文|カード/.test(nonEvo[1])) {
+    const r: CardFilter = {};
+    if (parsePickWhat(nonEvo[1], r)) {
+      Object.assign(filter, r, { nonEvolution: true });
+      return true;
+    }
   }
   // 名詞のない「ドラゴン」「ドラゴンまたはファイアー・バード」：その種族のカード
   const race: CardFilter = {};
@@ -3582,6 +3619,21 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
       }
     }
     (out.handTriggers ??= []).push({ when: 'opponentAttackOrBlock', condition: conds.length > 1 ? { type: 'and', conditions: conds } : conds[0], endOfTurn: 'deckBottom', oncePerAttack: true });
+    return true;
+  }
+  // 革命0トリガー：「クリーチャーが自分を攻撃する時、自分のシールドが1枚もなければ、このクリーチャーを手札から見せてもよい。そうしたら、〜」
+  // 手札から見せて、このカードの効果を使う（効果の source は手札にあるこのカード）
+  const rev0 = t.match(/^革命0トリガー[―ー—\-－:：]?クリーチャーが自分を攻撃する時、(?:(.+?)、)?この(?:クリーチャー|カード)を(?:自分の)?手札から(?:相手に)?見せてもよい。そうしたら、(.+?)。?$/);
+  if (rev0) {
+    let condition: Condition | undefined;
+    if (rev0[1]) {
+      const c = splitCondition(`${rev0[1]}、x`);
+      if (!c.condition || c.body !== 'x') return false;
+      condition = c.condition;
+    }
+    const g = parseBody(rev0[2], []);
+    if (!g || g.some((x) => x.optional) || g.some((x) => x.effects.some((e) => e.type === 'manual'))) return false;
+    (out.handTriggers ??= []).push({ when: 'attackedPlayer', ...(condition ? { condition } : {}), effects: g.flatMap((x) => x.effects) });
     return true;
   }
   // 逆転撃{N}：「クリーチャーが自分を攻撃する時、その攻撃中にまだ「逆転撃」を使っていなければ、この呪文を自分の手札からコストを支払わずに唱えてもよい。

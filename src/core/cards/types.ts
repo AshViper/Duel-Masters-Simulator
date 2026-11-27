@@ -343,6 +343,12 @@ export type EffectDef =
       mustPick?: boolean;
       /** opponent：相手に選ばせる */
       chooser?: 'opponent';
+      /** 残りをタップして置く（「残りをタップしてマナゾーンに置く」） */
+      restTapped?: boolean;
+      /** 出したカードに与える能力（「このターン、それらのドラゴンに「スピードアタッカー」を与える」） */
+      pickGrant?: { keywords: Keywords };
+      /** 出したクリーチャーの上に、手札にあるこのカードを進化として置く（「バトルゾーンに出し、このクリーチャーをその上に置く」） */
+      evolveSelfOnto?: boolean;
     }
   /** 山札をシャッフルする（both: 両方のプレイヤー） */
   | { type: 'shuffleDeck'; both?: boolean }
@@ -475,7 +481,11 @@ export type EffectDef =
    * 条件に合うカードが count 枚出るまで、山札の上から表向きにする。出たカードを to へ、残りを restTo へ
    * （「ファイアー・バードが3体出るまで表向きにし、その3体を出す。その後、山札をシャッフルする」）
    */
-  | { type: 'revealUntil'; filter: CardFilter; count: number; to: 'hand' | 'battle'; restTo: 'graveyard' | 'shuffle' | 'deckBottom' }
+  /**
+   * countChosen: 数は直前の効果で選んだカードのうち、実際にバトルゾーンを離れた数（「〜をすべて破壊する。その後、それと同じ数の〜が出るまで」）。
+   * chosen: エンジン内部用（直前に選んだカード）
+   */
+  | { type: 'revealUntil'; filter: CardFilter; count: number; to: 'hand' | 'battle'; restTo: 'graveyard' | 'shuffle' | 'deckBottom'; countChosen?: boolean; chosen?: string[] }
   /**
    * 山札の上から count 枚を表向きにし、それがすべて filter に合えば（sameCost: さらに全部同じコストなら）すべて to へ。
    * そうでなければ全部を restTo へ（「それがすべて同じコストのクリーチャーなら出す。そうでなければ、好きな順序で山札の下に置く」）
@@ -534,6 +544,8 @@ export const TRIGGER_EVENTS = [
   'onOtherAttack',
   /** 他のクリーチャーがプレイヤーを攻撃する時（「相手のクリーチャーが自分を攻撃する時」） */
   'onOtherAttackPlayer',
+  /** 他のクリーチャーがこのクリーチャーに破壊された時（バトル・このクリーチャーの能力。who・filter で絞る） */
+  'onDestroyedByThis',
   'onOtherDestroyed',
   'onOtherLeave',
   /** このクリーチャーの攻撃の終わりに */
@@ -1023,6 +1035,8 @@ export interface HandTrigger {
   onceKey?: string;
   /** 使ったら、次の自分のターンのはじめにこの数のマナを支払う。支払えなければ負ける（逆転撃） */
   debt?: number;
+  /** 出す・唱えるかわりに、手札にあるこのカードを source としてこの効果を使う（革命0トリガー：「このクリーチャーを手札から見せてもよい。そうしたら、〜」） */
+  effects?: EffectDef[];
 }
 
 /**

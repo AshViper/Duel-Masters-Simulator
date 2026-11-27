@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# コード地図（95ファイル）
+# コード地図（97ファイル）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -19,6 +19,7 @@ generated: 2026-11-27
 | `src/__scratch__/measure.test.ts` | 33 |  |  |
 | `src/__scratch__/nown.test.ts` | 11 |  |  |
 | `src/__scratch__/probe.test.ts` | 20 |  |  |
+| `src/__scratch__/sd1fetch.test.ts` | 26 |  |  |
 | `src/core/ai/cpu.ts` | 179 | CPU AI。ゲーム状態を見て合法なアクションを1つ返す（1回の呼び出しで1手）。 |  |
 | `src/core/cards/abilityWordList.ts` | 35 | 能力語の一覧（design/ability-coverage.md の「特殊能力」352種から作った、並びは文字コード順）。 |  |
 | `src/core/cards/cards.basic.test.ts` | 1313 | textParser / 能力テキストの読み取り / 読み取った効果がエンジンで動く / 能力テキストの読み取り（公式の書式・キーワード・フィルター） | [[codemap/src-core-cards-cards.basic.test\|地図]] |
@@ -28,6 +29,7 @@ generated: 2026-11-27
 | `src/core/cards/cards.newParser.test.ts` | 758 | lexer / 語に分ける / 動詞の活用 / カッコ・カード名・能力語 | [[codemap/src-core-cards-cards.newParser.test\|地図]] |
 | `src/core/cards/cards.sample10.test.ts` | 308 | 例文10の読み取り / 例文10の動作 | [[codemap/src-core-cards-cards.sample10.test\|地図]] |
 | `src/core/cards/cards.sample11.test.ts` | 303 | 例文11の読み取り / 例文11の動作 | [[codemap/src-core-cards-cards.sample11.test\|地図]] |
+| `src/core/cards/cards.sample12.test.ts` | 252 | 例文12の読み取り / 例文12の動作 | [[codemap/src-core-cards-cards.sample12.test\|地図]] |
 | `src/core/cards/cards.sample7.test.ts` | 137 | 例文7の読み取り / 例文7の動作 |  |
 | `src/core/cards/cards.sample8.test.ts` | 127 | 例文8の読み取り / 例文8の動作 |  |
 | `src/core/cards/cards.sample9.test.ts` | 221 | 例文9の読み取り / 例文9の動作 |  |
@@ -38,24 +40,24 @@ generated: 2026-11-27
 | `src/core/cards/lineDefs.ts` | 204 | 能力の文ごとの効果定義。 |  |
 | `src/core/cards/officialConvert.ts` | 332 | 公式カード検索の詳細（OfficialCardDetail）を、デッキ構築・対戦で使うカード定義に変換する。 | [[codemap/src-core-cards-officialConvert\|地図]] |
 | `src/core/cards/registry.ts` | 82 | カードIDからカード定義を引く辞書。エンジン・UI 共通で使う。 |  |
-| `src/core/cards/textParser.ts` | 4385 | 公式カードの能力テキスト（日本語）を、エンジンが処理できる効果定義に変換する。 | [[codemap/src-core-cards-textParser\|地図]] |
-| `src/core/cards/types.ts` | 1155 | カードの基本情報（カードデータ）の型定義。 | [[codemap/src-core-cards-types\|地図]] |
+| `src/core/cards/textParser.ts` | 4437 | 公式カードの能力テキスト（日本語）を、エンジンが処理できる効果定義に変換する。 | [[codemap/src-core-cards-textParser\|地図]] |
+| `src/core/cards/types.ts` | 1169 | カードの基本情報（カードデータ）の型定義。 | [[codemap/src-core-cards-types\|地図]] |
 | `src/core/deck/deckText.test.ts` | 106 | parseDeckText / カード名の照合 / deckToText |  |
 | `src/core/deck/deckText.ts` | 193 | AI やメモで書いたデッキリスト（表・箇条書き）のテキストから「カード名と枚数」を読み取る。 |  |
-| `src/core/deck/defaultDecks.test.ts` | 15 | DEFAULT_DECKS |  |
-| `src/core/deck/defaultDecks.ts` | 114 | 最初から用意しておくデッキ（デッキ一覧の「デフォルトデッキ」から追加する）。 |  |
-| `src/core/deck/rules.test.ts` | 47 | デッキ構成チェック / カード検索 |  |
-| `src/core/deck/rules.ts` | 100 | デッキ構成ルール。フォーマットごとに差し替えられる。 |  |
+| `src/core/deck/defaultDecks.test.ts` | 24 | DEFAULT_DECKS |  |
+| `src/core/deck/defaultDecks.ts` | 617 | 最初から用意しておくデッキ（デッキ一覧の「デフォルトデッキ」から追加する）。 | [[codemap/src-core-deck-defaultDecks\|地図]] |
+| `src/core/deck/rules.test.ts` | 60 | デッキ構成チェック / カード検索 / 何枚入れてもよいカード |  |
+| `src/core/deck/rules.ts` | 111 | デッキ構成ルール。フォーマットごとに差し替えられる。 |  |
 | `src/core/engine/effects.test.ts` | 398 | 常在効果 / 置換効果 / 誘発タイミング / ツインパクト | [[codemap/src-core-engine-effects.test\|地図]] |
 | `src/core/engine/engine.test.ts` | 333 | ゲーム開始 / ターン進行 / 召喚・呪文 / 攻撃 | [[codemap/src-core-engine-engine.test\|地図]] |
-| `src/core/engine/engine.ts` | 4459 | ゲームエンジン本体。applyAction(state, action) で新しい状態を返す純粋な入口を持ち、 | [[codemap/src-core-engine-engine\|地図]] |
+| `src/core/engine/engine.ts` | 4484 | ゲームエンジン本体。applyAction(state, action) で新しい状態を返す純粋な入口を持ち、 | [[codemap/src-core-engine-engine\|地図]] |
 | `src/core/engine/legal.ts` | 62 | 入力待ちでない時にターンプレイヤーが取れる合法アクションの一覧。 |  |
 | `src/core/engine/order.test.ts` | 148 | 効果の処理順 / 置換効果が2つ以上ある時 |  |
 | `src/core/engine/queries.ts` | 1193 | ゲーム状態を読むだけの関数群（状態を変更しない）。UI・AI・エンジンで共用する。 | [[codemap/src-core-engine-queries\|地図]] |
 | `src/core/engine/rng.ts` | 10 | 決定的な乱数（mulberry32）。状態を GameState に保存するので保存・復元・リプレイで再現できる。 |  |
 | `src/core/engine/setup.ts` | 111 | PlayerSetup, NewGameOptions, createGame |  |
 | `src/core/engine/timing.test.ts` | 191 | 総合ルールの処理順 / 手動操作 |  |
-| `src/core/engine/types.ts` | 368 | 対戦中のカード個体。同名カードでも iid で個別に識別する。 | [[codemap/src-core-engine-types\|地図]] |
+| `src/core/engine/types.ts` | 369 | 対戦中のカード個体。同名カードでも iid で個別に識別する。 | [[codemap/src-core-engine-types\|地図]] |
 | `src/core/print/proxyPdf.test.ts` | 59 | proxyLayout / buildPdf |  |
 | `src/core/print/proxyPdf.ts` | 184 | プロキシカード印刷用の A4 レイアウトと、最小限の PDF 書き出し（外部ライブラリなし）。 |  |
 | `src/core/testing/abilitySamples.ts` | 86 | 能力テキストの例文集（ユーザーが挙げた実際のカードの文）。 |  |
@@ -95,8 +97,8 @@ generated: 2026-11-27
 | `src/ui/proxyPrint.ts` | 204 | デッキからプロキシ印刷用の A4 PDF を作る。 |  |
 | `src/ui/screens/Battle.tsx` | 1122 | BattleScreen | [[codemap/src-ui-screens-Battle\|地図]] |
 | `src/ui/screens/BattleSetup.tsx` | 103 | BattleSetupScreen |  |
-| `src/ui/screens/DeckBuilder.tsx` | 391 | DeckBuilderScreen | [[codemap/src-ui-screens-DeckBuilder\|地図]] |
-| `src/ui/screens/Home.tsx` | 245 | HomeScreen, DeckListScreen |  |
+| `src/ui/screens/DeckBuilder.tsx` | 392 | DeckBuilderScreen | [[codemap/src-ui-screens-DeckBuilder\|地図]] |
+| `src/ui/screens/Home.tsx` | 304 | HomeScreen, DeckListScreen | [[codemap/src-ui-screens-Home\|地図]] |
 | `src/ui/screens/Library.tsx` | 166 | LibraryScreen |  |
 | `src/ui/screens/Menus.tsx` | 277 | SettingsScreen, HistoryScreen | [[codemap/src-ui-screens-Menus\|地図]] |
 | `src/ui/screens/OfficialSearch.tsx` | 294 | OfficialSearchScreen | [[codemap/src-ui-screens-OfficialSearch\|地図]] |

@@ -149,7 +149,7 @@ export type GameEvent =
   /** バトルゾーンに出た（召喚・効果で出した両方） */
   | { type: 'CREATURE_SUMMONED'; player: PlayerId; iid: string; summoned?: boolean }
   | { type: 'SPELL_CAST'; player: PlayerId; iid: string }
-  | { type: 'CREATURE_DESTROYED'; player: PlayerId; iid: string }
+  | { type: 'CREATURE_DESTROYED'; player: PlayerId; iid: string; by?: string }
   | { type: 'CREATURE_LEFT'; player: PlayerId; iid: string; to: ZoneName }
   | { type: 'ATTACK_DECLARED'; player: PlayerId; attacker: string; target: AttackTarget }
   | { type: 'BLOCKED'; blocker: string; attacker: string }
@@ -232,7 +232,8 @@ export type Task =
   /** chosen: 置換効果が2つ以上ある時に、離れるカードの持ち主が選んだもの（'ex' は EXライフ） */
   /** confirmed: 使うと答えた任意の置換効果（続けて対象を選ぶ時に、もう一度聞かない） */
   /** shieldTop: 表向きにして持ち主のシールド1つの上に置く（to は 'shield'） */
-  | { kind: 'leave'; tapped?: boolean; shieldTop?: boolean; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[]; confirmed?: string; chosen?: string }
+  /** by: 破壊したクリーチャー（バトルの相手・破壊する能力の持ち主） */
+  | { kind: 'leave'; by?: string; tapped?: boolean; shieldTop?: boolean; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[]; confirmed?: string; chosen?: string }
   /** 自動フェイズを進める（開始時誘発などを解決してから次へ） */
   | { kind: 'phase'; phase: Phase }
   /** ターン終了時の後片付けと手番の交代（追加ターンを含む） */
