@@ -3,3 +3,7 @@ dist
 test-results
 playwright-report
 *.local
+# Obsidian の画面状態（個人ごと）
+vault/.obsidian/workspace*.json
+vault/.obsidian/cache
+vault/.trash/

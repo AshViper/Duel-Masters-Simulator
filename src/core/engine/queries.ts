@@ -210,6 +210,10 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   if (f.anyOf && !f.anyOf.some((x) => matchFilter(state, reg, iid, x, source, noPower))) return false;
   if (f.selfOnly && iid !== source) return false;
   if (f.faceDown && inst.faceUp !== false) return false;
+  // 表向きのカード：バトルゾーンのカードと、表向きにしたシールドなど
+  if (f.faceUp && !(inst.zone === 'battle' || inst.faceUp === true)) return false;
+  if (f.enteredThisTurn && !(inst.zone === 'battle' && inst.enteredTurn === state.turn)) return false;
+  if (f.hasOnSummonAbility && !(d.abilities ?? []).some((a) => a.when === 'onSummon')) return false;
   if (f.typeLabelIncludes && !(d.typeLabel ?? '').includes(f.typeLabelIncludes)) return false;
   if (f.costIsChosenNumber && d.cost !== state.chosenNumber) return false;
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(d.type) : d.type !== f.cardType)) return false;
@@ -736,6 +740,14 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       return !!state.inExtraTurn;
     case 'shieldsBrokenThisTurn':
       return (state.players[c.who === 'self' ? controller : other(controller)].shieldsBrokenThisTurn ?? 0) >= c.min;
+    case 'playedFreeThisTurn': {
+      const P = state.players[c.who === 'self' ? controller : other(controller)];
+      return (P.freeEntriesThisTurn ?? 0) + (P.freeSpellsThisTurn ?? 0) > 0;
+    }
+    case 'enteredByRevolution':
+      return !!source && state.cards[source]?.zone === 'battle' && !!state.cards[source].enteredByRevolution;
+    case 'usedThisTurn':
+      return !!state.usedThisTurn?.includes(`${controller}:${c.key}`);
   }
 }
 

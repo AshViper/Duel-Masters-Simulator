@@ -122,11 +122,13 @@ const INSTEAD_LABEL: Record<ReplacementAbility['instead'], string> = {
   shedUnder: '下のカードすべてを離す',
   seal: '封印を付ける',
   destroyOther: '自分の他のクリーチャーを1体破壊する',
+  faceUpShieldToGrave: 'シールドゾーンにある表向きのカードを1枚墓地に置く',
+  avertCost: '表向きのカードを破壊するか、シールドを墓地に置く',
 };
 
 /** 効果の中の「誘発の原因になったカード」（ref: 'event'）を、実際のカードに決める */
 /** カードを選ぶ（動かす）効果：後に続く「そうしたら」が、選んだかどうかを見る */
-const CHOOSING_EFFECTS = new Set<EffectDef['type']>(['move', 'destroy', 'tap', 'untap', 'discardUnder', 'discardRandom', 'bounce', 'toHand', 'toGraveyard', 'toMana', 'toShield', 'toDeckBottom', 'toDeckTop', 'shieldToHand', 'graveyardToHand', 'putIntoBattle', 'seal']);
+const CHOOSING_EFFECTS = new Set<EffectDef['type']>(['move', 'destroy', 'tap', 'untap', 'discardUnder', 'discardRandom', 'bounce', 'toHand', 'toGraveyard', 'toMana', 'toShield', 'toDeckBottom', 'toDeckTop', 'shieldToHand', 'graveyardToHand', 'putIntoBattle', 'seal', 'choose']);
 
 /** 山札を見て選んだカードの行き先（選ぶ時の説明用） */
 const LOOK_DEST_LABEL = { hand: '手札へ', battle: 'バトルゾーンへ', mana: 'マナゾーンへ', shield: 'シールドゾーンへ', graveyard: '墓地へ', deckBottom: '山札の下へ', none: 'この後の効果で使う' } as const;
@@ -383,7 +385,10 @@ export class Ctx {
       c.powerModTurn = 0;
       delete c.keywordsTurn;
     }
-    s.turnStatics = s.turnStatics.filter((t) => t.untilNextTurnOf !== undefined);
+    // 「次の自分のターンの終わりまで」は、効果を使ったターンより後の、そのプレイヤーのターンの終わりで終わる
+    s.turnStatics = s.turnStatics.filter(
+      (t) => t.untilNextTurnOf !== undefined || (t.untilTurnEndOf !== undefined && !(t.untilTurnEndOf === s.activePlayer && s.turn > (t.fromTurn ?? 0))),
+    );
     s.usedThisTurn = [];
     for (const p of s.players) {
       p.drawnThisTurn = 0;
@@ -394,6 +399,7 @@ export class Ctx {
       p.shieldsBrokenThisTurn = 0;
       p.battleWinsThisTurn = 0;
       p.freeEntriesThisTurn = 0;
+      p.freeSpellsThisTurn = 0;
       p.attacksThisTurn = 0;
     }
     const P = s.players[s.activePlayer];
@@ -498,7 +504,7 @@ export class Ctx {
     const verb = face.type === 'spell' ? '唱える' : face.type === 'field' ? 'バトルゾーンに出す' : face.type === 'tamaseed' ? '使う' : inst.zone === 'hand' ? '召喚' : `${inst.zone === 'graveyard' ? '墓地' : 'マナゾーン'}から召喚`;
     this.log(`${face.name} を${verb}（${cost}マナ）`, player);
     this.emit({ type: 'CARD_PLAYED', player, iid });
-    s.queue.push(face.type === 'spell' ? { kind: 'castSpell', player, iid, side } : { kind: 'enterBattle', player, iid, evolveOn, ...(evolveFrom?.length ? { evolveFrom } : {}), ...(mspec?.deckTop ? { evolveDeck: mspec.deckTop } : {}), paid: cost > 0, ...(isCreatureType(face.type) ? { summoned: true } : {}) });
+    s.queue.push(face.type === 'spell' ? { kind: 'castSpell', player, iid, side, paid: cost > 0 } : { kind: 'enterBattle', player, iid, evolveOn, ...(evolveFrom?.length ? { evolveFrom } : {}), ...(mspec?.deckTop ? { evolveDeck: mspec.deckTop } : {}), paid: cost > 0, ...(isCreatureType(face.type) ? { summoned: true } : {}) });
     this.run();
   }
 
@@ -834,6 +840,8 @@ export class Ctx {
 
       case 'castSpell': {
         const face = playFace(def(s, this.reg, task.iid), task.side);
+        // マナゾーンのカードをタップせずに唱えた呪文を数える（「マナゾーンのカードをタップせずに、〜呪文を唱えていて」）
+        if (!task.paid) s.players[task.player].freeSpellsThisTurn = (s.players[task.player].freeSpellsThisTurn ?? 0) + 1;
         this.emit({ type: 'SPELL_CAST', player: task.player, iid: task.iid });
         const tasks: Task[] = [];
         for (const ab of face.abilities) if (ab.when === 'onCast') tasks.push(...this.abilityTasks(ab, task.player, task.iid));
@@ -938,6 +946,21 @@ export class Ctx {
             return false;
           }
         }
+        // 「〜クリーチャーがバトルゾーンに出る時、かわりに持ち主の墓地（マナゾーン）に置く」（召喚でも効果でも）
+        if (isCreatureType(entering.type)) {
+          const ins = activeStatics(s, this.reg).find(
+            (a) =>
+              a.static.type === 'enterInstead' &&
+              (a.static.who === 'both' || (a.static.who === 'self') === (a.controller === inst.owner)) &&
+              matchFilter(s, this.reg, task.iid, a.static.filter, a.source),
+          );
+          if (ins && ins.static.type === 'enterInstead') {
+            const to = ins.static.to;
+            this.moveCard(task.iid, to);
+            this.log(`${def(s, this.reg, ins.source).name} の効果：${entering.name} はバトルゾーンに出るかわりに${ZONE_LABEL[to]}に置かれた`, ins.controller);
+            return false;
+          }
+        }
         if (task.evolveFrom?.length || task.evolveDeck) {
           // 進化元を何枚も・バトルゾーン以外からも重ねる進化
           let sources = (task.evolveFrom ?? []).filter((x) => s.cards[x] && x !== task.iid);
@@ -1015,6 +1038,7 @@ export class Ctx {
         if (task.tapped) inst.tapped = true;
         if (task.endOfTurn) inst.leaveAtTurnEnd = { turn: s.turn, how: task.endOfTurn };
         inst.enteredFree = !task.paid;
+        inst.enteredByRevolution = !!task.byRevolution;
         if (!task.paid && isCreatureType(def(s, this.reg, task.iid).type)) s.players[inst.owner].freeEntriesThisTurn = (s.players[inst.owner].freeEntriesThisTurn ?? 0) + 1;
         // 出したクリーチャーに能力を与える
         if (task.grant) {
@@ -1415,7 +1439,7 @@ export class Ctx {
       this.emit({ type: 'CARD_PLAYED', player, iid: pick });
       this.insertFront(
         { kind: 'leave', iid: old, to: 'hand', cause: 'effect' },
-        { kind: 'enterBattle', player, iid: pick, tapped: true, replaceAttacker: true },
+        { kind: 'enterBattle', player, iid: pick, tapped: true, replaceAttacker: true, byRevolution: true },
         { kind: 'attackSwap', player },
       );
     } else if (s.cards[pick].zone === 'battle') {
@@ -1658,6 +1682,57 @@ export class Ctx {
         case 'destroySelf':
           this.insertFront({ kind: 'leave', iid: source, to: 'graveyard', cause: 'destroy', replaced: [...replaced, key] });
           return false;
+        case 'faceUpShieldToGrave': {
+          // かわりに、いずれかのシールドゾーンにある表向きのカードを1枚、持ち主の墓地に置く
+          const cands = this.faceUpShields();
+          let pick = cands[0];
+          if (cands.length > 1) {
+            const r = this.takeResponse();
+            if (!r) {
+              task.confirmed = key;
+              s.pending = { kind: 'selectCards', player: owner, source, prompt: `${this.name(task.iid)} のかわりに墓地に置く、シールドゾーンの表向きのカードを1枚選んでください`, candidates: cands, min: 1, max: 1 };
+              return true;
+            }
+            pick = r.selected?.[0] ?? pick;
+          }
+          this.removeFromShield(pick);
+          this.moveCard(pick, 'graveyard');
+          this.log(`${this.name(pick)} をシールドゾーンから墓地に置いた`, owner);
+          return false;
+        }
+        case 'avertCost': {
+          // CRY-S-MAX進化：かわりに自分の表向きのカードを count 枚破壊するか、自分のシールドを shieldAlt 個墓地に置く
+          const need = ability.count ?? 3;
+          const faceUp = battleAndFields(s, this.reg, owner).filter((x) => x !== task.iid);
+          const shields = s.players[owner].zones.shield;
+          // 離れようとしているこのクリーチャー自身は数えない
+          const canDestroy = faceUp.length >= need;
+          const canShield = !!ability.shieldAlt && shields.length >= ability.shieldAlt;
+          let mode: 'destroy' | 'shield' | null = canShield && !canDestroy ? 'shield' : canDestroy && !canShield ? 'destroy' : null;
+          if (!canDestroy && !canShield) {
+            this.insertFront({ ...task, replaced: [...replaced, key] });
+            return false;
+          }
+          if (!mode) {
+            const r = this.takeResponse();
+            if (!r) {
+              task.confirmed = key;
+              s.pending = { kind: 'chooseMode', player: owner, source, prompt: `${this.name(task.iid)}：かわりに行うことを選んでください`, options: [`自分の表向きのカードを${need}枚破壊する`, `自分のシールドを${ability.shieldAlt}つ墓地に置く`] };
+              return true;
+            }
+            mode = Number(r.selected?.[0]) === 1 ? 'shield' : 'destroy';
+          }
+          if (mode === 'shield') {
+            for (let k = 0; k < (ability.shieldAlt ?? 1) && shields.length; k++) this.moveCard(shields[shields.length - 1], 'graveyard');
+            this.log(`${this.name(task.iid)}：かわりに自分のシールドを${ability.shieldAlt}つ墓地に置いた`, owner);
+            return false;
+          }
+          // 破壊するカードは、コストの小さいものから自動で選ぶ（負ける時の置換 avertLoss と同じ）
+          const picks = faceUp.sort((a, b) => def(s, this.reg, a).cost - def(s, this.reg, b).cost).slice(0, need);
+          this.log(`${this.name(task.iid)}：かわりに自分の表向きのカードを${need}枚破壊する`, owner);
+          this.insertFront(...picks.map((x): Task => ({ kind: 'leave', iid: x, to: 'graveyard', cause: 'destroy', replaced: [...replaced, key] })));
+          return false;
+        }
         case 'destroyOther': {
           // かわりに自分の他のクリーチャーを1体（N枚）破壊する（足りなければ置換しない）
           const need = ability.count ?? 1;
@@ -1698,6 +1773,11 @@ export class Ctx {
       return false;
     }
     if (task.cause === 'destroy') this.log(`${this.name(task.iid)} は破壊された`, inst.owner);
+    if (task.shieldTop) {
+      this.placeOnShield(task.iid);
+      this.emit({ type: 'CREATURE_LEFT', player: inst.owner, iid: task.iid, to: 'shield' });
+      return false;
+    }
     this.moveCard(task.iid, task.to, { toTop: task.toTop ?? true });
     if (task.tapped && task.to === 'mana') inst.tapped = true;
     if (task.cause === 'destroy') this.emit({ type: 'CREATURE_DESTROYED', player: inst.owner, iid: task.iid });
@@ -1725,6 +1805,7 @@ export class Ctx {
         if (ab.condition && !evalCondition(s, this.reg, s.cards[src].owner, ab.condition, false, src)) continue;
         // 真・エスケープ・マナ武装：シールドが足りなければ置換しない
         if (ab.instead === 'escape' && s.players[s.cards[src].owner].zones.shield.length < (ab.count ?? 1)) continue;
+        if (ab.instead === 'faceUpShieldToGrave' && !this.faceUpShields().length) continue;
         out.push({ source: src, ability: ab, key });
       }
     }
@@ -1758,8 +1839,18 @@ export class Ctx {
         return this.execEffect(controller, source, { type: 'deckTopTo', count: e.count, to: 'mana' });
       case 'addShieldFromDeck':
         return this.execEffect(controller, source, { type: 'deckTopTo', count: e.count, to: 'shield' });
+      case 'choose':
+        // 選ぶだけ（動かさない）。選んだカードは後の文の「それ」「その2体」で指す
+        return this.withTargets(controller, source, e.target, e.reveal ? '見る' : '選ぶ', false, (iid) => {
+          if (e.reveal) this.log(`${this.name(source)}：${this.name(iid)} を見た`, controller);
+        });
+      case 'markUsed':
+        (s.usedThisTurn ??= []).push(`${controller}:${e.key}`);
+        return false;
       case 'deckTopTo': {
-        const who = e.who === 'opponent' ? opp : controller;
+        // 「そのプレイヤーは自身の山札の上から〜」：直前に選んだカードの持ち主
+        const chosenOwner = (s.lastChosen ?? []).map((x) => s.cards[x]?.owner).find((x) => x !== undefined);
+        const who = e.who === 'opponent' ? opp : e.who === 'chosenOwner' ? (chosenOwner ?? controller) : controller;
         // 動かしたカードは、後の文の「そのカード」で指せる
         s.lastChosen = [];
         for (let i = 0; i < e.count; i++) {
@@ -1768,6 +1859,10 @@ export class Ctx {
           s.lastChosen.push(top);
           if (e.to === 'under' && !this.deckToGrave(who)) {
             this.putUnder(top, source, controller);
+            continue;
+          }
+          if (e.to === 'shieldTop') {
+            this.placeOnShield(top);
             continue;
           }
           this.moveCard(top, e.to === 'under' ? 'graveyard' : e.to);
@@ -2014,6 +2109,13 @@ export class Ctx {
           this.log(`${this.name(source)} を墓地から${ZONE_LABEL[dest === 'deckTop' || dest === 'deckBottom' ? 'deck' : dest] ?? dest}へ`, controller);
           return false;
         }
+        // 「この呪文を裏向きにしてシールドに加える」：唱えている呪文（手札を経由している）を動かす
+        if (inst?.zone === 'hand' && e.action === 'shield' && playFace(def(s, this.reg, source), 'main').type === 'spell') {
+          this.moveCard(source, 'shield');
+          inst.faceUp = false;
+          this.log(`${this.name(source)} を裏向きにしてシールドに加えた`, controller);
+          return false;
+        }
         if (inst?.zone !== 'battle') return false;
         if (e.action === 'tap') {
           this.setTapped(source, controller);
@@ -2040,8 +2142,15 @@ export class Ctx {
         // 「その数字と同じコストの」：選んだ数字をこの時点で決める（後で別の数字を選んでも変わらないように）
         const num = s.chosenNumber ?? -1;
         const bound = JSON.parse(JSON.stringify(e.static).split('"costIsChosenNumber":true').join(`"minCost":${num},"maxCost":${num}`)) as StaticAbility;
-        s.turnStatics.push({ controller, source, static: bound, ...(e.untilNextTurn ? { untilNextTurnOf: controller } : {}), ...(e.onlyOpponentTurn ? { onlyDuringTurnOf: other(controller) } : {}) });
-        this.log(`${this.name(source)} の効果が${e.untilNextTurn ? '次の自分のターンのはじめまで' : 'このターンの間'}有効`, controller);
+        s.turnStatics.push({
+          controller,
+          source,
+          static: bound,
+          ...(e.untilNextTurn ? { untilNextTurnOf: controller } : {}),
+          ...(e.untilNextTurnEnd ? { untilTurnEndOf: controller, fromTurn: s.turn } : {}),
+          ...(e.onlyOpponentTurn ? { onlyDuringTurnOf: other(controller) } : {}),
+        });
+        this.log(`${this.name(source)} の効果が${e.untilNextTurn ? '次の自分のターンのはじめまで' : e.untilNextTurnEnd ? '次の自分のターンの終わりまで' : 'このターンの間'}有効`, controller);
         return false;
       }
       case 'playFree':
@@ -2547,6 +2656,10 @@ export class Ctx {
           return;
         case 'deckBottom':
           return this.moveTo(iid, 'deck', controller, false);
+        case 'shieldTop':
+          if (s.cards[iid].zone === 'battle') return { kind: 'leave', iid, to: 'shield', cause: 'effect', shieldTop: true };
+          this.placeOnShield(iid);
+          return;
         default: {
           const fromHand = s.cards[iid].zone === 'hand';
           const t = this.moveTo(iid, e.to, controller);
@@ -2583,6 +2696,55 @@ export class Ctx {
   }
 
   /** カードを、バトルゾーンのクリーチャー（host）の下に置く */
+  /** いずれかのシールドゾーンにある表向きのカード（シールドの上に重ねたものを含む） */
+  private faceUpShields(): string[] {
+    const s = this.s;
+    return [...s.players[0].zones.shield, ...s.players[1].zones.shield].filter((x) => s.cards[x]?.faceUp === true);
+  }
+
+  /** シールドゾーンの一覧からカードを外す。下に重なっていたカードがあれば、それが新しいシールドになる */
+  private removeFromShield(iid: string): void {
+    const s = this.s;
+    const inst = s.cards[iid];
+    const list = s.players[inst.owner].zones.shield;
+    const k = list.indexOf(iid);
+    if (k < 0) return;
+    const [next, ...rest] = inst.under;
+    if (next) {
+      list[k] = next;
+      s.cards[next].under = rest;
+      inst.under = [];
+    } else list.splice(k, 1);
+  }
+
+  /**
+   * 表向きにして、持ち主のシールド1つの上に置く（シールドがなければ表向きの新しいシールドにする）。
+   * 上に置いたカードがシールドとして数えられ、元のシールドはその下に入る。どのシールドの上に置くかは、重なりが一番少ないものを選ぶ
+   */
+  private placeOnShield(iid: string): void {
+    const s = this.s;
+    const inst = s.cards[iid];
+    const shields = s.players[inst.owner].zones.shield;
+    const host = [...shields].sort((a, b) => s.cards[a].under.length - s.cards[b].under.length)[0];
+    if (inst.zone === 'battle') {
+      // バトルゾーンを離れる時は、下のカードを墓地に置く
+      for (const u of inst.under) this.moveCard(u, 'graveyard');
+      inst.under = [];
+    }
+    this.moveCard(iid, 'shield');
+    inst.faceUp = true;
+    if (!host) {
+      this.log(`${this.name(iid)} を表向きにして新しいシールドとして置いた`, inst.owner);
+      return;
+    }
+    // 一覧の末尾に入ったカードを、元のシールドの場所に入れ替える
+    shields.splice(shields.indexOf(iid), 1);
+    shields[shields.indexOf(host)] = iid;
+    inst.under = [host, ...s.cards[host].under];
+    s.cards[host].under = [];
+    this.log(`${this.name(iid)} を表向きにしてシールド1つの上に置いた`, inst.owner);
+  }
+
   private putUnder(iid: string, host: string, controller: PlayerId): void {
     const s = this.s;
     const h = s.cards[host];
@@ -2650,7 +2812,7 @@ export class Ctx {
           player: chooser,
           source,
           reveal: true,
-          prompt: `${this.name(source)}：${chooser === controller ? '' : '相手の'}山札の上から${top.length}枚${e.chooser === 'opponent' ? 'の中' : 'を見て'}から、${max}枚${e.mustPick ? '' : 'まで'}選ぶ（選んだカードは${LOOK_DEST_LABEL[e.pickTo]}${e.pickToAlt ? `か${LOOK_DEST_LABEL[e.pickToAlt]}` : ''}）`,
+          prompt: `${this.name(source)}：${chooser === controller ? '' : '相手の'}山札の上から${top.length}枚${e.chooser === 'opponent' ? 'の中' : 'を見て'}から、${e.pickMaxTotalCost !== undefined ? `コストの合計が${e.pickMaxTotalCost}以下になるように` : ''}${max}枚${e.mustPick ? '' : 'まで'}選ぶ（選んだカードは${LOOK_DEST_LABEL[e.pickTo]}${e.pickToAlt ? `か${LOOK_DEST_LABEL[e.pickToAlt]}` : ''}）`,
           candidates,
           min: e.mustPick ? max : 0,
           max,
@@ -2658,6 +2820,16 @@ export class Ctx {
         return true;
       }
       picked = r.selected ?? [];
+    }
+    // 「コストの合計がN以下になるように」：選んだ順に、合計を超えるカードは外す
+    if (e.pickMaxTotalCost !== undefined) {
+      let sum = 0;
+      picked = picked.filter((iid) => {
+        const c = def(s, this.reg, iid).cost;
+        if (sum + c > e.pickMaxTotalCost!) return false;
+        sum += c;
+        return true;
+      });
     }
     const followUps: Task[] = [];
     // 「手札に加えるかマナゾーンに置く」：行き先は1枚ずつ後で選ぶ
@@ -3401,6 +3573,14 @@ export class Ctx {
     for (const iid of battleCards(s, this.reg, loser)) {
       const need = keywords(s, this.reg, iid).avertLoss;
       if (!need || queued.has(iid)) continue;
+      // CRY-S-MAX進化：かわりに自分のシールドを墓地に置いてもよい（表向きのカードを残せるので、置けるならこちらを使う）
+      const shieldAlt = keywords(s, this.reg, iid).avertLossShield;
+      const shields = s.players[loser].zones.shield;
+      if (shieldAlt && shields.length >= shieldAlt) {
+        this.log(`${this.name(iid)} の能力：ゲームに負けるかわりに、自分のシールドを${shieldAlt}つ墓地に置く`, loser);
+        for (let k = 0; k < shieldAlt; k++) this.moveCard(shields[shields.length - 1], 'graveyard');
+        return true;
+      }
       const others = own.filter((x) => x !== iid).sort((a, b) => def(s, this.reg, a).cost - def(s, this.reg, b).cost);
       const picks = [...others, iid].slice(0, need);
       if (picks.length < need) continue;

@@ -94,12 +94,18 @@ export interface CardFilter {
   selfOnly?: boolean;
   /** 裏向きのカード（マナゾーンの裏向きのカード、裏向きのシールド） */
   faceDown?: boolean;
+  /** 表向きのカード（バトルゾーンのカード、表向きのシールドなど） */
+  faceUp?: boolean;
   /** カードの種類名にこの文字列を含む（「ミリオン・フレイム」など、エンジンの種類にない種類） */
   typeLabelIncludes?: string;
   /** このうちのどれかに合うもの（「呪文または名前に《X》とあるカード」） */
   anyOf?: CardFilter[];
   /** この条件に合わないもの（「闇ではない」「ドラゴンではない」「多色ではない」） */
   not?: CardFilter;
+  /** このターンにバトルゾーンに出た（「出たターン」） */
+  enteredThisTurn?: boolean;
+  /** 「このクリーチャーがバトルゾーンに出た時」で始まる能力（出た時の誘発）を持つ */
+  hasOnSummonAbility?: boolean;
 }
 
 /** 効果の対象指定 */
@@ -187,11 +193,18 @@ export type Condition =
   /** いまが追加ターン（「追加ターン中でなければ」） */
   | { type: 'inExtraTurn' }
   /** このクリーチャーの下に min 枚以上カードがある */
-  | { type: 'underCount'; min: number };
+  | { type: 'underCount'; min: number }
+  /** このターンに、そのプレイヤーがマナゾーンのカードをタップせずにクリーチャーを出すか呪文を唱えていた */
+  | { type: 'playedFreeThisTurn'; who: 'self' | 'opponent' }
+  /** このクリーチャーが「革命チェンジ」で出ていた */
+  | { type: 'enteredByRevolution' }
+  /** このターンに、その名前の能力をすでに使っていた（「そのターン中に他の「ファイナル革命」をまだ使っていなければ」は not で包む） */
+  | { type: 'usedThisTurn'; key: string };
 
 /** 効果でカードを動かす先（deckTop / deckBottom は山札の上 / 下） */
 /** under: 効果の発生源（このクリーチャー）の下に置く */
-export type MoveDest = 'hand' | 'mana' | 'graveyard' | 'shield' | 'deckTop' | 'deckBottom' | 'battle' | 'under';
+/** shieldTop: 表向きにして、持ち主のシールド1つの上に置く（シールドがなければ表向きの新しいシールドにする） */
+export type MoveDest = 'hand' | 'mana' | 'graveyard' | 'shield' | 'deckTop' | 'deckBottom' | 'battle' | 'under' | 'shieldTop';
 
 /** 構造化された効果定義 */
 export type EffectDef =
@@ -200,7 +213,12 @@ export type EffectDef =
   | { type: 'addManaFromDeck'; count: number }
   | { type: 'addShieldFromDeck'; count: number }
   /** 山札の上から N 枚を指定ゾーンへ（墓地肥やし・マナ加速など） */
-  | { type: 'deckTopTo'; count: number; to: 'graveyard' | 'mana' | 'shield' | 'hand' | 'under'; who?: 'self' | 'opponent'; tapped?: boolean }
+  /** who: chosenOwner は直前に選んだカードの持ち主の山札（「そのプレイヤーは自身の山札の上から〜」）。shieldTop は表向きにして自分のシールド1つの上に置く */
+  | { type: 'deckTopTo'; count: number; to: 'graveyard' | 'mana' | 'shield' | 'hand' | 'under' | 'shieldTop'; who?: 'self' | 'opponent' | 'chosenOwner'; tapped?: boolean }
+  /** カードを選ぶだけ（動かさない）。選んだカードは後の文の「それ」「その2体」で指す。reveal: 選んだカードを見る（シールドなど） */
+  | { type: 'choose'; target: TargetSpec; reveal?: boolean }
+  /** その名前の能力をこのターンに使ったことを記録する（usedThisTurn で調べる） */
+  | { type: 'markUsed'; key: string }
   /** 「相手は〜してもよい」：相手が選んで、相手が行う（effects は相手から見た効果） */
   | { type: 'opponentMay'; effects: EffectDef[] }
   | { type: 'destroy'; target: TargetSpec }
@@ -244,6 +262,8 @@ export type EffectDef =
       restTo: 'deckBottom' | 'graveyard' | 'mana' | 'shuffle' | 'top';
       /** 条件に合うものをすべて選ぶ（選択なし） */
       pickAll?: boolean;
+      /** 選んだカードのコストの合計の上限（「コストの合計が6以下になるように好きな数選び」） */
+      pickMaxTotalCost?: number;
       /** 選べるなら必ず pickCount 枚選ぶ（「〜てもよい」でない） */
       mustPick?: boolean;
       /** opponent：相手に選ばせる */
@@ -288,7 +308,7 @@ export type EffectDef =
    * 効果の発生源（このクリーチャー）自身に対する処理。移動先（MoveDest）なら move と同じ移動をする。
    * 'toHand' / 'toMana' は旧形式（'hand' / 'mana' と同じ）。tapped: タップして置く
    */
-  | { type: 'selfAction'; action: 'destroy' | 'tap' | 'untap' | 'toHand' | 'toMana' | Exclude<MoveDest, 'battle' | 'under'>; tapped?: boolean }
+  | { type: 'selfAction'; action: 'destroy' | 'tap' | 'untap' | 'toHand' | 'toMana' | Exclude<MoveDest, 'battle' | 'under' | 'shieldTop'>; tapped?: boolean }
   /** ターン終了時まで、パワーを変更する */
   | { type: 'powerMod'; target: TargetSpec | 'self'; amount: number; untilNextTurn?: boolean; untilLeave?: boolean }
   /** ターン終了時まで、キーワード能力を与える */
@@ -296,7 +316,8 @@ export type EffectDef =
   | { type: 'grantKeyword'; target: TargetSpec | 'self'; keywords: Keywords; untilNextTurn?: boolean }
   /** ターン終了時まで有効な常在効果（例：このターン、相手のクリーチャーは攻撃できない） */
   /** onlyOpponentTurn: 相手のターンの間だけ有効（「次の相手のターン中、」） */
-  | { type: 'turnStatic'; static: StaticAbility; untilNextTurn?: boolean; onlyOpponentTurn?: boolean }
+  /** untilNextTurnEnd: 次の自分のターンの終わりまで */
+  | { type: 'turnStatic'; static: StaticAbility; untilNextTurn?: boolean; untilNextTurnEnd?: boolean; onlyOpponentTurn?: boolean }
   | { type: 'conditional'; condition: Condition; then: EffectDef[]; else?: EffectDef[] }
   /** モード選択（「次の中から1つ選ぶ」） */
   /** times: 選ぶ回数（「次の中から2回選ぶ」）。distinct: 同じものは選べない */
@@ -511,6 +532,11 @@ export type StaticAbility = (
   | { type: 'ignoreCastLocks'; filter?: CardFilter }
   /** 条件に合う相手のクリーチャーはタップしてバトルゾーンに出る */
   | { type: 'opponentEntersTapped'; filter?: CardFilter }
+  /**
+   * 条件に合うクリーチャーがバトルゾーンに出る時、かわりに持ち主の to に置く（召喚でも効果でも）。
+   * who: そのクリーチャーの持ち主（「相手の〜クリーチャーが出る時、相手はかわりにマナゾーンに置く」）
+   */
+  | { type: 'enterInstead'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; to: 'graveyard' | 'mana' }
 ) & {
   /** 有効なターン（「自分のターン中」= self）。省略時は常に有効 */
   duringTurn?: 'self' | 'opponent';
@@ -531,7 +557,11 @@ export interface ReplacementAbility {
   /** destroyOther: かわりに自分の他のクリーチャーを1体破壊する */
   /** unflip: かわりに表面（コストの小さいほう・フォートレス側）に裏返してとどまる（解除・龍回避） */
   /** shedTop: かわりに一番上のカードが離れる（スター進化。下のカードがクリーチャーとして残る） */
-  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'toDeckTop' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther' | 'shedTop' | 'unflip';
+  /** faceUpShieldToGrave: かわりにいずれかのシールドゾーンにある表向きのカードを1枚、持ち主の墓地に置く */
+  /** avertCost: かわりに自分の表向きのカードを count 枚破壊するか、自分のシールドを shieldAlt 個墓地に置く（CRY-S-MAX進化） */
+  instead: 'toHand' | 'toMana' | 'toShield' | 'toDeckBottom' | 'toDeckTop' | 'destroySelf' | 'stay' | 'escape' | 'shedUnder' | 'seal' | 'destroyOther' | 'shedTop' | 'unflip' | 'faceUpShieldToGrave' | 'avertCost';
+  /** avertCost：かわりに墓地に置いてもよいシールドの数 */
+  shieldAlt?: number;
   optional?: boolean;
   /** escape：手札に加えるシールドの数（既定1。足りなければ置換しない） */
   count?: number;
@@ -587,6 +617,8 @@ export interface Keywords {
   sMax?: boolean;
   /** 自分がゲームに負ける時、かわりに自分の表向きのカードをこの数だけ破壊してもよい（鬼S-MAX進化） */
   avertLoss?: number;
+  /** avertLoss のかわりに、自分のシールドをこの数だけ墓地に置いてもよい（CRY-S-MAX進化） */
+  avertLossShield?: number;
   /** ブレイクしたシールドを手札に加えるかわりに置く場所（墓地は shieldBurn） */
   shieldBreakTo?: 'deckBottom';
   /** shieldBreakTo の後、各プレイヤーはその数だけカードを引く */

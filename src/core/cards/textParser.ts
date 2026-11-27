@@ -24,6 +24,7 @@ import type {
 } from './types';
 import { move } from './effects';
 import { allLineDefs, type LineDef } from './lineDefs';
+import { parseByGrammar } from './grammar';
 
 export interface ParsedAbilities {
   keywords: Keywords;
@@ -672,7 +673,7 @@ function parseSelfVerb(verb: string): EffectDef | null {
   if (v === 'タップする') return { type: 'selfAction', action: 'tap' };
   if (v === 'アンタップする') return { type: 'selfAction', action: 'untap' };
   for (const r of MOVE_VERBS) {
-    if (r.to === 'battle' || r.to === 'under' || !r.from.includes('battle')) continue;
+    if (r.to === 'battle' || r.to === 'under' || r.to === 'shieldTop' || !r.from.includes('battle')) continue;
     const m = v.match(r.re);
     if (m) return { type: 'selfAction', action: r.to, ...(r.tapped?.test(m[0]) ? { tapped: true } : {}) };
   }
@@ -2145,7 +2146,9 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
   let pendingFrame: { condition: Condition; line: string } | null = null;
   for (const { line: rawLine, options } of splitAbilityLines(text)) {
     // 条件つきの能力のアイコン：{S} サバイバー、{x+} S・トリガー・プラス、{xB} スーパー・S・トリガー
-    const icon = rawLine.normalize('NFKC').trim().match(/^\{(S|x\+|xB)\}\s*([\s\S]*)$/);
+    // （アイコンが文字になって「xB次の自分のターンの〜」のように本文の頭に付いていることもある）
+    const iconM = rawLine.normalize('NFKC').trim().match(/^(?:\{(S|x\+|xB)\}|(x\+|xB)(?=[^\x00-\x7F]))\s*([\s\S]*)$/);
+    const icon = iconM ? [iconM[0], iconM[1] ?? iconM[2], iconM[3]] : null;
     const line = icon ? icon[2] : rawLine;
     const t = stripIcons(normalizeText(line));
     // 補足説明（カッコ書き）だけの行は能力ではない
@@ -2192,9 +2195,17 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
       continue;
     }
     if (icon) {
-      const tmp = empty();
+      let tmp = empty();
       const key = [rawLine, ...options.map((o) => `▶${o}`)].join('\n');
-      const ok = applyKeywordLine(line, tmp.keywords) || parseLine(line, options, kind, tmp);
+      let ok = applyKeywordLine(line, tmp.keywords) || parseLine(line, options, kind, tmp);
+      if (!ok) {
+        const g = readByGrammar(line, options, kind);
+        if (g) {
+          tmp = empty();
+          mergeGrammar(tmp, g);
+          ok = true;
+        }
+      }
       // {x+}・{xB} は誘発能力（出た時・唱えた時）に条件を足す。ほかの形の能力は読まない
       const onlyAbilities = !Object.keys(tmp.keywords).length && !tmp.statics.length && !tmp.replacements.length;
       if (!ok || (icon[1] !== 'S' && !onlyAbilities)) {
@@ -2249,12 +2260,50 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
       if (soul) applyKeywordLine(line, soul.keywords);
       continue;
     }
-    const ok = parseLine(line, options, kind, result) || parseFromReminder(line, options, kind, result);
+    const before = snapshot(result);
+    let ok = parseLine(line, options, kind, result) || parseFromReminder(line, options, kind, result);
+    // 今の読み取りで読めなかった行は、語の組み立て（grammar.ts）で読む。読めたら、手動処理として入れたものを取り消す
+    if (!ok) {
+      const g = readByGrammar(line, options, kind);
+      if (g) {
+        restore(result, before);
+        mergeGrammar(result, g);
+        ok = true;
+      }
+    }
     if (soul && !parseLine(line, options, kind, soul)) parseFromReminder(line, options, kind, soul);
     (ok ? result.parsedLines : result.manualLines).push([line, ...options.map((o) => `▶${o}`)].join('\n'));
   }
   if (soul) result.soul = { keywords: soul.keywords, abilities: soul.abilities, statics: soul.statics, replacements: soul.replacements };
   return result;
+}
+
+/** 語の組み立て（grammar.ts）で1行を読む。選択肢（▶）のある行は読まない */
+function readByGrammar(line: string, options: string[], kind: 'creature' | 'spell' | 'other'): ReturnType<typeof parseByGrammar> {
+  if (kind === 'other' || options.length) return null;
+  return parseByGrammar(line, kind, applyKeywordLine);
+}
+
+function mergeGrammar(out: ParsedAbilities, g: NonNullable<ReturnType<typeof parseByGrammar>>): void {
+  Object.assign(out.keywords, g.keywords);
+  out.abilities.push(...g.abilities);
+  out.statics.push(...g.statics);
+  out.replacements.push(...g.replacements);
+  if (g.handTriggers.length) (out.handTriggers ??= []).push(...g.handTriggers);
+}
+
+type Snapshot = { keywords: Keywords; abilities: number; statics: number; replacements: number; handTriggers: number; altPlays: number };
+function snapshot(r: ParsedAbilities): Snapshot {
+  return { keywords: { ...r.keywords }, abilities: r.abilities.length, statics: r.statics.length, replacements: r.replacements.length, handTriggers: r.handTriggers?.length ?? 0, altPlays: r.altPlays?.length ?? 0 };
+}
+/** 読み取りの途中で入れたものを取り消す */
+function restore(r: ParsedAbilities, s: Snapshot): void {
+  r.keywords = { ...s.keywords };
+  r.abilities.length = s.abilities;
+  r.statics.length = s.statics;
+  r.replacements.length = s.replacements;
+  if (r.handTriggers) r.handTriggers.length = s.handTriggers;
+  if (r.altPlays) r.altPlays.length = s.altPlays;
 }
 
 /**

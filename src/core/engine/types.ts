@@ -50,6 +50,8 @@ export interface CardInstance {
   equippedTo?: string;
   /** コストを支払わずに出た（「そのクリーチャーがコストを支払わずに出ていたら」） */
   enteredFree?: boolean;
+  /** 「革命チェンジ」で出た */
+  enteredByRevolution?: boolean;
   /** このターン（turn）の終わりにバトルゾーンを離れる（B・A・D・J・O・E・アビスラッシュ） */
   leaveAtTurnEnd?: { turn: number; how: 'destroy' | 'deckBottom' | 'deckBottomDraw' };
   /** 覚醒リンクでこのクリーチャーとリンクしているサイキック・セル（バトルゾーンの一覧には入らない） */
@@ -78,6 +80,8 @@ export interface PlayerState {
   playedThisTurn?: string[];
   /** このターンに、このプレイヤーのクリーチャーがコストを支払わずに出た数 */
   freeEntriesThisTurn?: number;
+  /** このターンにマナゾーンのカードをタップせずに唱えた呪文の数 */
+  freeSpellsThisTurn?: number;
   /** このターンに、このプレイヤーのクリーチャーが攻撃した回数 */
   attacksThisTurn?: number;
   /** このターンに、このプレイヤーのクリーチャーがバトルに勝った回数 */
@@ -177,9 +181,10 @@ export type Task =
   | { kind: 'battle'; attacker: string; defender: string }
   | { kind: 'battleWon'; winner: string; loser: string }
   /** after: 唱えた後、墓地のかわりに置く場所 */
-  | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin'; after?: 'deckBottom' | 'hand' }
+  /** paid: マナゾーンのカードをタップして唱えた */
+  | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin'; after?: 'deckBottom' | 'hand'; paid?: boolean }
   /** summoned: 召喚で出る（効果で「出す」のではない） */
-  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveFrom?: string[]; evolveDeck?: { count: number; creatureOnly?: boolean }; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; paid?: boolean; equipTo?: string; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
+  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveFrom?: string[]; evolveDeck?: { count: number; creatureOnly?: boolean }; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; paid?: boolean; byRevolution?: boolean; equipTo?: string; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
   /** 呪文を解決し終えたら墓地へ */
   | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin'; after?: 'deckBottom' | 'hand' }
   | { kind: 'hyperize'; player: PlayerId; iid: string }
@@ -201,7 +206,8 @@ export type Task =
   /** バトルゾーンから離れる（置換効果をここで適用） */
   /** chosen: 置換効果が2つ以上ある時に、離れるカードの持ち主が選んだもの（'ex' は EXライフ） */
   /** confirmed: 使うと答えた任意の置換効果（続けて対象を選ぶ時に、もう一度聞かない） */
-  | { kind: 'leave'; tapped?: boolean; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[]; confirmed?: string; chosen?: string }
+  /** shieldTop: 表向きにして持ち主のシールド1つの上に置く（to は 'shield'） */
+  | { kind: 'leave'; tapped?: boolean; shieldTop?: boolean; iid: string; to: ZoneName; cause: LeaveCause; toTop?: boolean; replaced?: string[]; confirmed?: string; chosen?: string }
   /** 自動フェイズを進める（開始時誘発などを解決してから次へ） */
   | { kind: 'phase'; phase: Phase }
   /** ターン終了時の後片付けと手番の交代（追加ターンを含む） */
@@ -259,6 +265,9 @@ export interface TurnStatic {
   untilNextTurnOf?: PlayerId;
   /** このプレイヤーのターンの間だけ有効（「次の相手のターン中」） */
   onlyDuringTurnOf?: PlayerId;
+  /** 次のこのプレイヤーのターンの終わりまで有効（fromTurn: 効果を使ったターン） */
+  untilTurnEndOf?: PlayerId;
+  fromTurn?: number;
 }
 
 export interface GameState {
