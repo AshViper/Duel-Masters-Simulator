@@ -8,7 +8,7 @@ updated: 2026-11-27
 
 ## できていること
 - デッキ構築（殿堂・プレミアム殿堂・殿堂ペアのチェック）、CPU 対戦（EASY/NORMAL/HARD）、一人回し、オンライン対戦（PeerJS）
-- 公式カード検索・保存（ローカル版は Vite 中継、Pages 版は中継サーバー `relay/`（Cloudflare Workers）で自動接続、予備にユーザースクリプト／ブックマークレット）。**中継はまだデプロイしていない**：`DEFAULT_RELAY_URL` が REPLACE_ME の間は中継を使わない
+- 公式カード検索・保存（ローカル版は Vite 中継、Pages 版は中継サーバー `relay/`（Cloudflare Workers）で自動接続、予備にユーザースクリプト／ブックマークレット）。中継は https://dm-sim-relay.haixiangpingwei.workers.dev にデプロイ済み（2026-11-27、ユーザーの Cloudflare アカウント。更新は `relay/` で `npx wrangler@4 deploy`）
 - プロキシPDF（A4・3×3・実寸）、テキストからデッキ作成
 - 能力語 352種のうち 200種が自動処理（`design/ability-coverage.md`、2026-11-27 計測。grammar を入れた後は再計測していない）
 - 実カード600枚（`design/corpus600.json.local`）のうち 494枚が全自動（オーラを置き物として扱うようにした）（2026-11-27。測り方は log/2026-11-27）

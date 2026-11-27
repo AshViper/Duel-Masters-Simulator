@@ -20,7 +20,7 @@ import { DM_ORIGIN, setOfficialFetcher, type OfficialFetcher } from '../server/d
 // いちばん手軽な経路：中継サーバー（relay/worker.js、Cloudflare Workers）。
 // 公開版（localhost 以外）では何もしなくてもこれでつながる。中継が使えない時だけ、下のユーザースクリプト・ブックマークレットを使う。
 // 開発中に中継を試すには VITE_DM_RELAY_URL を指定して npm run dev する。
-const DEFAULT_RELAY_URL = 'https://dm-sim-relay.REPLACE_ME.workers.dev';
+const DEFAULT_RELAY_URL = 'https://dm-sim-relay.haixiangpingwei.workers.dev';
 const RELAY_URL: string = ((import.meta.env.VITE_DM_RELAY_URL as string | undefined) ??
   (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(globalThis.location?.hostname ?? 'localhost') || DEFAULT_RELAY_URL.includes('REPLACE_ME') ? '' : DEFAULT_RELAY_URL)
 ).replace(/\/$/, '');
