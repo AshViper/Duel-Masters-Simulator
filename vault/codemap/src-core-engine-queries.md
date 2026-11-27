@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/engine/queries.ts（1199行）
+# src/core/engine/queries.ts（1200行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -78,22 +78,22 @@ generated: 2026-11-27
 - L990 **export** fn `defaultEvolveSources`
 - L1003 **export** fn `evolutionBases`
 - L1019 fn `matchesEvolvesFrom`
-- L1027 **export** fn `canBeEvolutionSource`
-- L1040 **export** fn `choosePayment`
-- L1047 **export** fn `payMana`
-- L1070 fn `assignCivs`
-- L1088 **export** fn `altCost`
-- L1103 **export** fn `altPayment`
-- L1108 **export** fn `altUsable`
-- L1122 **export** fn `canPlayAlt`
-- L1130 **export** fn `fushigiCandidates`
-- L1134 **export** fn `canPlay`
-- L1138 fn `canPlayImpl`
-- L1158 **export** fn `untappedManaCount`
-- L1162 **export** fn `isIdle`
-- L1166 **export** fn `instancesIn`
-- L1171 **export** fn `attackSwapCandidates`
-- L1195 **export** fn `sClassCards`
+- L1028 **export** fn `canBeEvolutionSource`
+- L1041 **export** fn `choosePayment`
+- L1048 **export** fn `payMana`
+- L1071 fn `assignCivs`
+- L1089 **export** fn `altCost`
+- L1104 **export** fn `altPayment`
+- L1109 **export** fn `altUsable`
+- L1123 **export** fn `canPlayAlt`
+- L1131 **export** fn `fushigiCandidates`
+- L1135 **export** fn `canPlay`
+- L1139 fn `canPlayImpl`
+- L1159 **export** fn `untappedManaCount`
+- L1163 **export** fn `isIdle`
+- L1167 **export** fn `instancesIn`
+- L1172 **export** fn `attackSwapCandidates`
+- L1196 **export** fn `sClassCards`
 
 ## switch の case（`ラベル:行`）
 

@@ -902,6 +902,12 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       return !!source && state.combat?.attacker === source;
     case 'civsInBattle': {
       const civs = new Set<string>();
+      // 「自分のマナゾーンにすべての文明が揃っていれば」：そのプレイヤーのマナゾーン（裏向きのカードは文明を持たない）
+      if (c.manaOf) {
+        const p = c.manaOf === 'self' ? controller : other(controller);
+        for (const m of state.players[p].zones.mana) if (state.cards[m].faceUp !== false) for (const cv of def(state, reg, m).civilizations) if (cv !== 'zero') civs.add(cv);
+        return civs.size >= c.min;
+      }
       for (const p of [0, 1] as PlayerId[]) for (const b of battleAndFields(state, reg, p)) for (const cv of def(state, reg, b).civilizations) if (cv !== 'zero') civs.add(cv);
       return civs.size >= c.min;
     }
@@ -1014,6 +1020,7 @@ function matchesEvolvesFrom(bd: CardDefinition, d: CardDefinition): boolean {
   const cond = d.evolvesFrom ?? {};
   if (cond.race && !bd.races.includes(cond.race)) return false;
   if (cond.civilization && !bd.civilizations.includes(cond.civilization)) return false;
+  if (cond.civilizations && !cond.civilizations.some((c) => bd.civilizations.includes(c))) return false;
   return true;
 }
 

@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/grammar.ts（1470行）
+# src/core/cards/grammar.ts（1471行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -33,31 +33,31 @@ generated: 2026-11-27
 - L517 interface `Group`
 - L523 fn `refTarget`
 - L529 fn `parseEffectSentence`
-- L578 fn `parseDeckTopClause`
-- L606 fn `parseClause`
-- L660 fn `parseSpecialSentence`
-- L717 fn `parseDeckTopShield`
-- L740 fn `parseLookSentences`
-- L810 fn `parseEffectSentences`
-- L853 fn `flatten`
-- L860 interface `Trig`
-- L878 fn `parseTrigger`
-- L974 interface `Cond`
-- L983 fn `parseOneCondition`
-- L1066 fn `parseConditions`
-- L1089 fn `parseRestriction`
-- L1101 fn `parseDuration`
-- L1112 fn `parseRestrictionSentence`
-- L1125 fn `parseEnterInstead`
-- L1161 fn `parseInsteadBody`
-- L1190 fn `parseReplacementSentence`
-- L1219 fn `parsePer`
-- L1234 fn `parseSelfCost`
-- L1276 fn `parsePlaySelf`
-- L1292 **export** fn `parseByGrammar`
-- L1343 fn `merge`
-- L1353 fn `parseReminderAsAbility`
-- L1369 fn `readAbility`
+- L579 fn `parseDeckTopClause`
+- L607 fn `parseClause`
+- L661 fn `parseSpecialSentence`
+- L718 fn `parseDeckTopShield`
+- L741 fn `parseLookSentences`
+- L811 fn `parseEffectSentences`
+- L854 fn `flatten`
+- L861 interface `Trig`
+- L879 fn `parseTrigger`
+- L975 interface `Cond`
+- L984 fn `parseOneCondition`
+- L1067 fn `parseConditions`
+- L1090 fn `parseRestriction`
+- L1102 fn `parseDuration`
+- L1113 fn `parseRestrictionSentence`
+- L1126 fn `parseEnterInstead`
+- L1162 fn `parseInsteadBody`
+- L1191 fn `parseReplacementSentence`
+- L1220 fn `parsePer`
+- L1235 fn `parseSelfCost`
+- L1277 fn `parsePlaySelf`
+- L1293 **export** fn `parseByGrammar`
+- L1344 fn `merge`
+- L1354 fn `parseReminderAsAbility`
+- L1370 fn `readAbility`
 
 ## メソッド
 

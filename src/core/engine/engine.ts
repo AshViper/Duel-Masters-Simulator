@@ -628,7 +628,7 @@ export class Ctx {
     const verb = face.type === 'spell' ? '唱える' : face.type === 'field' ? 'バトルゾーンに出す' : face.type === 'tamaseed' ? '使う' : inst.zone === 'hand' ? '召喚' : `${inst.zone === 'graveyard' ? '墓地' : 'マナゾーン'}から召喚`;
     this.log(`${face.name} を${verb}（${cost}マナ）`, player);
     this.emit({ type: 'CARD_PLAYED', player, iid });
-    s.queue.push(face.type === 'spell' ? { kind: 'castSpell', player, iid, side, paid: cost > 0 } : { kind: 'enterBattle', player, iid, evolveOn, ...(evolveFrom?.length ? { evolveFrom } : {}), ...(mspec?.deckTop ? { evolveDeck: mspec.deckTop } : {}), paid: cost > 0, ...(isCreatureType(face.type) ? { summoned: true } : {}) });
+    s.queue.push(face.type === 'spell' ? { kind: 'castSpell', player, iid, side, paid: cost > 0, from: inst.zone } : { kind: 'enterBattle', player, iid, evolveOn, ...(evolveFrom?.length ? { evolveFrom } : {}), ...(mspec?.deckTop ? { evolveDeck: mspec.deckTop } : {}), paid: cost > 0, ...(isCreatureType(face.type) ? { summoned: true } : {}) });
     this.run();
   }
 
@@ -675,8 +675,9 @@ export class Ctx {
       this.log(`${d.name} を超次元ゾーンに置いた`, player);
     } else if (d.type === 'spell') {
       // 唱え終わったら墓地（または山札の下）へ置くため、いったん手札を経由する
+      const from = inst.zone;
       if (inst.zone !== 'hand') this.moveCard(iid, 'hand');
-      tasks.push({ kind: 'castSpell', player, iid, side: 'main', ...(alt.spellAfter ? { after: alt.spellAfter } : {}) });
+      tasks.push({ kind: 'castSpell', player, iid, side: 'main', from, ...(alt.spellAfter ? { after: alt.spellAfter } : {}) });
     } else {
       tasks.push({
         kind: 'enterBattle',
@@ -1035,11 +1036,14 @@ export class Ctx {
         const face = playFace(def(s, this.reg, task.iid), task.side);
         // マナゾーンのカードをタップせずに唱えた呪文を数える（「マナゾーンのカードをタップせずに、〜呪文を唱えていて」）
         if (!task.paid) s.players[task.player].freeSpellsThisTurn = (s.players[task.player].freeSpellsThisTurn ?? 0) + 1;
-        this.emit({ type: 'SPELL_CAST', player: task.player, iid: task.iid });
+        this.emit({ type: 'SPELL_CAST', player: task.player, iid: task.iid, ...(task.from ? { from: task.from } : {}) });
         const tasks: Task[] = [];
-        for (const ab of face.abilities) if (ab.when === 'onCast') tasks.push(...this.abilityTasks(ab, task.player, task.iid));
+        // 「〜なら、〜」の文は、その文を処理する時に条件を調べる（前の文で置いたカードも数える：「1枚目をマナゾーンに置く。マナゾーンにすべての文明が揃っていれば、さらにもう1枚」）
+        for (const ab of face.abilities)
+          if (ab.when === 'onCast')
+            tasks.push(...(ab.condition && !ab.optional ? this.effectTasks(task.player, task.iid, [{ type: 'conditional', condition: ab.condition, then: ab.effects }]) : this.abilityTasks(ab, task.player, task.iid)));
         // 呪文の効果をすべて処理し終えるまで、途中で誘発した能力は解決を待つ
-        this.insertFront(...tasks, { kind: 'spellToGrave', iid: task.iid, side: task.side, ...(task.after ? { after: task.after } : {}) }, { kind: 'abilityEnd' });
+        this.insertFront(...tasks, { kind: 'spellToGrave', iid: task.iid, side: task.side, ...(task.after ? { after: task.after } : {}), ...(task.from ? { from: task.from } : {}) }, { kind: 'abilityEnd' });
         return false;
       }
 
@@ -1055,6 +1059,16 @@ export class Ctx {
           this.moveCard(task.iid, 'deck', { toTop: false });
           this.log(`${this.name(task.iid)} を山札の下に置いた`, s.cards[task.iid].owner);
           return false;
+        }
+        // 《龍素記号ｗD サイクルペディア》：「自分の墓地から呪文を唱えた時、唱えた後で、墓地のかわりに山札の下に置く」
+        if (task.from === 'graveyard') {
+          const owner = s.cards[task.iid].owner;
+          const by = activeStatics(s, this.reg).find((a) => a.static.type === 'graveCastToDeckBottom' && a.controller === owner && s.cards[a.source]?.zone === 'battle');
+          if (by) {
+            this.moveCard(task.iid, 'deck', { toTop: false });
+            this.log(`${this.name(task.iid)} を、墓地に置くかわりに山札の下に置いた（${this.name(by.source)}）`, owner);
+            return false;
+          }
         }
         // 卍 新世壊 卍：「自分の魔導具呪文を唱えた時、唱えた後で墓地に置くかわりに、このフィールドの下に置いてカードを1枚引いてもよい」
         {
@@ -1249,6 +1263,8 @@ export class Ctx {
           inst.under = under;
           inst.tapped = tapped;
           this.log(`${this.name(task.iid)} を、進化元${sources.length}枚の上に重ねて出した`, task.player);
+          // 「このクリーチャーを別のクリーチャーの上に重ねた時」（バトルゾーンのクリーチャーの上に重ねた時だけ）
+          if (evolvedDefs.length) this.triggerFrom(task.iid, 'onStacked');
           for (const ed of evolvedDefs) for (const ab of ed.abilities ?? []) if (ab.when === 'onEvolved') this.addTrigger(inst.owner, task.iid, this.abilityTasks(ab, inst.owner, task.iid));
         } else if (task.evolveOn) {
           const base = s.cards[task.evolveOn];
@@ -1270,6 +1286,8 @@ export class Ctx {
           inst.tapped = baseTapped;
           if (baseNonEvo) inst.evolvedOnNonEvolution = true;
           this.log(`${this.name(task.evolveOn)} が ${this.name(task.iid)} に進化`, task.player);
+          // 「このクリーチャーを別のクリーチャーの上に重ねた時」
+          this.triggerFrom(task.iid, 'onStacked');
           // 装備していたウエポンは、進化したクリーチャーが引き継ぐ
           for (const w of s.players[inst.owner].zones.battle) if (s.cards[w].equippedTo === task.evolveOn) s.cards[w].equippedTo = task.iid;
           // シンカパワー：「このクリーチャーが進化する時」。進化した後のクリーチャーが使う
@@ -1695,7 +1713,7 @@ export class Ctx {
     }
     this.log(`S・トリガー！ ${face.name}`, player);
     this.emit({ type: 'CARD_PLAYED', player, iid });
-    this.insertFront(face.type === 'spell' ? { kind: 'castSpell', player, iid, side } : { kind: 'enterBattle', player, iid, evolveOn, summoned: true });
+    this.insertFront(face.type === 'spell' ? { kind: 'castSpell', player, iid, side, from: 'shield' } : { kind: 'enterBattle', player, iid, evolveOn, summoned: true });
     return false;
   }
 
@@ -1757,6 +1775,8 @@ export class Ctx {
       // S級侵略[宇宙]・[轟速]：バトルゾーンのこのクリーチャーを攻撃中のクリーチャーの上に重ねる（新たに出たことにはならない）
       this.log(`S級侵略！ バトルゾーンの ${d.name} を ${this.name(old)} の上に重ねる`, player);
       this.stackFromBattle(pick, old, !!d.attackSwap?.battleCardOnly);
+      // 「このクリーチャーを別のクリーチャーの上に重ねた時」（新たに出たことにはならないが、重ねたことにはなる）
+      this.triggerFrom(pick, 'onStacked');
       this.insertFront({ kind: 'attackSwap', player });
     } else {
       // 侵略：攻撃中のクリーチャーの上に重ねて進化し、攻撃を続ける
@@ -2227,6 +2247,7 @@ export class Ctx {
         const key = `${src}:${i}`;
         if (used.includes(key)) continue;
         if (ab.event === 'destroyed' && cause !== 'destroy') continue;
+        if (ab.event === 'loseFromHand') continue;
         const subjectOk = ab.subject === 'self' ? src === iid : ab.subject === 'otherOwn' ? src !== iid : ab.subject === 'equipped' ? s.cards[src].equippedTo === iid : true;
         if (!subjectOk || !matchFilter(s, this.reg, iid, ab.filter, src)) continue;
         if (ab.instead === 'destroySelf' && src === iid) continue;
@@ -2292,7 +2313,8 @@ export class Ctx {
         // 動かしたカードは、後の文の「そのカード」で指せる
         s.lastChosen = [];
         for (let i = 0; i < e.count; i++) {
-          const top = this.topOfDeck(who);
+          // 「自分の山札の一番下のカードを墓地に置く」
+          const top = e.fromBottom ? s.players[who].zones.deck[0] : this.topOfDeck(who);
           if (!top) break;
           s.lastChosen.push(top);
           if (e.to === 'under' && !this.deckToGrave(who)) {
@@ -2307,7 +2329,7 @@ export class Ctx {
           const to = s.cards[top].zone as keyof typeof ZONE_LABEL;
           if (e.tapped && to === 'mana') s.cards[top].tapped = true;
           const shown = to === 'shield' || to === 'hand' ? '1枚' : this.name(top);
-          this.log(`${s.players[who].name} の山札の上から${shown}を${ZONE_LABEL[to] ?? '墓地'}へ`, controller);
+          this.log(`${s.players[who].name} の山札の${e.fromBottom ? '一番下' : '上'}から${shown}を${ZONE_LABEL[to] ?? '墓地'}へ`, controller);
         }
         return false;
       }
@@ -3247,10 +3269,33 @@ export class Ctx {
         return false;
       }
       case 'graveyardToDeck': {
-        const grave = [...s.players[controller].zones.graveyard];
+        // 「プレイヤーを1人選ぶ。そのプレイヤーは、自身の墓地のカードをすべて山札に加えてシャッフルする」
+        if (e.who === 'choose') {
+          const r = this.takeResponse();
+          if (!r) {
+            const what = e.pick ? '墓地からカードを1枚以上選び、山札に加えてシャッフルする' : '墓地のカードをすべて山札に加えてシャッフルする';
+            s.pending = { kind: 'chooseMode', player: controller, source, prompt: `${this.name(source)}：プレイヤーを1人選ぶ（${what}）`, options: [`自分（墓地${s.players[controller].zones.graveyard.length}枚）`, `相手（墓地${s.players[opp].zones.graveyard.length}枚）`] };
+            return true;
+          }
+          this.insertFront({ kind: 'effect', controller, source, effect: { ...e, who: r.selected?.[0] === '1' ? 'opponent' : 'self' } });
+          return false;
+        }
+        const who: PlayerId = e.who === 'opponent' ? opp : controller;
+        let grave = [...s.players[who].zones.graveyard];
+        // 「カードを1枚以上、いずれかのプレイヤーの墓地から選ぶ。そのプレイヤーは、それらを自身の山札に加えてシャッフルする」
+        if (e.pick) {
+          if (!grave.length) return false;
+          const r = this.takeResponse();
+          if (!r) {
+            s.pending = { kind: 'selectCards', player: controller, source, prompt: `${this.name(source)}：${s.players[who].name} の墓地から、山札に加えるカードを1枚以上選んでください`, candidates: grave, min: 1, max: grave.length, harmful: who !== controller };
+            return true;
+          }
+          const picked = (r.selected ?? []).filter((x) => grave.includes(x));
+          grave = picked.length ? picked : grave.slice(0, 1);
+        }
         for (const iid of grave) this.moveCard(iid, 'deck');
-        this.shuffle(controller);
-        this.log(`墓地のカード${grave.length}枚を山札に加えてシャッフル`, controller);
+        this.shuffle(who);
+        this.log(`${s.players[who].name} の墓地のカード${grave.length}枚を山札に加えてシャッフル`, controller);
         return false;
       }
       case 'revealTopCard': {
@@ -3357,10 +3402,11 @@ export class Ctx {
       return;
     }
     // 唱え終わったら墓地へ置くため、いったん手札を経由する
-    if (s.cards[iid].zone !== 'hand') this.moveCard(iid, 'hand');
+    const from = s.cards[iid].zone;
+    if (from !== 'hand') this.moveCard(iid, 'hand');
     this.log(`${playFace(d, side).name} をコストを支払わずに唱える`, controller);
     this.emit({ type: 'CARD_PLAYED', player: controller, iid });
-    this.insertFront({ kind: 'castSpell', player: controller, iid, side, ...(after ? { after } : {}) });
+    this.insertFront({ kind: 'castSpell', player: controller, iid, side, from, ...(after ? { after } : {}) });
   }
 
   /** ゾーン移動。バトルゾーンから離れる場合は置換効果を通すタスクにする */
@@ -3929,6 +3975,14 @@ export class Ctx {
       if (ab.oncePerTurn) {
         const key = `${iid}:${ab.onceKey ?? i}`;
         s.usedThisTurn ??= [];
+        // 「この能力は各ターン1度しか使えない」：使った時に数える（解決する時にもう一度確かめる）
+        if (ab.oncePerTurnOnUse) {
+          const used: Condition = { type: 'usedThisTurn', key: `once:${key}` };
+          if (evalCondition(s, this.reg, inst.owner, used, false, iid)) return;
+          const effects: EffectDef[] = [{ type: 'conditional', condition: { type: 'not', condition: used }, then: [{ type: 'markUsed', key: `once:${key}` }, ...ab.effects] }];
+          this.addTrigger(inst.owner, iid, this.abilityTasks({ ...ab, effects }, inst.owner, iid, subject));
+          return;
+        }
         if (s.usedThisTurn.includes(key)) return;
         s.usedThisTurn.push(key);
       }
@@ -3995,10 +4049,13 @@ export class Ctx {
           if (s.players[owner].zones.battle.some((b) => s.cards[b].seals?.length)) this.addTrigger(owner, e.iid, [{ kind: 'commandUnseal', player: owner, command: e.iid }]);
         }
         // 相手の《ブラキオ龍樹》：相手のクリーチャーが出て、その相手のクリーチャーの能力がトリガーする時、かわりにトリガーしない
-        const suppressed = activeStatics(s, this.reg).some((a) => a.static.type === 'suppressEnterTriggers' && !a.static.destroySelf && a.controller === other(e.player));
+        const suppressed = activeStatics(s, this.reg).some((a) => a.static.type === 'suppressEnterTriggers' && !a.static.destroySelf && !a.static.subjectOnly && a.controller === other(e.player));
+        // 相手の《終末縫合王 ザ=キラー・キーナリー》：出た相手のクリーチャー自身の能力（出たことで誘発するもの）は、かわりにトリガーしない
+        const subjectSuppressed =
+          suppressed || activeStatics(s, this.reg).some((a) => a.static.type === 'suppressEnterTriggers' && a.static.subjectOnly && s.cards[e.iid] && a.controller === other(s.cards[e.iid].owner));
         // 「自分のパワー6000以上のクリーチャーが出た時」は、条件に合えばこのクリーチャー自身にも誘発する
         const before = s.waiting?.length ?? 0;
-        if (!suppressed) this.triggerFrom(e.iid, 'onSummon', (ab) => !ab.filter || matchFilter(s, this.reg, e.iid, ab.filter, e.iid));
+        if (!subjectSuppressed) this.triggerFrom(e.iid, 'onSummon', (ab) => !ab.filter || matchFilter(s, this.reg, e.iid, ab.filter, e.iid));
         // 《消王ケシカス》：出た相手のクリーチャー自身の能力が誘発したら、このクリーチャーを破壊してトリガーさせないか聞く
         {
           const owner = s.cards[e.iid]?.owner;
@@ -4015,7 +4072,7 @@ export class Ctx {
         // 「相手のターンに相手のクリーチャーが出て、その能力がトリガーした時、自分もその能力を使ってもよい」
         {
           const summoner = s.cards[e.iid]?.owner;
-          if (summoner !== undefined && s.activePlayer === summoner && !suppressed) {
+          if (summoner !== undefined && s.activePlayer === summoner && !subjectSuppressed) {
             const copier = s.players[other(summoner)].zones.battle.find((x) => !isIgnored(s, this.reg, x) && keywords(s, this.reg, x).mimicEnemySummon);
             if (copier) {
               for (const ab of def(s, this.reg, e.iid).abilities ?? []) {
@@ -4035,7 +4092,7 @@ export class Ctx {
         // 「各ターン、自分のN体目のクリーチャーが出た時」（出たクリーチャー自身の能力も含む）
         {
           const count = s.players[e.player].creaturesThisTurn ?? 0;
-          for (const b of s.players[e.player].zones.battle) this.triggerFrom(b, 'onOwnNthEnter', (ab) => ab.nthEnter === count, e.iid);
+          for (const b of s.players[e.player].zones.battle) if (b !== e.iid || !subjectSuppressed) this.triggerFrom(b, 'onOwnNthEnter', (ab) => ab.nthEnter === count, e.iid);
         }
         if (e.summoned) s.players[e.player].summonsThisTurn = (s.players[e.player].summonsThisTurn ?? 0) + 1;
         break;
@@ -4065,6 +4122,11 @@ export class Ctx {
         }
         break;
       case 'CARD_MOVED':
+        // 「相手の墓地に、どこからでもカードが置かれた時」：置かれたカード1枚ごとに誘発する
+        if (e.to === 'graveyard' && e.from !== 'graveyard' && s.cards[e.iid]?.zone === 'graveyard') {
+          const gOwner = s.cards[e.iid].owner;
+          for (const b of battleAll()) this.triggerFrom(b, 'onGravePut', (ab) => this.whoMatches(ab.who, s.cards[b].owner, gOwner), e.iid);
+        }
         // このカード自身が移った時（「手札からマナゾーンに置いた時」「超次元ゾーンに置かれた時」）：移った先のゾーンにある間の誘発
         if (s.cards[e.iid]?.zone === e.to) this.triggerFrom(e.iid, 'onSelfMoved', (ab) => (!ab.movedTo || ab.movedTo === e.to) && (!ab.movedFrom || ab.movedFrom === e.from));
         // スペース・チャージ：「自分のマナゾーンにカードが置かれた時、そのカードの文明に合うq能力を使ってもよい」
@@ -4179,7 +4241,7 @@ export class Ctx {
       case 'SPELL_CAST': {
         const P = s.players[e.player];
         P.spellsThisTurn = (P.spellsThisTurn ?? 0) + 1;
-        for (const iid of battleAll()) this.triggerFrom(iid, 'onSpellCast', (ab) => this.whoMatches(ab.who, s.cards[iid].owner, e.player), e.iid);
+        for (const iid of battleAll()) this.triggerFrom(iid, 'onSpellCast', (ab) => this.whoMatches(ab.who, s.cards[iid].owner, e.player) && (!ab.castFrom || ab.castFrom === e.from), e.iid);
         // 虚無月の門など：「自分の魔導具呪文を唱えた時」
         this.fireZoneGates(e.player, 'spell', e.iid);
         break;
@@ -4403,7 +4465,7 @@ export class Ctx {
     const s = this.s;
     if (s.gameOverReason !== null) return;
     // 鬼S-MAX進化：「自分がゲームに負ける時、かわりに自分の表向きのカードを3枚破壊してもよい」（投了は除く）
-    if (winner !== null && reason !== '投了' && (this.avertLoss(other(winner)) || this.avertLossUnder(other(winner)))) return;
+    if (winner !== null && reason !== '投了' && (this.avertLoss(other(winner)) || this.avertLossUnder(other(winner)) || this.avertLossFromHand(other(winner)))) return;
     // 「自分はゲームに負けない」「相手はゲームに勝てない」
     if (winner !== null && reason !== '投了' && cannotLose(s, this.reg, other(winner), reason === '山札切れ')) return;
     s.winner = winner;
@@ -4426,6 +4488,22 @@ export class Ctx {
       this.emit({ type: 'UNDER_LEFT', iid, card: u });
     }
     this.log(`${this.name(iid)} の下のカードを${moved.length}枚、山札の下に置いた`, inst.owner);
+  }
+
+  /**
+   * 《一王二命三眼槍》：自分がゲームに負ける時（相手がゲームに勝つ時）、条件を満たしていれば、かわりに手札にあるこのカードを相手に見せ、山札の下に置く。
+   * 負けないほうが必ず得なので確認しない
+   */
+  private avertLossFromHand(loser: PlayerId): boolean {
+    const s = this.s;
+    for (const iid of [...s.players[loser].zones.hand]) {
+      const rep = (def(s, this.reg, iid).replacements ?? []).find((r) => r.event === 'loseFromHand' && (!r.condition || evalCondition(s, this.reg, loser, r.condition, false, iid)));
+      if (!rep) continue;
+      this.log(`${this.name(iid)} を相手に見せ、ゲームに負けるかわりに山札の下に置いた`, loser);
+      this.moveCard(iid, 'deck', { toTop: false });
+      return true;
+    }
+    return false;
   }
 
   /** 《大魔王 ウラギリダムス》：自分がゲームに負ける時、かわりに下に重ねたカードを山札の下に置く */

@@ -534,7 +534,8 @@ function parseEffectSentence(ts: Token[], ctx: Ctx): VerbPhrase | null {
         if (!head.lit('それ', 'が')) return null;
         const np = parseNP(head);
         if (!np || np.ref || !head.kind('aux', (t) => t.aux === 'if') || !head.lit('、')) return null;
-        return np.filter;
+        // 山札・墓地のカードを指すので、「〜のクリーチャーなら」はクリーチャーであることも条件にする（呪文などは合わない）
+        return np.noun === 'creature' && !np.filter.cardType && !np.filter.race && !np.filter.races ? { ...np.filter, cardType: 'creature' as const } : np.filter;
       })
     : null;
   if (ifChosen) {

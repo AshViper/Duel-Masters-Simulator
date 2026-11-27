@@ -148,7 +148,8 @@ export type GameEvent =
   | { type: 'CARD_PLAYED'; player: PlayerId; iid: string }
   /** バトルゾーンに出た（召喚・効果で出した両方） */
   | { type: 'CREATURE_SUMMONED'; player: PlayerId; iid: string; summoned?: boolean }
-  | { type: 'SPELL_CAST'; player: PlayerId; iid: string }
+  /** from: 唱えた時にカードがあったゾーン（手札・墓地・シールドなど。わからなければ省略） */
+  | { type: 'SPELL_CAST'; player: PlayerId; iid: string; from?: ZoneName }
   | { type: 'CREATURE_DESTROYED'; player: PlayerId; iid: string; by?: string }
   | { type: 'CREATURE_LEFT'; player: PlayerId; iid: string; to: ZoneName }
   | { type: 'ATTACK_DECLARED'; player: PlayerId; attacker: string; target: AttackTarget }
@@ -206,12 +207,13 @@ export type Task =
   | { kind: 'battleWon'; winner: string; loser: string }
   /** after: 唱えた後、墓地のかわりに置く場所 */
   /** paid: マナゾーンのカードをタップして唱えた */
-  | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin'; after?: 'deckBottom' | 'hand'; paid?: boolean }
+  /** from: 唱える前にカードがあったゾーン（「自分の手札から呪文を唱えた時」「自分の墓地から呪文を唱えた時」） */
+  | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin'; after?: 'deckBottom' | 'hand'; paid?: boolean; from?: ZoneName }
   /** summoned: 召喚で出る（効果で「出す」のではない） */
   /** godLinkTo: G・リンクするゴッド（'' はリンクしない。未定なら出る前に選ぶ） */
   | { kind: 'enterBattle'; godLinkTo?: string; player: PlayerId; iid: string; evolveFrom?: string[]; evolveDeck?: { count: number; creatureOnly?: boolean }; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; paid?: boolean; byRevolution?: boolean; equipTo?: string; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
   /** 呪文を解決し終えたら墓地へ */
-  | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin'; after?: 'deckBottom' | 'hand' }
+  | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin'; after?: 'deckBottom' | 'hand'; from?: ZoneName }
   | { kind: 'hyperize'; player: PlayerId; iid: string }
   /** リンク解除：表に戻ったセルのうち1枚を選んで超次元ゾーンに戻す */
   | { kind: 'linkRelease'; player: PlayerId; name: string; cells: string[]; destroyed: boolean }

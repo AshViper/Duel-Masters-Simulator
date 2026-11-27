@@ -239,7 +239,8 @@ export type Condition =
   /** このクリーチャーが攻撃中 */
   | { type: 'selfAttacking' }
   /** バトルゾーンにあるカード（両方のプレイヤー）の文明の種類が min 以上（「バトルゾーンに5文明すべてのカードがそろっていれば」） */
-  | { type: 'civsInBattle'; min: number }
+  /** manaOf: バトルゾーンのかわりに、そのプレイヤーのマナゾーンのカードの文明を数える（「自分のマナゾーンにすべての文明が揃っていれば」） */
+  | { type: 'civsInBattle'; min: number; manaOf?: 'self' | 'opponent' }
   /** シールド・フォースで選んだシールドが、まだシールドゾーンにある */
   | { type: 'shieldForce' }
   /** このクリーチャーがG・リンクしている */
@@ -278,7 +279,8 @@ export type EffectDef =
   | { type: 'addShieldFromDeck'; count: number }
   /** 山札の上から N 枚を指定ゾーンへ（墓地肥やし・マナ加速など） */
   /** who: chosenOwner は直前に選んだカードの持ち主の山札（「そのプレイヤーは自身の山札の上から〜」）。shieldTop は表向きにして自分のシールド1つの上に置く */
-  | { type: 'deckTopTo'; count: number; to: 'graveyard' | 'mana' | 'shield' | 'hand' | 'under' | 'shieldTop'; who?: 'self' | 'opponent' | 'chosenOwner'; tapped?: boolean }
+  /** fromBottom: 山札の一番下から（「自分の山札の一番下のカードを墓地に置く」） */
+  | { type: 'deckTopTo'; count: number; to: 'graveyard' | 'mana' | 'shield' | 'hand' | 'under' | 'shieldTop'; who?: 'self' | 'opponent' | 'chosenOwner'; tapped?: boolean; fromBottom?: boolean }
   /** カードを選ぶだけ（動かさない）。選んだカードは後の文の「それ」「その2体」で指す。reveal: 選んだカードを見る（シールドなど） */
   | { type: 'choose'; target: TargetSpec; reveal?: boolean }
   /** その名前の能力をこのターンに使ったことを記録する（usedThisTurn で調べる） */
@@ -352,8 +354,11 @@ export type EffectDef =
     }
   /** 山札をシャッフルする（both: 両方のプレイヤー） */
   | { type: 'shuffleDeck'; both?: boolean }
-  /** 自分の墓地のカードをすべて山札に加えてシャッフルする */
-  | { type: 'graveyardToDeck' }
+  /**
+   * 自分の墓地のカードをすべて山札に加えてシャッフルする。
+   * who: choose はプレイヤーを1人選び、そのプレイヤーの墓地で行う。pick: 墓地からカードを1枚以上好きな数選び、それらだけを加える
+   */
+  | { type: 'graveyardToDeck'; who?: 'self' | 'opponent' | 'choose'; pick?: boolean }
   /**
    * 墓地のカードをすべてシャッフルして山札の下に置く。who: choose はプレイヤーを1人選ぶ（「プレイヤーを1人選ぶ。そのプレイヤーは自身の墓地にあるカードの枚数を数え、シャッフルして山札の下に置く」）。
    * 置いたカードは後の文の「こうして山札の下に置かれたカード」で指せる（lastChosen）
@@ -604,6 +609,10 @@ export const TRIGGER_EVENTS = [
   'onAttached',
   /** [P] 能力（キズナで使う。出来事では誘発しない） */
   'onLabelP',
+  /** このクリーチャーを別のクリーチャーの上に重ねた時（進化・侵略。バトルゾーンから重ねるS級侵略も含む） */
+  'onStacked',
+  /** カードが墓地に置かれた時（who で誰の墓地か。どこからでも、1枚ごとに誘発する） */
+  'onGravePut',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
@@ -641,6 +650,10 @@ export interface TriggeredAbility {
   duringTurn?: 'self' | 'opponent';
   /** 「これを装備したクリーチャーが〜時」：装備先のクリーチャーに起きた出来事で誘発する（ドラグハート・ウエポン） */
   viaEquip?: boolean;
+  /** onSpellCast：そのゾーンから唱えた時だけ（「自分の手札から呪文を唱えた時」） */
+  castFrom?: ZoneName;
+  /** oncePerTurn を、使った時だけ数える（「この能力は各ターン1度しか使えない」：使わなければ、そのターンにもう一度使える） */
+  oncePerTurnOnUse?: boolean;
 }
 
 /** 常在効果がかかる範囲 */
@@ -672,8 +685,9 @@ export type StaticAbility = (
   /**
    * destroySelf: このクリーチャーを破壊してもよい。そうしたら、出たクリーチャー自身の能力（出たことで誘発したもの）だけがトリガーしない（《消王ケシカス》）。
    * 指定がなければ、出たクリーチャーの持ち主のクリーチャーの能力すべてが、かわりにトリガーしない（《ブラキオ龍樹》）
+   * subjectOnly: 出たクリーチャー自身の能力（出たことで誘発したもの）だけが、かわりにトリガーしない（《終末縫合王 ザ=キラー・キーナリー》）
    */
-  | { type: 'suppressEnterTriggers'; destroySelf?: boolean }
+  | { type: 'suppressEnterTriggers'; destroySelf?: boolean; subjectOnly?: boolean }
   /** 自分は、このクリーチャーよりパワーが小さいクリーチャーに攻撃されない（プレイヤーへの攻撃を防ぐ） */
   | { type: 'protectFromWeaker' }
   | { type: 'cannotSummon'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter }
@@ -701,6 +715,8 @@ export type StaticAbility = (
   | { type: 'spellToUnder'; filter?: CardFilter; draw: number }
   /** 自分の（filter に合う）呪文を唱えられなくする効果を無視する */
   | { type: 'ignoreCastLocks'; filter?: CardFilter }
+  /** 自分の墓地から唱えた呪文は、唱えた後、墓地のかわりに山札の下に置く（《龍素記号ｗD サイクルペディア》） */
+  | { type: 'graveCastToDeckBottom' }
   /** 条件に合う相手のクリーチャーはタップしてバトルゾーンに出る */
   | { type: 'opponentEntersTapped'; filter?: CardFilter }
   /**
@@ -730,7 +746,8 @@ export type StaticAbility = (
 /** 置換効果（「〜する時、かわりに…」） */
 export interface ReplacementAbility {
   /** destroyed: 破壊される時 / leaveBattle: バトルゾーンを離れる時（破壊・バウンス・マナ送りなど） */
-  event: 'destroyed' | 'leaveBattle';
+  /** loseFromHand: 自分がゲームに負ける時（相手がゲームに勝つ時）、このカードが手札にあれば（instead は toDeckBottom：手札にあるこのカードを見せ、山札の下に置く） */
+  event: 'destroyed' | 'leaveBattle' | 'loseFromHand';
   /** self: このクリーチャー / otherOwn: 自分の他のクリーチャー / anyOwn: 自分のクリーチャー / equipped: これ（クロスギア・ウエポン）をクロス・装備したクリーチャー */
   subject: 'self' | 'otherOwn' | 'anyOwn' | 'equipped';
   filter?: CardFilter;
@@ -1085,7 +1102,8 @@ export interface CardDefinition {
   /** ツインパクトの呪文側 */
   twin?: TwinSide;
   /** 進化元の条件（種族名 or 文明） */
-  evolvesFrom?: { race?: string; civilization?: Civilization };
+  /** civilizations: いずれかの文明を持つ（「自分の水、闇、または自然いずれかのクリーチャー1体の上に置く」） */
+  evolvesFrom?: { race?: string; civilization?: Civilization; civilizations?: Civilization[] };
   /** 侵略（invasion）・革命チェンジ（revolution）：攻撃中の自分のクリーチャーが filter に合えば、手札から使える */
   attackSwap?: AttackSwap;
   /** G・ゼロ：条件を満たしていればコストを支払わずに使える */

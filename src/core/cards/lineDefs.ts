@@ -29,6 +29,9 @@ const ownCiv = (civilization: 'water' | 'darkness'): Condition => ({
   ],
 });
 
+/** 自分のシールドが1つもない */
+const noShield: Condition = { type: 'compare', left: { who: 'self', zone: 'shield' }, op: '<=', right: 0 };
+
 /** 直前に墓地に置いた（選んだ）カードの中から選ぶ対象 */
 const fromChosen = (filter?: { maxCost: number }) => ({ owner: 'self' as const, zone: 'graveyard' as const, count: 1, upTo: true, ref: 'chosen' as const, refPick: true, ...(filter ? { filter } : {}) });
 
@@ -151,6 +154,123 @@ export const BUILT_IN_LINE_DEFS: LineDefs = {
         ],
       },
     ],
+  },
+  '次の中から2回選ぶ。（同じものを選んでもよい）▶相手は自身の手札を1枚選んで捨てる。▶コスト4以下の闇のクリーチャー1体またはコスト4以下の闇のオーラを1枚、自分の墓地からバトルゾーンに出す。▶相手のクリーチャーを1体選ぶ。このターン、そのクリーチャーのパワーを-4000する。': {
+    note: '絶望と反魂と滅殺の決断（オーラは付ける自分のクリーチャーを選んで出す）',
+    abilities: [
+      {
+        when: 'onCast',
+        effects: [
+          {
+            type: 'chooseOne',
+            times: 2,
+            options: [
+              { label: '相手は自身の手札を1枚選んで捨てる', effects: [{ type: 'move', target: { owner: 'opponent', zone: 'hand', count: 1, chooser: 'owner' }, to: 'graveyard' }] },
+              {
+                label: 'コスト4以下の闇のクリーチャー1体またはコスト4以下の闇のオーラを1枚、自分の墓地からバトルゾーンに出す',
+                effects: [
+                  {
+                    type: 'move',
+                    target: { owner: 'self', zone: 'graveyard', count: 1, filter: { maxCost: 4, civilization: 'darkness', anyOf: [{ cardType: 'creature' }, { typeLabelIncludes: 'オーラ' }] } },
+                    to: 'battle',
+                  },
+                ],
+              },
+              { label: '相手のクリーチャーを1体選ぶ。このターン、そのクリーチャーのパワーを-4000する', effects: [{ type: 'powerMod', target: { owner: 'opponent', zone: 'battle', count: 1 }, amount: -4000 }] },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  'このクリーチャーがバトルゾーンに出たとき、自分の山札を上から5枚、表向きにしてもよい。その中の光と闇のカードをすべて自分の手札に加え、それ以外のカードを自分の墓地に置く。': {
+    note: 'アクアン（「光と闇のカード」は光のカードと闇のカード。多色はどちらかがあれば手札へ）',
+    abilities: [
+      {
+        when: 'onSummon',
+        optional: true,
+        effects: [{ type: 'lookAtTop', count: 5, pickCount: 5, pickFilter: { civilizations: ['light', 'darkness'] }, pickTo: 'hand', restTo: 'graveyard', pickAll: true }],
+      },
+    ],
+  },
+  '自分の手札から呪文を唱えた時、その呪文を自分の墓地からもう1度、コストを支払わずに唱えてもよい。この能力は各ターン1度しか使えない。': {
+    note: '龍素記号ｗD サイクルペディア（呪文を唱え終えて墓地に置かれた後に解決する。墓地になければ唱えられない）',
+    abilities: [
+      {
+        when: 'onSpellCast',
+        who: 'self',
+        castFrom: 'hand',
+        optional: true,
+        oncePerTurn: true,
+        oncePerTurnOnUse: true,
+        effects: [{ type: 'playFree', target: { owner: 'self', zone: 'graveyard', count: 1, ref: 'event' } }],
+      },
+    ],
+  },
+  'このクリーチャーが出た時、相手のクリーチャーを1体選ぶ。その選んだクリーチャーを相手の手札に戻してもよい。その後、その選んだクリーチャーのコスト以下のクリーチャーを1体、自分の墓地から出す。': {
+    note: '終末縫合王 ザ=キラー・キーナリー（手札に戻さなくても、選んだクリーチャーのコスト以下を出す）',
+    abilities: [
+      {
+        when: 'onSummon',
+        effects: [
+          { type: 'choose', target: { owner: 'opponent', zone: 'battle', count: 1 } },
+          { type: 'optional', effects: [{ type: 'move', target: { owner: 'opponent', zone: 'battle', count: 1, ref: 'chosen' }, to: 'hand' }] },
+          { type: 'move', target: { owner: 'self', zone: 'graveyard', count: 1, filter: { cardType: 'creature', refCost: 'le' } }, to: 'battle' },
+        ],
+      },
+    ],
+  },
+  '革命0：自分のシールドが1つもなければ、バトル中、このクリーチャーのパワーを+10000し、このクリーチャーがバトルに勝った時、アンタップする。': {
+    note: '王道の革命 ドギラゴン',
+    statics: [{ type: 'powerMod', amount: 10000, appliesTo: { owner: 'self', onlySelf: true }, battleOnly: true, condition: noShield }],
+    abilities: [{ when: 'onBattleWin', condition: noShield, effects: [{ type: 'selfAction', action: 'untap' }] }],
+  },
+  'このクリーチャーを別のクリーチャーの上に重ねた時、相手のクリーチャーを1体選び、持ち主の墓地かマナゾーンに置く、または手札に戻す。': {
+    note: 'SSS級天災 デッドダムド（選んでから、置く場所を選ぶ）',
+    abilities: [
+      {
+        when: 'onStacked',
+        effects: [
+          { type: 'choose', target: { owner: 'opponent', zone: 'battle', count: 1 } },
+          {
+            type: 'ifChosen',
+            then: [
+          {
+            type: 'chooseOne',
+            options: [
+              { label: '持ち主の墓地に置く', effects: [{ type: 'move', target: { owner: 'opponent', zone: 'battle', count: 1, ref: 'chosen' }, to: 'graveyard' }] },
+              { label: '持ち主のマナゾーンに置く', effects: [{ type: 'move', target: { owner: 'opponent', zone: 'battle', count: 1, ref: 'chosen' }, to: 'mana' }] },
+              { label: '持ち主の手札に戻す', effects: [{ type: 'move', target: { owner: 'opponent', zone: 'battle', count: 1, ref: 'chosen' }, to: 'hand' }] },
+            ],
+          },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  '自分がゲームに負ける時または相手がゲームに勝つ時、これが相手のターンで、自分のマナゾーンに闇のカードと火のカードがそれぞれ1枚以上あれば、かわりに自分の手札にあるこのカードを相手に見せ、山札の下に置いてもよい。': {
+    note: '一王二命三眼槍（負けないほうが必ず得なので、条件を満たせば確認せずに使う）',
+    replacements: [
+      {
+        event: 'loseFromHand',
+        subject: 'self',
+        instead: 'toDeckBottom',
+        optional: true,
+        condition: {
+          type: 'and',
+          conditions: [
+            { type: 'opponentTurn' },
+            { type: 'compare', left: { who: 'self', zone: 'mana', filter: { civilization: 'darkness' } }, op: '>=', right: 1 },
+            { type: 'compare', left: { who: 'self', zone: 'mana', filter: { civilization: 'fire' } }, op: '>=', right: 1 },
+          ],
+        },
+      },
+    ],
+  },
+  '自分の墓地から呪文を唱えた時、唱えた後で、墓地のかわりに山札の下に置く。': {
+    note: '龍素記号ｗD サイクルペディア',
+    statics: [{ type: 'graveCastToDeckBottom' }],
   },
 };
 
