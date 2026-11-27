@@ -8,6 +8,20 @@ import { setUserLineDefs, type LineDefs } from '../core/cards/lineDefs';
 function withParsedEffects(cards: CardDefinition[]): CardDefinition[] {
   return cards.map((c) => (c.id.startsWith(OFFICIAL_PREFIX) ? applyParsedEffects(c) : c));
 }
+
+/** オンライン対戦中に相手から受け取ったカード。手元のカードを読み直しても辞書から消さない（消すと盤面が描けない） */
+let battleCards: CardDefinition[] = [];
+function registryOf(cards: CardDefinition[]): CardRegistry {
+  const reg = buildRegistry(cards);
+  // 同じ ID のカードは受け取った定義を正とする（エンジンはホストで動くため）
+  for (const c of battleCards) reg[c.id] = c;
+  return reg;
+}
+/** 対戦用のカードを辞書に重ねる（null で外して手元の辞書に戻す） */
+export function setBattleCards(cards: CardDefinition[] | null): void {
+  battleCards = cards ?? [];
+  useApp.setState({ registry: registryOf(useApp.getState().cards) });
+}
 import { DEFAULT_FORMAT, type Deck, type DeckFormat } from '../core/deck/rules';
 import { db } from '../db/db';
 
@@ -110,7 +124,7 @@ export const useApp = create<AppState>((set, get) => ({
     const deckIds = new Set(decks.map((d) => d.id));
     set({
       cards,
-      registry: buildRegistry(cards),
+      registry: registryOf(cards),
       decks,
       settings,
       recentDeckIds: ((recentRow?.value as string[]) ?? []).filter((id) => deckIds.has(id)),
@@ -152,12 +166,12 @@ export const useApp = create<AppState>((set, get) => ({
   importCards: async (cards) => {
     await db.customCards.bulkPut(cards);
     const all = withParsedEffects(await db.customCards.toArray());
-    set({ cards: all, registry: buildRegistry(all) });
+    set({ cards: all, registry: registryOf(all) });
   },
 
   clearCustomCards: async () => {
     await db.customCards.clear();
-    set({ cards: [], registry: {} });
+    set({ cards: [], registry: registryOf([]) });
   },
 
   updateSettings: async (patch) => {
@@ -168,7 +182,7 @@ export const useApp = create<AppState>((set, get) => ({
     if ('lineDefs' in patch) {
       setUserLineDefs(settings.lineDefs);
       const all = withParsedEffects(await db.customCards.toArray());
-      set({ cards: all, registry: buildRegistry(all) });
+      set({ cards: all, registry: registryOf(all) });
     }
   },
 

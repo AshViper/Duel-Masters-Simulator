@@ -10,13 +10,12 @@ import { joinRoom, openRoom, wrapConnection, type Link } from '../net/peer';
 import {
   deckCardDefs,
   imageKeysOf,
-  mergeRegistry,
   newRoomCode,
   normalizeRoomCode,
   PROTOCOL_VERSION,
   type NetMessage,
 } from '../net/protocol';
-import { useApp } from './appStore';
+import { setBattleCards, useApp } from './appStore';
 import { setNetBridge, useBattle } from './battleStore';
 
 export type OnlineRole = 'host' | 'guest';
@@ -59,13 +58,12 @@ const myName = (fallback: string) => useApp.getState().settings.playerName.trim(
 
 /** 対戦用の辞書に切り替える（手元のカード＋相手から受け取ったカード） */
 function applyBattleRegistry(cards: CardDefinition[]): void {
-  const app = useApp.getState();
-  useApp.setState({ registry: mergeRegistry(buildRegistry(app.cards), cards) });
+  setBattleCards(cards);
 }
 
 /** 手元の辞書に戻す */
 function restoreRegistry(): void {
-  useApp.setState({ registry: buildRegistry(useApp.getState().cards) });
+  setBattleCards(null);
 }
 
 /** 手元で表示できない画像を相手に頼む */

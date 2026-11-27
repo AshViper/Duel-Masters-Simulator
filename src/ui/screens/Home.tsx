@@ -25,6 +25,7 @@ export function HomeScreen() {
   const { go, decks, recentDeckIds, editDeck, cards, registry } = useApp();
   const loadGame = useBattle((s) => s.loadGame);
   const [saves, setSaves] = useState<SavedGame[]>([]);
+  const [resumeError, setResumeError] = useState('');
   useEffect(() => {
     void db.savedGames.orderBy('savedAt').reverse().limit(3).toArray().then(setSaves);
   }, []);
@@ -61,10 +62,11 @@ export function HomeScreen() {
             <section className="panel">
               <h3>中断した対戦</h3>
               {saves.map((s) => (
-                <button key={s.id} className="list-item resume" onClick={() => void loadGame(s.id)}>
+                <button key={s.id} className="list-item resume" onClick={() => void loadGame(s.id).then((err) => setResumeError(err ?? ''))}>
                   <span>▶ {s.title}</span> <span className="muted">{new Date(s.savedAt).toLocaleString()}</span>
                 </button>
               ))}
+              {resumeError && <p className="small ng" role="alert">{resumeError}</p>}
             </section>
           )}
           <ManualAbilitiesPanel cards={cards} />
@@ -106,15 +108,35 @@ function groupManualLines(cards: CardDefinition[]): { line: string; cards: CardD
   return [...map.entries()].map(([line, cs]) => ({ line, cards: cs })).sort((a, b) => b.cards.length - a.cards.length || a.line.localeCompare(b.line, 'ja'));
 }
 
-/** エンジンに実装するための書き出し：能力の文と、その文を持つカード（名前・タイプ）だけ */
+/** カード1枚の、実装に要る情報（数値・種族・能力の全文） */
+function cardBrief(c: CardDefinition): string[] {
+  const civ = c.civilizations.map((x) => CIV_LABEL[x]).join('/');
+  const stats = [c.typeLabel ?? CARD_TYPE_LABEL[c.type], civ, `コスト${c.cost}`, c.power !== undefined ? `パワー${c.power}` : '', c.races.length ? `種族 ${c.races.join('/')}` : ''].filter(Boolean).join('・');
+  const out = [`### ${c.name}（${c.id}）`, stats, '```', c.text.trim(), '```'];
+  if (c.twin) out.push(`呪文側：${c.twin.name}（コスト${c.twin.cost}・${c.twin.civilizations.map((x) => CIV_LABEL[x]).join('/')}）`, '```', c.twin.text.trim(), '```');
+  return out;
+}
+
+/** Claude に効果処理を作らせるための依頼文：手動の能力の文と、それを持つカードの全文 */
 function manualToText(groups: { line: string; cards: CardDefinition[] }[]): string {
-  const cardCount = new Set(groups.flatMap((g) => g.cards.map((c) => c.id))).size;
-  const out = [`# 手動の能力 ${groups.length}種類（カード${cardCount}枚）`, ''];
-  for (const g of groups) {
-    out.push(`- ${g.line}`);
-    out.push(`  - カード: ${g.cards.map((c) => `${c.name}（${c.typeLabel ?? CARD_TYPE_LABEL[c.type]}）`).join(' / ')}`);
-  }
-  return out.join('\n');
+  const cards = [...new Map(groups.flatMap((g) => g.cards.map((c) => [c.id, c] as const))).values()];
+  const out = [
+    `# 依頼：手動処理になっている能力を自動処理にする（${groups.length}種類・カード${cards.length}枚）`,
+    '',
+    '次の能力の文は、テキストの読み取り（textParser / grammar）で読めず、対戦中は手動処理になっている。',
+    'CLAUDE.md と vault の手順に従って、各文を自動で処理できるようにしてほしい（読み取りの追加と、足りなければエンジンに処理を追加）。',
+    '- カード名で決め打ちせず、同じ形の文が読めるように一般化する。似た文はまとめて実装する',
+    '- 文ごとにテストを足す（既存のカード能力テストの書き方に合わせる）',
+    '- ルールの解釈が分かれる所は総合ルールに従い、判断した内容を vault/decisions.md に書く',
+    '- 実装できなかった文は、理由（エンジンに無い仕組みなど）を最後に一覧にする',
+    '',
+    '## 手動の能力（文ごと。〔〕は持っているカード）',
+    '',
+  ];
+  groups.forEach((g, i) => out.push(`${i + 1}. ${g.line}〔${g.cards.map((c) => c.name).join(' / ')}〕`));
+  out.push('', '## カードの全文（ほかの能力との関係を見るため）', '');
+  for (const c of cards) out.push(...cardBrief(c), '');
+  return out.join('\n').trimEnd() + '\n';
 }
 
 /** 保存カードのうち、手動で処理する能力の一覧。エンジン実装用にまとめてコピーできる */
@@ -128,7 +150,7 @@ function ManualAbilitiesPanel({ cards }: { cards: CardDefinition[] }) {
         手動の能力 <span className="muted small">{groups.length}種類</span>
         <button
           className="home-manual-copy"
-          title="能力の文とカード名だけをテキストでコピーします（エンジン実装用）"
+          title="手動の能力を自動処理にしてもらうための依頼文（能力の文・カードの全文）をコピーします。Claude にそのまま貼り付けて使います"
           onClick={() => void navigator.clipboard?.writeText(manualToText(groups)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
         >
           {copied ? 'コピーしました' : 'まとめてコピー'}

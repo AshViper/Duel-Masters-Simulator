@@ -47,7 +47,8 @@ interface BattleState {
   rematch: () => void;
   clearError: () => void;
   saveGame: () => Promise<void>;
-  loadGame: (id: string) => Promise<void>;
+  /** 再開できなければその理由を返す */
+  loadGame: (id: string) => Promise<string | null>;
   quit: () => void;
 }
 
@@ -171,16 +172,23 @@ export const useBattle = create<BattleState>((set, get) => {
 
     loadGame: async (id) => {
       const row = await db.savedGames.get(id);
-      if (!row) return;
+      if (!row) return '中断した対戦が見つかりません';
+      // 保存した後にカードを消した・取り込み直したなどで、手元にないカードがあると表示できない
+      const registry = useApp.getState().registry;
+      const missing = [...new Set(Object.values(row.state.cards).map((c) => c.cardId).filter((id) => !registry[id]))];
+      if (missing.length) return `この対戦で使っていたカードが ${missing.length}種 手元にないため再開できません（${missing.slice(0, 3).join('、')}${missing.length > 3 ? ' など' : ''}）`;
       set({ game: row.state, mode: row.mode, seat: 0, difficulty: row.difficulty as Difficulty, saveId: row.id, error: null, recorded: row.state.gameOverReason !== null, deckNames: row.title.split(' vs ') as [string, string] });
       useApp.getState().go('battle');
       scheduleCpu();
+      return null;
     },
 
     quit: () => {
       if (cpuTimer) clearTimeout(cpuTimer);
-      if (get().mode === 'online') bridge?.leave();
+      const online = get().mode === 'online';
+      // 先に盤面を消す（オンラインの退室で相手のカードが辞書から消えるため、盤面が残っていると描画できない）
       set({ game: null });
+      if (online) bridge?.leave();
       useApp.getState().go('home');
     },
   };
