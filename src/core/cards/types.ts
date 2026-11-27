@@ -221,6 +221,8 @@ export type Condition =
   | { type: 'selfAttacking' }
   /** バトルゾーンにあるカード（両方のプレイヤー）の文明の種類が min 以上（「バトルゾーンに5文明すべてのカードがそろっていれば」） */
   | { type: 'civsInBattle'; min: number }
+  /** シールド・フォースで選んだシールドが、まだシールドゾーンにある */
+  | { type: 'shieldForce' }
   /** このクリーチャーのパワーを比べる（「そのパワーが0より大きければ」） */
   | { type: 'selfPower'; op: '>' | '>=' | '<='; value: number }
   /** このクリーチャーがタップしている */
@@ -456,6 +458,8 @@ export type EffectDef =
   | { type: 'buzzRenda'; cost: number; effects: EffectDef[] }
   /** ダイナモ：自分の他のダイナモ1体を選び、そのターンの終わりまで、このクリーチャーのパワーと能力を加える */
   | { type: 'dynamo' }
+  /** シールド・フォース：自分のシールドを1つ選んでもよい（選んだシールドがある間、{l} 能力が働く） */
+  | { type: 'shieldForce' }
   /**
    * 「〜1体につき、〜する」：数えた数だけ effects を行う（引く枚数・選ぶ数は掛け算にする）。
    * per: 'chosen' は直前の効果で選んだ（動かした）カードの数（「こうして破壊したクリーチャー1体につき」）。n: エンジン内部用
@@ -537,6 +541,8 @@ export const TRIGGER_EVENTS = [
   'onManaPut',
   /** 他のクリーチャーの攻撃の終わりに */
   'onOtherAttackEnd',
+  /** 他のクリーチャーがタップした時 */
+  'onOtherTap',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
@@ -831,6 +837,8 @@ export interface Keywords {
   manaUntapped?: boolean;
   /** ダイナモ：タップして、このクリーチャーのパワーと能力を自分の他のダイナモ1体に加える */
   dynamo?: boolean;
+  /** この呪文を唱えられなくする効果を無視する */
+  ignoreCastLocksSelf?: boolean;
   /** 相手のターンに手札から捨てられる時、墓地に置くかわりにバトルゾーンに出す（may: 出してもよい） */
   discardToBattle?: 'always' | 'may';
 }

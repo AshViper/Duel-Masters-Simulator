@@ -1507,6 +1507,13 @@ const C = {
   duel: spell('b-126', ['自分と相手のクリーチャーを１体ずつ選んでもよい。その２体をバトルさせる。']),
   sumKill: mk('b-127', ['このクリーチャーが出た時、パワーの合計がこのクリーチャーのパワー以下になるように相手のクリーチャーを好きな数選び、破壊する。'], { power: '7000' }),
   handOnlyEnter: mk('b-128', ['相手のコスト４以下のクリーチャーが、手札以外のどこからでもバトルゾーンに出る時、相手はかわりにそのクリーチャーを手札に加える。']),
+  shieldForce: mk('b-130', ['シールド・フォース（このクリーチャーを出す時、自分のシールドを１つ選んでもよい。そのシールドがシールドゾーンにある間、このクリーチャーに次の{l} 能力を与える）', '{l} このクリーチャーが離れる時、そのパワーが０より大きければ、かわりにとどまる。']),
+  lockProof: spell('b-131', ['この呪文を唱えられなくする効果を無視する。', 'カードを１枚引く。']),
+  spellLock: mk('b-132', ['相手は呪文を唱えられない。']),
+  neoMixed: mk('b-133', ['NEO進化：ドラゴンまたは火の、クリーチャー１体の上に置いてもよい。']),
+  elementHome: mk('b-134', ['エレメントが手札以外から出る時、かわりに持ち主の手札に戻す。']),
+  tapWatch: mk('b-135', ['各ターン、はじめて相手のクリーチャーがタップした時、自分の山札の上から１枚をシールド化してもよい。']),
+  manaCostPick: mk('b-136', ['このクリーチャーが出た時、自分のマナゾーンにあるカードの枚数以下のコストを持つクリーチャーを１体、自分のマナゾーンから出してもよい。']),
   discardJump: mk('b-117', ['相手のターンにこのクリーチャーが自分の手札から捨てられる時、墓地に置くかわりに出す。']),
   reanimSelf: mk('b-110', ['このクリーチャーが破壊された時、相手の手札が１枚もなければ、このクリーチャーを自分の墓地から出してもよい。']),
   kinDraw: mk('b-95', ['クロスギア', 'これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時、カードを１枚引いてもよい。'], { type: 'クロスギア', power: '' }),
@@ -1987,6 +1994,77 @@ describe('置換で支払う・下のカード・他の攻撃の終わり・バ�
     s.queue.push({ kind: 'enterBattle', player: 1, iid: g });
     new Ctx(s, reg).run();
     expect(s.cards[g].zone).toBe('battle');
+  });
+});
+
+describe('シールド・フォース・呪文の封印を無視・NEO進化の種族か文明・エレメントは手札から・相手のタップ', () => {
+  const resolve = (s: GameState, pick?: (cands: string[]) => string[]): GameState => {
+    let guard = 0;
+    while (s.pending && guard++ < 20) {
+      const p = s.pending;
+      if (p.kind === 'confirm') s = act(s, { type: 'RESPOND', player: p.player, accept: true });
+      else if (p.kind === 'selectCards') s = act(s, { type: 'RESPOND', player: p.player, selected: pick ? pick(p.candidates) : p.candidates.slice(0, Math.max(p.min, 1)) });
+      else s = act(s, { type: 'RESPOND', player: p.player, selected: ['0'] });
+    }
+    return s;
+  };
+  it('シールド・フォース：選んだシールドがある間だけ、離れる時にとどまる', () => {
+    let s = newGame();
+    const r = play(s, C.shieldForce.id);
+    s = resolve(r.s);
+    const sf = s.cards[r.iid].shieldForce!;
+    expect(s.cards[sf].zone).toBe('shield');
+    s = resolve(play(s, C.killOwn.id).s);
+    expect(s.cards[r.iid].zone).toBe('battle');
+    // シールドがなくなると、とどまれない
+    new Ctx(s, reg).moveCard(sf, 'hand');
+    s = resolve(play(s, C.killOwn.id).s);
+    expect(s.cards[r.iid].zone).toBe('graveyard');
+  });
+  it('この呪文を唱えられなくする効果を無視する', () => {
+    const s = newGame();
+    put(s, 1, C.spellLock.id, 'battle');
+    const a = put(s, 0, C.lockProof.id, 'hand');
+    const b = put(s, 0, C.moreDraw.id, 'hand');
+    mana(s, 3);
+    while (s.phase !== 'main') Object.assign(s, act(s, { type: 'NEXT_PHASE', player: 0 }));
+    expect(canPlay(s, reg, 0, a, 'main')).toBe(true);
+    expect(canPlay(s, reg, 0, b, 'main')).toBe(false);
+  });
+  it('NEO進化：ドラゴンまたは火の、クリーチャー', () => {
+    expect(C.neoMixed.neoEvolution).toEqual({ anyOf: [{ race: 'ドラゴン' }, { civilization: 'fire' }] });
+  });
+  it('エレメントが手札以外から出る時、かわりに手札へ', () => {
+    const s = newGame();
+    put(s, 1, C.elementHome.id, 'battle');
+    const g = put(s, 0, C.vanilla.id, 'graveyard');
+    s.queue.push({ kind: 'enterBattle', player: 0, iid: g });
+    new Ctx(s, reg).run();
+    expect(s.cards[g].zone).toBe('hand');
+  });
+  it('各ターン、はじめて相手のクリーチャーがタップした時だけ誘発する', () => {
+    let s = toAttack(newGame());
+    put(s, 1, C.tapWatch.id, 'battle');
+    const a = put(s, 0, C.vanilla.id, 'battle');
+    const b = put(s, 0, C.vanilla.id, 'battle');
+    const t1 = put(s, 1, C.small.id, 'battle');
+    const t2 = put(s, 1, C.small.id, 'battle');
+    s.cards[t1].tapped = true;
+    s.cards[t2].tapped = true;
+    const shields = s.players[1].zones.shield.length;
+    // 攻撃でタップする（クリーチャーへの攻撃なのでシールドは減らない）
+    s = resolve(act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'creature', iid: t1 } }));
+    s = resolve(act(s, { type: 'ATTACK', player: 0, attacker: b, target: { kind: 'creature', iid: t2 } }));
+    expect(s.players[1].zones.shield.length).toBe(shields + 1);
+  });
+  it('自分のマナゾーンの枚数以下のコストのクリーチャーをマナゾーンから出す', () => {
+    let s = newGame();
+    const big = put(s, 0, C.big.id, 'mana');
+    const r = play(s, C.manaCostPick.id);
+    s = resolve(r.s);
+    // マナは2枚（vanilla 1枚＋big）なので、コスト8は出せない
+    expect(s.cards[big].zone).toBe('mana');
+    expect(C.manaCostPick.abilities?.[0]).toMatchObject({ optional: true, effects: [{ target: { zone: 'mana', filter: { maxCostCount: { who: 'self', zone: 'mana' } } } }] });
   });
 });
 

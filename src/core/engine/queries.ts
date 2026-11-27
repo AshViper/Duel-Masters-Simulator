@@ -639,7 +639,7 @@ export function playRestriction(state: GameState, reg: CardRegistry, player: Pla
     if (s.type !== 'cannotSummon' && s.type !== 'cannotCast') continue;
     if ((s.type === 'cannotSummon') !== isCreatureType(face.type)) continue;
     // 卍 新世壊 卍：「自分の魔導具呪文を唱えられなくする能力を無視する」
-    if (s.type === 'cannotCast' && activeStatics(state, reg).some((x) => x.static.type === 'ignoreCastLocks' && x.controller === player && matchFace(face, d, x.static.filter))) continue;
+    if (s.type === 'cannotCast' && (d.keywords?.ignoreCastLocksSelf || activeStatics(state, reg).some((x) => x.static.type === 'ignoreCastLocks' && x.controller === player && matchFace(face, d, x.static.filter)))) continue;
     const hit = s.who === 'both' || (s.who === 'self') === (a.controller === player);
     if (hit && matchFace(face, d, s.filter)) return `${def(state, reg, a.source).name} の効果で${s.type === 'cannotSummon' ? '召喚' : '呪文を唱えることが'}できません`;
   }
@@ -831,6 +831,10 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       if (c.from && !(inst.enteredFrom && c.from.includes(inst.enteredFrom))) return false;
       if (c.notFrom && inst.enteredFrom && c.notFrom.includes(inst.enteredFrom)) return false;
       return true;
+    }
+    case 'shieldForce': {
+      const sf = source ? state.cards[source]?.shieldForce : undefined;
+      return !!sf && state.cards[sf]?.zone === 'shield';
     }
     case 'selfPower': {
       if (noPower || !source || state.cards[source]?.zone !== 'battle') return false;

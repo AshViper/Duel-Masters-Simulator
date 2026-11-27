@@ -52,6 +52,8 @@ export interface CardInstance {
   enteredFree?: boolean;
   /** 召喚で出た（「召喚以外の方法で出た時」） */
   enteredBySummon?: boolean;
+  /** シールド・フォースで選んだシールド */
+  shieldForce?: string;
   /** バトルゾーンに出る前にあったゾーン（「手札以外から出た時」「墓地から出した時」） */
   enteredFrom?: ZoneName;
   /** 「革命チェンジ」で出た */

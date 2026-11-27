@@ -2601,6 +2601,22 @@ export class Ctx {
         castFrom(source);
         return false;
       }
+      case 'shieldForce': {
+        const inst = s.cards[source];
+        const shields = s.players[controller].zones.shield;
+        if (!inst || inst.zone !== 'battle' || !shields.length) return false;
+        const r = this.takeResponse();
+        if (!r) {
+          s.pending = { kind: 'selectCards', player: controller, source, prompt: `${this.name(source)}：シールド・フォース。シールドを1つ選んでもよい（そのシールドがある間、能力が働く）`, candidates: [...shields], min: 0, max: 1, harmful: false };
+          return true;
+        }
+        const pick = r.selected?.[0];
+        if (pick && shields.includes(pick)) {
+          inst.shieldForce = pick;
+          this.log(`${this.name(source)}：シールド・フォースでシールドを1つ選んだ`, controller);
+        }
+        return false;
+      }
       case 'dynamo': {
         if (s.cards[source]?.zone !== 'battle') return false;
         const amount = power(s, this.reg, source);
@@ -3717,6 +3733,7 @@ export class Ctx {
         break;
       case 'CREATURE_TAPPED':
         this.triggerFrom(e.iid, 'onTap');
+        if (s.cards[e.iid]) this.triggerOthers(e.iid, 'onOtherTap', s.cards[e.iid].owner);
         break;
       // 「カードが自分のシールドゾーンを離れた時」「このクリーチャーの「EXライフ」シールドが離れた時」
       case 'SHIELD_LEFT':
