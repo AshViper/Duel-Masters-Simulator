@@ -2530,17 +2530,32 @@ export class Ctx {
         return false;
       }
       case 'castOwnTwin': {
-        const d = def(s, this.reg, source);
-        if (!d.twin || s.cards[source]?.zone !== 'battle') return false;
-        const restricted = playRestriction(s, this.reg, controller, source, 'twin');
-        if (restricted) {
-          this.log(`${d.twin.name}：${restricted}`, controller);
-          return false;
-        }
-        this.log(`${d.twin.name} を、バトルゾーンに置いたままコストを支払わずに唱える`, controller);
-        this.emit({ type: 'SPELL_CAST', player: controller, iid: source });
-        this.insertFront(...(d.twin.abilities ?? []).filter((ab) => ab.when === 'onCast').flatMap((ab) => this.abilityTasks(ab, controller, source)));
+        const castFrom = (iid: string): void => {
+          const d = def(s, this.reg, iid);
+          if (!d.twin || s.cards[iid]?.zone !== 'battle') return;
+          const restricted = playRestriction(s, this.reg, controller, iid, 'twin');
+          if (restricted) {
+            this.log(`${d.twin.name}：${restricted}`, controller);
+            return;
+          }
+          this.log(`${d.twin.name} を、バトルゾーンに置いたままコストを支払わずに唱える`, controller);
+          this.emit({ type: 'SPELL_CAST', player: controller, iid });
+          this.insertFront(...(d.twin.abilities ?? []).filter((ab) => ab.when === 'onCast').flatMap((ab) => this.abilityTasks(ab, controller, iid)));
+        };
+        // 「自分のツインパクトクリーチャー1体の呪文側を」：選んだクリーチャーの呪文側
+        if (e.target) return this.withTargets(controller, source, e.target, '呪文側を唱える', false, (iid) => castFrom(iid));
+        castFrom(source);
         return false;
+      }
+      case 'dynamo': {
+        if (s.cards[source]?.zone !== 'battle') return false;
+        const amount = power(s, this.reg, source);
+        const { dynamo: _d, ...kw } = def(s, this.reg, source).keywords ?? {};
+        return this.withTargets(controller, source, { owner: 'self', zone: 'battle', count: 1, filter: { hasKeyword: 'dynamo', excludeSelf: true } }, 'パワーと能力を加える', false, (iid) => {
+          const target: TargetSpec = { owner: 'any', zone: 'battle', count: 'all', iids: [iid] };
+          this.log(`ダイナモ：${this.name(source)} のパワー${amount}と能力を ${this.name(iid)} に加える`, controller);
+          this.insertFront(...this.effectTasks(controller, source, [{ type: 'powerMod', target, amount }, ...(Object.keys(kw).length ? [{ type: 'grantKeyword' as const, target, keywords: kw }] : [])]));
+        });
       }
       case 'shieldPlus': {
         const shields = s.players[controller].zones.shield;
@@ -3600,6 +3615,11 @@ export class Ctx {
       case 'CARD_MOVED':
         // このカード自身が移った時（「手札からマナゾーンに置いた時」「超次元ゾーンに置かれた時」）：移った先のゾーンにある間の誘発
         if (s.cards[e.iid]?.zone === e.to) this.triggerFrom(e.iid, 'onSelfMoved', (ab) => (!ab.movedTo || ab.movedTo === e.to) && (!ab.movedFrom || ab.movedFrom === e.from));
+        // スペース・チャージ：「自分のマナゾーンにカードが置かれた時、そのカードの文明に合うq能力を使ってもよい」
+        if (e.to === 'mana' && e.from !== 'mana' && s.cards[e.iid]?.zone === 'mana') {
+          const owner = s.cards[e.iid].owner;
+          for (const b of [...s.players[owner].zones.battle]) this.triggerFrom(b, 'onManaPut', (ab) => matchFilter(s, this.reg, e.iid, ab.filter, b), e.iid);
+        }
         break;
       case 'CREATURE_LEFT': {
         // メガ・ラスト・バースト：呪文側をコストを支払わずに唱えてもよい
@@ -3685,9 +3705,16 @@ export class Ctx {
         for (const iid of battleAll()) this.triggerFrom(iid, 'onShieldAdded', (ab) => this.whoMatches(ab.who, s.cards[iid].owner, e.player), e.iid);
         break;
       // 「相手が自身の手札を1枚捨てた時」
-      case 'CARD_DISCARDED':
+      case 'CARD_DISCARDED': {
         for (const iid of battleAll()) this.triggerFrom(iid, 'onDiscard', (ab) => this.whoMatches(ab.who, s.cards[iid].owner, e.player) && matchFilter(s, this.reg, e.iid, ab.filter), e.iid);
+        // 「相手のターンにこのクリーチャーが自分の手札から捨てられる時、墓地に置くかわりに出す」
+        const dtb = s.cards[e.iid]?.zone === 'graveyard' ? def(s, this.reg, e.iid).keywords?.discardToBattle : undefined;
+        if (dtb && s.activePlayer !== e.player) {
+          const back: EffectDef[] = [{ type: 'move', target: { owner: 'self', zone: 'graveyard', count: 1, filter: { selfOnly: true } }, to: 'battle' }];
+          this.addTrigger(e.player, e.iid, dtb === 'may' ? [{ kind: 'confirmOptional', controller: e.player, source: e.iid, effects: back }] : this.effectTasks(e.player, e.iid, back));
+        }
         break;
+      }
       // 「相手がカードを実行した時」
       case 'CARD_PLAYED': {
         const P = s.players[e.player];

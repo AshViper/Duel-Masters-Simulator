@@ -1486,6 +1486,19 @@ const C = {
   toManaGuard: mk('b-108', ['自分のクリーチャーが離れる時、かわりにマナゾーンに置いてもよい。']),
   multiUntap: mk('b-109', ['このカードを自分の手札からマナゾーンに置いた時、アンタップする。'], { civ: '火/水' }),
   killOneOpp: spell('b-111', ['相手のクリーチャーを１体選び、破壊する。']),
+  spaceCharge: mk('b-112', ['スペース・チャージ（自分のマナゾーンにカードが置かれた時、そのカードの文明に合うq能力を使ってもよい）', 'q 水：カードを１枚引く。']),
+  dynamoA: mk('b-113', ['W・ブレイカー', 'ダイナモ（バトルが始まる時、あるいはこのクリーチャーで攻撃できる時、このクリーチャーをタップしてもよい。そうしたら、そのターンの終わりまで、このクリーチャーのパワーと能力を自分の他のダイナモ１体に加える）'], { power: '4000' }),
+  dynamoB: mk('b-114', ['ダイナモ（バトルが始まる時、あるいはこのクリーチャーで攻撃できる時、このクリーチャーをタップしてもよい。そうしたら、そのターンの終わりまで、このクリーチャーのパワーと能力を自分の他のダイナモ１体に加える）'], { power: '3000' }),
+  twinCaster: mk('b-115', ['各ターンに１度、相手が呪文を唱えた時、自分のツインパクトクリーチャー１体の呪文側を、バトルゾーンに置いたままコストを支払わずに唱えてもよい。']),
+  twin: convertOfficialCard({
+    id: 'b-116',
+    detailUrl: '',
+    faces: [
+      { ...base, name: 'ツイン / ツイン呪文', race: 'テスト', civilization: '水', type: 'クリーチャー', power: '2000', cost: '2', abilities: [] },
+      { ...base, name: 'ツイン / ツイン呪文', race: '', civilization: '水', type: '呪文', power: '', cost: '3', abilities: ['カードを１枚引く。'] },
+    ],
+  }),
+  discardJump: mk('b-117', ['相手のターンにこのクリーチャーが自分の手札から捨てられる時、墓地に置くかわりに出す。']),
   reanimSelf: mk('b-110', ['このクリーチャーが破壊された時、相手の手札が１枚もなければ、このクリーチャーを自分の墓地から出してもよい。']),
   kinDraw: mk('b-95', ['クロスギア', 'これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時、カードを１枚引いてもよい。'], { type: 'クロスギア', power: '' }),
   buzz: mk('b-74', ['バズレンダ [cc02]（このクリーチャーのコストを支払う時、追加で[cc02]を好きな回数支払ってもよい。このクリーチャーがバトルゾーンに出た時、その[OL]能力を１回と、追加で[cc02]支払った回数、使う）\n\n[OL]カードを１枚引く。'], { cost: '3' }),
@@ -1812,6 +1825,62 @@ describe('出方の条件・パワー0・攻撃先・手札から出る（実カ
     for (const h of [...s.players[1].zones.hand]) new Ctx(s, reg).moveCard(h, 'graveyard');
     s = resolve(play(s, C.killOwn.id).s);
     expect(s.cards[r].zone).toBe('battle');
+  });
+});
+
+describe('スペース・チャージ・ダイナモ・ツインパクトの呪文側・捨てられた時に出る', () => {
+  const resolve = (s: GameState): GameState => {
+    let guard = 0;
+    while (s.pending && guard++ < 20) {
+      const p = s.pending;
+      if (p.kind === 'confirm') s = act(s, { type: 'RESPOND', player: p.player, accept: true });
+      else if (p.kind === 'selectCards') s = act(s, { type: 'RESPOND', player: p.player, selected: p.candidates.slice(0, Math.max(p.min, 1)) });
+      else s = act(s, { type: 'RESPOND', player: p.player, selected: ['0'] });
+    }
+    return s;
+  };
+  it('スペース・チャージ：マナゾーンに置いたカードの文明に合うq能力を使う', () => {
+    let s = newGame();
+    put(s, 0, C.spaceCharge.id, 'battle');
+    while (s.phase !== 'charge') s = act(s, { type: 'NEXT_PHASE', player: 0 });
+    const water = put(s, 0, C.waterSpell.id, 'hand');
+    const fire = put(s, 0, C.vanilla.id, 'hand');
+    const hand = s.players[0].zones.hand.length;
+    s = resolve(act(s, { type: 'CHARGE_MANA', player: 0, iid: fire }));
+    expect(s.players[0].zones.hand.length).toBe(hand - 1);
+    let s2 = newGame();
+    put(s2, 0, C.spaceCharge.id, 'battle');
+    while (s2.phase !== 'charge') s2 = act(s2, { type: 'NEXT_PHASE', player: 0 });
+    const w2 = put(s2, 0, C.waterSpell.id, 'hand');
+    const hand2 = s2.players[0].zones.hand.length;
+    s2 = resolve(act(s2, { type: 'CHARGE_MANA', player: 0, iid: w2 }));
+    expect(s2.players[0].zones.hand.length).toBe(hand2 - 1 + 1);
+    expect(water).toBeTruthy();
+  });
+  it('ダイナモ：タップして、パワーと能力を他のダイナモに加える', () => {
+    let s = toAttack(newGame());
+    const a = put(s, 0, C.dynamoA.id, 'battle');
+    const b = put(s, 0, C.dynamoB.id, 'battle');
+    s = resolve(act(s, { type: 'TAP_ABILITY', player: 0, iid: a }));
+    expect(s.cards[a].tapped).toBe(true);
+    expect(power(s, reg, b)).toBe(7000);
+    expect(breakerCount(s, reg, b)).toBe(2);
+  });
+  it('相手が呪文を唱えた時、自分のツインパクトクリーチャーの呪文側を唱える', () => {
+    let s = newGame();
+    put(s, 1, C.twinCaster.id, 'battle');
+    put(s, 1, C.twin.id, 'battle');
+    const hand = s.players[1].zones.hand.length;
+    s = resolve(play(s, C.moreDraw.id).s);
+    // ツインパクトの呪文側「カードを1枚引く」を相手（1）が唱える
+    expect(s.players[1].zones.hand.length).toBe(hand + 1);
+  });
+  it('相手のターンに手札から捨てられると、かわりにバトルゾーンに出る', () => {
+    let s = newGame();
+    const j = put(s, 1, C.discardJump.id, 'hand');
+    for (const h of [...s.players[1].zones.hand]) if (h !== j) new Ctx(s, reg).moveCard(h, 'deck');
+    s = resolve(play(s, C.discardOne.id).s);
+    expect(s.cards[j].zone).toBe('battle');
   });
 });
 

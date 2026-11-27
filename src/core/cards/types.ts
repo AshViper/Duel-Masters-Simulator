@@ -424,7 +424,8 @@ export type EffectDef =
   /** このカードの呪文側を、コストを支払わずに唱える（ラスト・バースト：破壊された後、墓地などにあるこのカード） */
   | { type: 'castSelfTwin' }
   /** このカードの呪文側を、バトルゾーンに置いたままコストを支払わずに唱える（スマッシュ・バースト） */
-  | { type: 'castOwnTwin' }
+  /** target: 「自分のツインパクトクリーチャー1体の呪文側を」：選んだクリーチャーの呪文側（なければこのクリーチャー） */
+  | { type: 'castOwnTwin'; target?: TargetSpec }
   /** 対象のカードを、コストを支払わずに使う（唱える・出す）。「その呪文を」「選んだ呪文を」は target.ref で指す */
   | { type: 'playFree'; target: TargetSpec }
   /** 相手の手札を見る */
@@ -445,6 +446,8 @@ export type EffectDef =
    * 追加の支払いは、コストを支払って出た時だけ、この効果を処理する時に回数を選んでマナをタップする
    */
   | { type: 'buzzRenda'; cost: number; effects: EffectDef[] }
+  /** ダイナモ：自分の他のダイナモ1体を選び、そのターンの終わりまで、このクリーチャーのパワーと能力を加える */
+  | { type: 'dynamo' }
   /**
    * 「〜1体につき、〜する」：数えた数だけ effects を行う（引く枚数・選ぶ数は掛け算にする）。
    * per: 'chosen' は直前の効果で選んだ（動かした）カードの数（「こうして破壊したクリーチャー1体につき」）。n: エンジン内部用
@@ -522,6 +525,8 @@ export const TRIGGER_EVENTS = [
   'onExLifeLeft',
   /** このカード自身がゾーンを移った時（movedFrom → movedTo。「手札からマナゾーンに置いた時」「超次元ゾーンに置かれた時」）。移った先のゾーンにある間に誘発する */
   'onSelfMoved',
+  /** 自分のマナゾーンにカードが置かれた時（スペース・チャージ。filter は置かれたカード） */
+  'onManaPut',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
@@ -803,6 +808,10 @@ export interface Keywords {
   breakerAtPower?: { min: number; breaker: number };
   /** マナゾーンにアンタップして置かれる（「このカードを自分の手札からマナゾーンに置いた時、アンタップする」） */
   manaUntapped?: boolean;
+  /** ダイナモ：タップして、このクリーチャーのパワーと能力を自分の他のダイナモ1体に加える */
+  dynamo?: boolean;
+  /** 相手のターンに手札から捨てられる時、墓地に置くかわりにバトルゾーンに出す（may: 出してもよい） */
+  discardToBattle?: 'always' | 'may';
 }
 
 /** 禁断の鼓動の裏側（禁断クリーチャー） */

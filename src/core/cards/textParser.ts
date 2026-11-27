@@ -340,6 +340,8 @@ const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArr
   [/^このクリーチャーは、?バトルゾーンに出した?ターン、?アンタップ(?:されて|して)いるクリーチャーを攻撃できる$/, { untappedTargetsOnEnterTurn: true }],
   [/^このクリーチャーは、?パワーが(\d+)以上の(?:時|間)、「(W|T|Q)・ブレイカー」を得る$/, (m) => ({ breakerAtPower: { min: Number(m[1]), breaker: m[2] === 'W' ? 2 : m[2] === 'T' ? 3 : 4 } })],
   [/^このカードを(?:自分の)?手札からマナゾーンに置いた時、アンタップする$/, { manaUntapped: true }],
+  [/^相手のターンにこのクリーチャーが(?:自分の)?手札から捨てられる時、墓地に置くかわりに(?:バトルゾーンに)?出す$/, { discardToBattle: 'always' }],
+  [/^相手のターンにこのクリーチャーが(?:自分の)?手札から捨てられる時、墓地に置くかわりに(?:バトルゾーンに)?出してもよい$/, { discardToBattle: 'may' }],
   // ササゲールと同じ：「このクリーチャーを召喚する時、自分のクリーチャーを1体破壊してもよい。そうしたら、このクリーチャーの召喚コストを4少なくする」
   [/^このクリーチャーを召喚する時、自分のクリーチャーを1体破壊してもよい。そうしたら、このクリーチャーの召喚コストを(\d+)少なくする$/, (m) => ({ sasageru: Number(m[1]) })],
   ['呪文の効果によって、バトルゾーンにあるクリーチャーを相手が選ぶ時、このクリーチャーを選ぶことはできない', { untargetableBySpellCost: 99 }],
@@ -979,6 +981,9 @@ function parseSentence(s: string): EffectDef[] | null {
       { type: 'playFree', target: { owner: 'self', zone: 'deck', count: 'all', ref: 'chosen', anyZone: true } },
     ];
   }
+  // 「自分のツインパクトクリーチャー1体の呪文側を、バトルゾーンに置いたままコストを支払わずに唱える」
+  if (/^自分のツインパクト・?クリーチャー1体の呪文側を、?バトルゾーンに置いたまま、?コストを支払わずに唱える$/.test(s))
+    return [{ type: 'castOwnTwin', target: { owner: 'self', zone: 'battle', count: 1, filter: { twinpact: true } } }];
   // 「ターンの残りをとばす」
   if (/^(?:その)?ターンの残りをとばす$/.test(s)) return [{ type: 'skipRestOfTurn' }];
   if (/^(?:その)?ターンの残りをとばしてもよい$/.test(s)) return [{ type: 'optional', effects: [{ type: 'skipRestOfTurn' }] }];
@@ -2494,6 +2499,29 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
         result.abilities.push({ when: 'onTapAbility', effects, ...(tap.viaEquip ? { viaEquip: true } : {}) });
         result.parsedLines.push(tap.key, key);
       } else result.manualLines.push(tap.key, key);
+      continue;
+    }
+    // ダイナモ：「攻撃できる時、このクリーチャーをタップしてもよい。そうしたら、そのターンの終わりまで、このクリーチャーのパワーと能力を自分の他のダイナモ1体に加える」
+    if (kind === 'creature' && /^ダイナモ\s*[（(].*パワーと能力を、?自分の他のダイナモ[1１]体に加える/.test(nfkc)) {
+      result.keywords.dynamo = true;
+      result.abilities.push({ when: 'onTapAbility', effects: [{ type: 'dynamo' }] });
+      result.parsedLines.push(rawLine);
+      continue;
+    }
+    // スペース・チャージ：「自分のマナゾーンにカードが置かれた時、そのカードの文明に合うq能力を使ってもよい」。q 火：〜 の行がその能力
+    if (kind === 'creature' && /^スペース・チャージ\s*[（(]/.test(nfkc)) {
+      result.parsedLines.push(rawLine);
+      continue;
+    }
+    const qM = kind === 'creature' && !options.length ? nfkc.match(/^q\s*(光|水|闇|火|自然)\s*[:：]\s*([\s\S]+)$/) : null;
+    if (qM) {
+      const once = /この能力は、?各ターン1度しか使えない。?$/.test(normalizeText(qM[2]));
+      const body = qM[2].replace(/この能力は、?各ターン[1１一]度しか使えない。?\s*$/, '').trim();
+      const effects = parseOverloadBody(body, options);
+      if (effects) {
+        result.abilities.push({ when: 'onManaPut', optional: true, filter: { civilization: CIV[qM[1]] }, effects, ...(once ? { oncePerTurn: true } : {}) });
+        result.parsedLines.push(rawLine);
+      } else result.manualLines.push(rawLine);
       continue;
     }
     const tapM = kind === 'creature' && !options.length ? nfkc.replace(/\s+/g, '').match(/^(この|これをクロスした|これを装備した)クリーチャーで攻撃するかわりに、?タップして次の(?:[a-zA-Z]|\{[a-zA-Z]+\})?能力を使ってもよい。?$/) : null;
