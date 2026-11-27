@@ -86,6 +86,11 @@ function respond(state: GameState, reg: CardRegistry, me: PlayerId, level: Diffi
 }
 
 // ─────────────── 自分のターン ───────────────
+/** ターンを終える。「可能なら攻撃する」クリーチャーがいて終われない時は、攻撃フェイズへ進むか攻撃する */
+function endTurn(legal: Action[]): Action {
+  return legal.find((a) => a.type === 'END_TURN') ?? legal.find((a) => a.type === 'NEXT_PHASE') ?? legal.find((a) => a.type === 'ATTACK')!;
+}
+
 function easyTurn(legal: Action[], rand: () => number): Action {
   const charge = legal.filter((a) => a.type === 'CHARGE_MANA');
   if (charge.length) return pick(charge, rand);
@@ -93,7 +98,7 @@ function easyTurn(legal: Action[], rand: () => number): Action {
   if (play.length && rand() < 0.8) return pick(play, rand);
   const atk = legal.filter((a) => a.type === 'ATTACK');
   if (atk.length && rand() < 0.7) return pick(atk, rand);
-  return legal.find((a) => a.type === 'END_TURN')!;
+  return endTurn(legal);
 }
 
 function smartTurn(state: GameState, reg: CardRegistry, me: PlayerId, legal: Action[], level: Difficulty): Action {
@@ -153,7 +158,7 @@ function smartTurn(state: GameState, reg: CardRegistry, me: PlayerId, legal: Act
     }
     if (safe || blockers.length === 0) return a;
   }
-  return legal.find((a) => a.type === 'END_TURN')!;
+  return endTurn(legal);
 }
 
 /** 対象がいない除去呪文などを無駄撃ちしない */

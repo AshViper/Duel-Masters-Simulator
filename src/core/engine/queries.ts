@@ -549,6 +549,29 @@ export function canCross(state: GameState, reg: CardRegistry, player: PlayerId, 
   return choosePayment(state, reg, player, gear) !== null;
 }
 
+/** 「このクリーチャーは離れない」「破壊以外の方法で離れない」：いまバトルゾーンを離れられないか */
+export function cannotLeaveNow(state: GameState, reg: CardRegistry, iid: string, destroy: boolean): boolean {
+  const inst = state.cards[iid];
+  if (!inst || inst.zone !== 'battle') return false;
+  const kw = keywords(state, reg, iid);
+  return !!kw.cannotLeave || (!!kw.cannotLeaveExceptDestroy && !destroy);
+}
+
+/** 「自分はゲームに負けない」：そのプレイヤーがいま負けないか（deckOut: 山札切れで負ける時） */
+export function cannotLose(state: GameState, reg: CardRegistry, player: PlayerId, deckOut: boolean): string | null {
+  for (const a of activeStatics(state, reg)) {
+    const s = a.static;
+    if (s.type !== 'cannotLose' || (s.deckOutOnly && !deckOut)) continue;
+    if (s.who === 'both' || (s.who === 'self') === (a.controller === player)) return a.source;
+  }
+  return null;
+}
+
+/** 「可能なら毎ターン攻撃する」：まだ攻撃できるのに攻撃していないクリーチャー */
+export function forcedAttackers(state: GameState, reg: CardRegistry, player: PlayerId): string[] {
+  return battleCards(state, reg, player).filter((iid) => keywords(state, reg, iid).mustAttack && attackTargets(state, reg, player, iid).length > 0);
+}
+
 /** 「〜を出せない」：このクリーチャーをバトルゾーンに出せない理由（出せるなら null） */
 export function entryBlocked(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): string | null {
   for (const a of activeStatics(state, reg)) {
@@ -632,6 +655,8 @@ function attackTargetsImpl(state: GameState, reg: CardRegistry, player: PlayerId
   // 「相手のクリーチャーが攻撃するなら、可能ならこのクリーチャーを攻撃する」：攻撃できるなら攻撃先はそれに限られる
   const lures = out.filter((t) => t.kind === 'creature' && keywords(state, reg, t.iid).attackLure);
   if (lures.length) return lures;
+  // 「可能ならクリーチャーを攻撃する」：攻撃できるクリーチャーがいれば、プレイヤーは攻撃できない
+  if (kw.attackCreaturesIfAble && out.some((t) => t.kind === 'creature')) return out.filter((t) => t.kind === 'creature');
   return out;
 }
 

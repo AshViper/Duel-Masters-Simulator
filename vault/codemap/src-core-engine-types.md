@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/engine/types.ts（337行）
+# src/core/engine/types.ts（345行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -14,20 +14,20 @@ generated: 2026-11-27
 - L4 **export** const `other`
 - L7 **export** interface `CardInstance`
 - L61 **export** interface `PlayerState`
-- L93 **export** type `Phase`
-- L95 **export** const `PHASE_LABEL`
-- L105 **export** const `INTERACTIVE_PHASES`
-- L107 **export** interface `GameConfig`
-- L116 **export** const `DEFAULT_CONFIG`
-- L124 **export** type `GameEvent`
-- L157 **export** type `AttackTarget`
-- L160 **export** type `LeaveCause`
-- L164 **export** interface `TriggerGroup`
-- L170 **export** type `Task`
-- L221 **export** type `Pending`
-- L242 **export** interface `LogEntry`
-- L249 **export** interface `CombatState`
-- L266 **export** interface `TurnStatic`
-- L279 **export** interface `GameState`
-- L314 **export** type `Action`
+- L97 **export** type `Phase`
+- L99 **export** const `PHASE_LABEL`
+- L109 **export** const `INTERACTIVE_PHASES`
+- L111 **export** interface `GameConfig`
+- L120 **export** const `DEFAULT_CONFIG`
+- L128 **export** type `GameEvent`
+- L161 **export** type `AttackTarget`
+- L164 **export** type `LeaveCause`
+- L168 **export** interface `TriggerGroup`
+- L174 **export** type `Task`
+- L225 **export** type `Pending`
+- L246 **export** interface `LogEntry`
+- L253 **export** interface `CombatState`
+- L270 **export** interface `TurnStatic`
+- L283 **export** interface `GameState`
+- L322 **export** type `Action`
 

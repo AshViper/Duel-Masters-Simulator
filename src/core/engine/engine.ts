@@ -27,6 +27,9 @@ import {
 import {
   attackTargets,
   blockersFor,
+  cannotLeaveNow,
+  cannotLose,
+  forcedAttackers,
   breakerCount,
   choosePayment,
   def,
@@ -266,8 +269,10 @@ export class Ctx {
 
     switch (a.type) {
       case 'NEXT_PHASE':
+        if (s.phase === 'attack') this.checkForcedAttack(a.player);
         return this.enterPhase(this.nextPhase(s.phase));
       case 'END_TURN':
+        this.checkForcedAttack(a.player);
         return this.enterPhase('end');
       case 'CHARGE_MANA':
         return this.chargeMana(a.player, a.iid);
@@ -992,6 +997,22 @@ export class Ctx {
           this.log(`${entering.name} はバトルゾーンに出るかわりに墓地に置かれた`, inst.owner);
           return false;
         }
+        // 「このクリーチャーは、召喚以外の方法で出ない」「相手のエレメントは、相手の手札以外から出ない」：元の場所に残る
+        if (!task.summoned && entering.keywords?.summonOnly) {
+          this.log(`${entering.name} は召喚以外の方法では出ない`, inst.owner);
+          return false;
+        }
+        const onlyFrom = activeStatics(s, this.reg).find(
+          (a) =>
+            a.static.type === 'entryOnlyFrom' &&
+            (a.static.who === 'both' || (a.static.who === 'self') === (a.controller === inst.owner)) &&
+            !(a.static.zones as string[]).includes(inst.zone) &&
+            matchFilter(s, this.reg, task.iid, a.static.filter, a.source, true),
+        );
+        if (onlyFrom) {
+          this.log(`${def(s, this.reg, onlyFrom.source).name} の効果：${entering.name} はバトルゾーンに出ない`, inst.owner);
+          return false;
+        }
         if (isCreatureType(entering.type) && !task.summoned) {
           // 「各ターン1体までしかクリーチャーを出せない」（召喚は使う前に確かめている）
           const limit = playLimitReached(s, this.reg, task.player, 'creature');
@@ -1671,10 +1692,21 @@ export class Ctx {
     }
   }
 
+  /** 「可能なら毎ターン攻撃する」クリーチャーが攻撃できるうちは、攻撃を終われない */
+  private checkForcedAttack(player: PlayerId): void {
+    const forced = forcedAttackers(this.s, this.reg, player);
+    if (forced.length) throw new IllegalAction(`${this.name(forced[0])} は可能なら攻撃しなければなりません`);
+  }
+
   private execLeave(task: Extract<Task, { kind: 'leave' }>): boolean {
     const s = this.s;
     const inst = s.cards[task.iid];
     if (!inst || inst.zone !== 'battle') return false;
+    // 「このクリーチャーは離れない」「破壊以外の方法で離れない」
+    if (cannotLeaveNow(s, this.reg, task.iid, task.cause === 'destroy')) {
+      this.log(`${this.name(task.iid)} はバトルゾーンを離れない`, inst.owner);
+      return false;
+    }
     const replaced = task.replaced ?? [];
     const exShields = [inst.exLifeShield, ...(inst.exLifeShields ?? [])].filter((x): x is string => !!x && s.cards[x]?.zone === 'shield');
     const reps = this.findReplacements(task.iid, task.cause, replaced);
@@ -3687,7 +3719,8 @@ export class Ctx {
   checkStateBased(): void {
     const s = this.s;
     if (s.gameOverReason !== null) return;
-    const out = ([0, 1] as PlayerId[]).filter((p) => s.players[p].zones.deck.length === 0);
+    // 「山札がなくなっても、自分はゲームに負けない」
+    const out = ([0, 1] as PlayerId[]).filter((p) => s.players[p].zones.deck.length === 0 && !cannotLose(s, this.reg, p, true));
     if (out.length === 1) {
       this.log(`${s.players[out[0]].name} の山札が0枚になった`, out[0]);
       this.gameOver(other(out[0]), '山札切れ');
@@ -3714,7 +3747,7 @@ export class Ctx {
     // パワーが分からないカード（古い版で保存した禁断クリーチャーなど）は、0とみなして破壊しない
     const queued = new Set(s.queue.flatMap((t) => (t.kind === 'leave' ? [t.iid] : [])));
     const dead = [...battleCards(s, this.reg, 0), ...battleCards(s, this.reg, 1)].filter(
-      (iid) => !queued.has(iid) && def(s, this.reg, iid).power !== undefined && power(s, this.reg, iid) <= 0,
+      (iid) => !queued.has(iid) && def(s, this.reg, iid).power !== undefined && power(s, this.reg, iid) <= 0 && !cannotLeaveNow(s, this.reg, iid, true),
     );
     if (dead.length) this.insertFront(...dead.map((iid): Task => ({ kind: 'leave', iid, to: 'graveyard', cause: 'destroy' })));
     // S-MAX進化：自分のS-MAX進化クリーチャーが2体以上あれば、最後に出た1体を残し、残りを手札に戻す
@@ -3731,6 +3764,8 @@ export class Ctx {
     if (s.gameOverReason !== null) return;
     // 鬼S-MAX進化：「自分がゲームに負ける時、かわりに自分の表向きのカードを3枚破壊してもよい」（投了は除く）
     if (winner !== null && reason !== '投了' && (this.avertLoss(other(winner)) || this.avertLossUnder(other(winner)))) return;
+    // 「自分はゲームに負けない」「相手はゲームに勝てない」
+    if (winner !== null && reason !== '投了' && cannotLose(s, this.reg, other(winner), reason === '山札切れ')) return;
     s.winner = winner;
     s.gameOverReason = reason;
     s.pending = null;

@@ -573,6 +573,13 @@ export type StaticAbility = (
    * who: そのクリーチャーの持ち主（「相手の〜クリーチャーが出る時、相手はかわりにマナゾーンに置く」）
    */
   | { type: 'enterInstead'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; to: 'graveyard' | 'mana' }
+  /**
+   * そのプレイヤーはゲームに負けない（「自分はゲームに負けない」「相手はゲームに勝てない」はどちらも who: self）。
+   * deckOutOnly: 山札がなくなった時だけ（「自分の山札にカードがなくなっても、自分はゲームに負けない」）
+   */
+  | { type: 'cannotLose'; who: 'self' | 'opponent' | 'both'; deckOutOnly?: boolean }
+  /** 持ち主の zones 以外からはバトルゾーンに出ない（「相手のエレメントは、相手の手札以外から出ない」。who: カードの持ち主） */
+  | { type: 'entryOnlyFrom'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; zones: Array<'hand' | 'deck'> }
 ) & {
   /** 有効なターン（「自分のターン中」= self）。省略時は常に有効 */
   duringTurn?: 'self' | 'opponent';
@@ -724,6 +731,16 @@ export interface Keywords {
   blockPower?: number;
   /** 条件（種族）に合うクリーチャーとのバトル中だけパワーに加える（「ゼニスとバトル中、パワーを+N」） */
   battlePowerVs?: { race: string; amount: number };
+  /** バトルゾーンを離れない（破壊・手札に戻すなど、どの方法でも。パワー0以下でも破壊されない） */
+  cannotLeave?: boolean;
+  /** 破壊以外の方法でバトルゾーンを離れない */
+  cannotLeaveExceptDestroy?: boolean;
+  /** 可能なら毎ターン攻撃する（攻撃できる間はターンを終われない） */
+  mustAttack?: boolean;
+  /** 攻撃するなら、可能ならクリーチャーを攻撃する */
+  attackCreaturesIfAble?: boolean;
+  /** 召喚以外の方法でバトルゾーンに出ない */
+  summonOnly?: boolean;
 }
 
 /** 禁断の鼓動の裏側（禁断クリーチャー） */

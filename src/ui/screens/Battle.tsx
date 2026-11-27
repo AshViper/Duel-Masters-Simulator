@@ -450,6 +450,9 @@ export function BattleScreen() {
   };
 
   const canNext = legal.some((a) => a.type === 'NEXT_PHASE') && canControl(active);
+  const canEnd = legal.some((a) => a.type === 'END_TURN') && canControl(active);
+  // 「可能なら毎ターン攻撃する」クリーチャーが攻撃できる間は、ターンを終われない
+  const forcedTitle = legal.length > 0 && !legal.some((a) => a.type === 'END_TURN') ? '「可能なら攻撃する」クリーチャーが攻撃できるため、まだ終われません' : undefined;
   const over = g.gameOverReason !== null;
   const hint = pending
     ? null
@@ -488,8 +491,8 @@ export function BattleScreen() {
             ))}
           </div>
           <div className="center-hint">{hint}</div>
-          <button className="ghost-btn" disabled={!canNext} onClick={() => act({ type: 'NEXT_PHASE', player: active })} data-testid="next-phase">次へ ›</button>
-          <button className="end-turn-btn" disabled={!canNext} onClick={() => { setAttacker(null); act({ type: 'END_TURN', player: active }); }} data-testid="end-turn">ターン終了</button>
+          <button className="ghost-btn" disabled={!canNext} title={canNext ? undefined : forcedTitle} onClick={() => act({ type: 'NEXT_PHASE', player: active })} data-testid="next-phase">次へ ›</button>
+          <button className="end-turn-btn" disabled={!canEnd} title={canEnd ? undefined : forcedTitle} onClick={() => { setAttacker(null); act({ type: 'END_TURN', player: active }); }} data-testid="end-turn">ターン終了</button>
           <button className={'ghost-btn panel-toggle' + (panelOpen ? ' on' : '')} onClick={togglePanel} title="カードの拡大表示・ログ・操作ボタンを出し入れする" data-testid="panel-toggle">
             {panelOpen ? 'パネルを閉じる ›' : '‹ ログ・メニュー'}
           </button>

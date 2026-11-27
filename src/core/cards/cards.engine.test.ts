@@ -1451,6 +1451,19 @@ const C = {
   spellBack: spell('b-59', ['カードを１枚引く。', 'この呪文を唱えた後、墓地に置くかわりに手札に戻す。']),
   tapAll: mk('b-60', ['このクリーチャーをバトルゾーンに出した時、または、このクリーチャーが攻撃あるいはブロックした時、バトルゾーンにある相手のクリーチャーを２体まで選び、タップしてもよい。']),
   zenithDiscount: mk('b-61', ['自分のゼニスの召喚コストを最大３少なくしてもよい。']),
+  // エンジンに足した仕組み：離れない・ゲームに負けない・可能なら攻撃する・〜以外から出ない
+  stayTurn: mk('b-62', ['このクリーチャーが出た時、次の自分のターンのはじめまで、このクリーチャーは離れない。']),
+  noBounce: mk('b-63', ['自分のクリーチャーは、破壊以外の方法で離れない。']),
+  killOwn: spell('b-64', ['自分のクリーチャーをすべて破壊する。']),
+  killOpp: spell('b-73', ['相手のクリーチャーをすべて破壊する。']),
+  bounceAll: spell('b-65', ['相手のクリーチャーをすべて持ち主の手札に戻す。']),
+  mustAtk: mk('b-66', ['このクリーチャーは、可能なら毎ターン攻撃する。']),
+  mustAtkCreature: mk('b-67', ['このクリーチャーは、可能なら毎ターン、クリーチャーを攻撃する。']),
+  deckOutSafe: mk('b-68', ['自分の山札にカードがなくなっても、自分はゲームに負けない。']),
+  handOnly: mk('b-69', ['相手のエレメントは、相手の手札以外から出ない。']),
+  summonOnly: mk('b-70', ['このクリーチャーは、召喚以外の方法で出ない。']),
+  reanimate: spell('b-71', ['クリーチャーを１体、自分の墓地からバトルゾーンに出す。']),
+  noLoseWin: mk('b-72', ['このクリーチャーがバトルに勝った時、次の自分のターンのはじめまで、自分はゲームに負けず、相手はゲームに勝てない。']),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
 const filler = Array.from({ length: 40 }, () => 'S01-043');
@@ -1504,6 +1517,37 @@ describe('読み取り', () => {
 });
 
 describe('攻撃・ブロック', () => {
+  it('「可能なら毎ターン攻撃する」：攻撃できる間はターンを終われない', () => {
+    let s = toAttack(newGame());
+    const a = put(s, 0, C.mustAtk.id, 'battle');
+    expect(getLegalActions(s, reg, 0).some((x) => x.type === 'END_TURN')).toBe(false);
+    expect(() => act(s, { type: 'END_TURN', player: 0 })).toThrow(/可能なら攻撃/);
+    const t = put(s, 1, C.small.id, 'battle');
+    s.cards[t].tapped = true;
+    s = act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'creature', iid: t } });
+    while (s.pending?.kind === 'block') s = act(s, { type: 'RESPOND', player: 1, selected: [] });
+    expect(getLegalActions(s, reg, 0).some((x) => x.type === 'END_TURN')).toBe(true);
+  });
+  it('「可能なら毎ターン、クリーチャーを攻撃する」：攻撃できるクリーチャーがいればプレイヤーは攻撃できない', () => {
+    const s = newGame();
+    const a = put(s, 0, C.mustAtkCreature.id, 'battle');
+    expect(attackTargets(s, reg, 0, a)).toEqual([{ kind: 'player' }]);
+    const t = put(s, 1, C.vanilla.id, 'battle');
+    s.cards[t].tapped = true;
+    expect(attackTargets(s, reg, 0, a)).toEqual([{ kind: 'creature', iid: t }]);
+  });
+  it('「自分はゲームに負けず、相手はゲームに勝てない」：バトルに勝つと、次の自分のターンまで負けない', () => {
+    let s = toAttack(newGame());
+    const a = put(s, 0, C.noLoseWin.id, 'battle');
+    const t = put(s, 1, C.small.id, 'battle');
+    s.cards[t].tapped = true;
+    s = act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'creature', iid: t } });
+    while (s.pending?.kind === 'block') s = act(s, { type: 'RESPOND', player: 1, selected: [] });
+    expect(s.cards[t].zone).toBe('graveyard');
+    const ctx = new Ctx(s, reg);
+    ctx.gameOver(1, 'ダイレクトアタック');
+    expect(s.gameOverReason).toBeNull();
+  });
   it('このターンに〜していなければ攻撃できない：攻撃した回数・引いた枚数・使ったカード・手札の枚数で決まる', () => {
     const s = newGame();
     const alone = put(s, 0, C.noAtkAlone.id, 'battle');
@@ -1588,6 +1632,52 @@ describe('攻撃・ブロック', () => {
 });
 
 describe('出る時・離れる時', () => {
+  it('「次の自分のターンのはじめまで、このクリーチャーは離れない」：破壊されずに残る', () => {
+    let s = newGame();
+    const r = play(s, C.stayTurn.id);
+    s = r.s;
+    const v = put(s, 0, C.vanilla.id, 'battle');
+    s = play(s, C.killOwn.id).s;
+    expect(s.cards[r.iid].zone).toBe('battle');
+    expect(s.cards[v].zone).toBe('graveyard');
+  });
+  it('「自分のクリーチャーは、破壊以外の方法で離れない」：手札に戻されないが、破壊はされる', () => {
+    let s = newGame();
+    put(s, 1, C.noBounce.id, 'battle');
+    const v = put(s, 1, C.vanilla.id, 'battle');
+    s = play(s, C.bounceAll.id).s;
+    expect(s.cards[v].zone).toBe('battle');
+    s = play(s, C.killOpp.id).s;
+    expect(s.cards[v].zone).toBe('graveyard');
+  });
+  it('「相手のエレメントは、相手の手札以外から出ない」「召喚以外の方法で出ない」：墓地から出せない', () => {
+    let s = newGame();
+    const dead = put(s, 0, C.vanilla.id, 'graveyard');
+    put(s, 1, C.handOnly.id, 'battle');
+    s = play(s, C.reanimate.id).s;
+    while (s.pending) s = act(s, { type: 'RESPOND', player: 0, selected: s.pending.kind === 'selectCards' ? [dead] : ['0'] });
+    expect(s.cards[dead].zone).toBe('graveyard');
+
+    let s2 = newGame();
+    const so = put(s2, 0, C.summonOnly.id, 'graveyard');
+    s2 = play(s2, C.reanimate.id).s;
+    while (s2.pending) s2 = act(s2, { type: 'RESPOND', player: 0, selected: s2.pending.kind === 'selectCards' ? [so] : ['0'] });
+    expect(s2.cards[so].zone).toBe('graveyard');
+    // 召喚なら出せる
+    const r = play(s2, C.summonOnly.id);
+    expect(r.s.cards[r.iid].zone).toBe('battle');
+  });
+  it('「山札がなくなっても、自分はゲームに負けない」', () => {
+    const s = newGame();
+    s.players[0].zones.deck.splice(0);
+    new Ctx(s, reg).checkStateBased();
+    expect(s.gameOverReason).toBe('山札切れ');
+    const s2 = newGame();
+    put(s2, 0, C.deckOutSafe.id, 'battle');
+    s2.players[0].zones.deck.splice(0);
+    new Ctx(s2, reg).checkStateBased();
+    expect(s2.gameOverReason).toBeNull();
+  });
   it('「自分のマナゾーンからドラゴンを召喚してもよい」：マナゾーンのドラゴンだけ召喚できる', () => {
     const s = newGame();
     put(s, 0, C.manaDragon.id, 'battle');

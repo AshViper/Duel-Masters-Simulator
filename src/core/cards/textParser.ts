@@ -287,6 +287,12 @@ const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArr
   [/^このクリーチャーは(?:パワーがこのクリーチャーより小さい|このクリーチャーよりパワーが小さい)クリーチャーにブロックされない$/, { unblockableBySmaller: true }],
   ['このクリーチャーはこれよりコストが小さいクリーチャーに攻撃されない', { cannotBeAttackedBySmallerCost: true }],
   ['バトルゾーンに置く時、このカードはタップして置く', { entersTapped: true }],
+  [/^このクリーチャーは(?:バトルゾーンを)?離れない$/, { cannotLeave: true }],
+  [/^このクリーチャーは、?破壊以外の方法で(?:バトルゾーンを)?離れない$/, { cannotLeaveExceptDestroy: true }],
+  [/^このクリーチャーは、?召喚以外の方法で(?:バトルゾーンに)?出ない$/, { summonOnly: true }],
+  // 「可能なら毎ターン攻撃する」「可能なら毎ターン、クリーチャーを攻撃する」「可能なら攻撃する」（期間つきで与える時）
+  [/^このクリーチャーは、?可能(?:なら|であれば)(?:毎ターン)?、?攻撃する$/, { mustAttack: true }],
+  [/^このクリーチャーは、?可能(?:なら|であれば)(?:毎ターン)?、?クリーチャーを攻撃する$/, { mustAttack: true, attackCreaturesIfAble: true }],
   [/^(?:パワード・ブロッカー\+(\d+)|ブロック中、このクリーチャーのパワーを\+(\d+)する)$/, (m) => ({ blockPower: Number(m[1] ?? m[2]) })],
   [/^(.+?)とバトル中、このクリーチャーのパワーを\+(\d+)する$/, (m) => ({ battlePowerVs: { race: m[1].replace(/・?クリーチャー$/, ''), amount: Number(m[2]) } })],
 ];
@@ -753,7 +759,11 @@ function parseGrant(t: string): Keywords | null {
   if (t === '攻撃もブロックもできない') return { cannotAttack: true, cannotBlock: true };
   if (t === 'アンタップしない') return { noUntap: true };
   const m = t.match(/^「([^「」]+)」((?:と「[^「」]+」)*)を与える$/);
-  if (!m) return null;
+  if (!m) {
+    // 「（そのクリーチャーは）離れない」「可能なら攻撃する」「ブロックされない」：このクリーチャー自身の能力の言い方で読む
+    const kw: Keywords = {};
+    return applyKeywordLine(`このクリーチャーは${t}`, kw) ? kw : null;
+  }
   const names = [m[1], ...[...m[2].matchAll(/「([^「」]+)」/g)].map((x) => x[1])];
   const kw: Keywords = {};
   for (const name of names) if (!applyKeywordLine(name, kw)) return null;
@@ -1973,6 +1983,15 @@ function parseStatic(t: string): StaticAbility[] | null {
     }
     return out;
   }
+  // 「自分はゲームに負けない」「自分はゲームに負けず、相手はゲームに勝てない」「自分の山札にカードがなくなっても、自分はゲームに負けない」
+  const noLose = t.match(/^(自分の山札にカードがなくなっても、)?(?:自分はゲームに負けない|相手はゲームに勝てない|自分はゲームに負けず、相手はゲームに勝てない)$/);
+  if (noLose) return [{ type: 'cannotLose', who: 'self', ...(noLose[1] ? { deckOutOnly: true } : {}) }];
+  // 「エレメントは、持ち主の手札以外から出ない」「相手のエレメントは、相手の手札または山札以外から出ない」
+  const onlyFrom = t.match(/^(相手の|自分の)?(エレメント|クリーチャー)は、?(?:持ち主|相手|自分)の手札(または山札)?以外から(?:バトルゾーンに)?出ない$/);
+  if (onlyFrom) {
+    const who = onlyFrom[1] === '相手の' ? 'opponent' : onlyFrom[1] === '自分の' ? 'self' : 'both';
+    return [{ type: 'entryOnlyFrom', who, zones: onlyFrom[3] ? ['hand', 'deck'] : ['hand'], ...(onlyFrom[2] === 'クリーチャー' ? { filter: { cardType: 'creature' } } : {}) }];
+  }
   // マナ武装など：「このクリーチャーがバトル中、〜あれば、このクリーチャーのパワーを+13000する」＝バトル中だけのパワー
   const inBattle = t.match(/^このクリーチャーがバトル中、(.+)$/);
   if (inBattle) {
@@ -2005,7 +2024,7 @@ function parseStatic(t: string): StaticAbility[] | null {
     return [...(g[4] ? [{ type: 'powerMod' as const, amount: n(g[4]), appliesTo }] : []), { type: 'grantKeyword', keywords: kw, appliesTo }];
   }
   // 「自分のリキッド・ピープルはブロックされない」「相手のクリーチャーは、出たターンに攻撃できない」
-  g = t.match(/^(自分|相手)の(他の)?(.+?)は、?(?:すべて、?)?(ブロックされない|攻撃されない|攻撃もブロックもできない|攻撃できない|ブロックできない|自分を攻撃できない|出たターンに攻撃できない|ターンのはじめ以外、?アンタップしない)$/);
+  g = t.match(/^(?:(自分|相手)の|すべての)(他の)?(.+?)は、?(?:すべて、?)?(ブロックされない|攻撃されない|攻撃もブロックもできない|攻撃できない|ブロックできない|自分を攻撃できない|出たターンに攻撃できない|ターンのはじめ以外、?アンタップしない|離れない|破壊以外の方法で離れない|可能(?:なら|であれば)(?:毎ターン)?、?攻撃する)$/);
   if (g) {
     const filter: CardFilter = {};
     if (!parseSubject(g[3], filter)) return null;
@@ -2019,9 +2038,11 @@ function parseStatic(t: string): StaticAbility[] | null {
       自分を攻撃できない: { cannotAttackPlayers: true },
       出たターンに攻撃できない: { noAttackOnEnterTurn: true },
       ターンのはじめ以外アンタップしない: { untapOnlyAtTurnStart: true },
+      離れない: { cannotLeave: true },
+      破壊以外の方法で離れない: { cannotLeaveExceptDestroy: true },
     };
     if (g[4] === '自分を攻撃できない' && g[1] !== '相手') return null;
-    const kw = KW[g[4].replace(/、/g, '')];
+    const kw = /^可能/.test(g[4]) ? { mustAttack: true } : KW[g[4].replace(/、/g, '')];
     return [{ type: 'grantKeyword', keywords: kw, appliesTo: { owner: owner(g[1]), ...(g[2] ? { excludeSelf: true } : {}), ...(Object.keys(filter).length ? { filter } : {}) } }];
   }
   let m = t.match(/^(?:(自分|相手)の)?(他の)?(.+?)すべてのパワーを([+-]\d+)する$/);

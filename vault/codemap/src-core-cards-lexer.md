@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/lexer.ts（467行）
+# src/core/cards/lexer.ts（472行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -34,14 +34,14 @@ generated: 2026-11-27
 - L290 fn `closing`
 - L300 fn `dictWordAt`
 - L306 fn `readAt`
-- L361 fn `tokenizeNormalized`
-- L403 **export** fn `tokenize`
-- L410 **export** fn `formatTokens`
-- L414 fn `formatToken`
-- L446 **export** fn `unknownStats`
+- L366 fn `tokenizeNormalized`
+- L408 **export** fn `tokenize`
+- L415 **export** fn `formatTokens`
+- L419 fn `formatToken`
+- L451 **export** fn `unknownStats`
 
 ## switch の case（`ラベル:行`）
 
 ### formatToken
-player:416 · zone:417 · noun:418 · stat:419 · civ:420 · number:421 · count:422 · compare:423 · quant:424 · demo:425 · rel:426 · time:427 · adv:428 · adj:429 · verb:430 · aux:431 · conj:432 · particle:433 · keyword:434 · punct:435 · cardName:436 · icon:437 · label:438 · quote:439 · reminder:440 · word:441
+player:421 · zone:422 · noun:423 · stat:424 · civ:425 · number:426 · count:427 · compare:428 · quant:429 · demo:430 · rel:431 · time:432 · adv:433 · adj:434 · verb:435 · aux:436 · conj:437 · particle:438 · keyword:439 · punct:440 · cardName:441 · icon:442 · label:443 · quote:444 · reminder:445 · word:446
 
