@@ -1,4 +1,7 @@
-import type { ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { useCachedImage } from '../../db/imageCache';
+import { useApp } from '../../store/appStore';
+import { FOIL_LABEL, useCardLooks, type Foil } from '../cardLooks';
 import { CARD_TYPE_LABEL, CIV_LABEL, SUPPORT_LABEL, type CardDefinition } from '../../core/cards/types';
 import { CardView } from './CardView';
 import { faceKind, OFFICIAL_PREFIX } from '../../core/cards/officialConvert';
@@ -58,6 +61,7 @@ function CardInfoBody({ card, actions, panel }: { card: CardDefinition; actions?
             <ul>{manual.map((l, i) => <li key={i}>{l}</li>)}</ul>
           </div>
         )}
+        <CardLookEditor card={card} />
         {!panel && actions && <div className="detail-actions">{actions}</div>}
       </div>
     </div>
@@ -88,5 +92,88 @@ export function CardInfoPanel({ card, actions, hint }: { card: CardDefinition | 
         </div>
       )}
     </aside>
+  );
+}
+
+/** 見た目の選択肢の1枚（画像のサムネイル） */
+function ArtThumb({ imgKey, label, on, onPick, onDelete }: { imgKey?: string; label: string; on: boolean; onPick: () => void; onDelete?: () => void }) {
+  const url = useCachedImage(imgKey);
+  return (
+    <div className={'look-art' + (on ? ' on' : '')} role="button" title={label} onClick={onPick} data-testid="look-art">
+      {url ? <img src={url} alt={label} draggable={false} /> : <span>枠</span>}
+      <span className="look-tag">{label}</span>
+      {onDelete && (
+        <button
+          className="look-del"
+          title="この画像を削除"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (confirm('この画像を削除しますか？')) onDelete();
+          }}
+        >
+          ×
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * カードの見た目（カード名ごと）：イラストの版を選ぶ・自分の画像を足す・キラ加工をかける。
+ * 同名で別IDのカード（公式の別イラスト版）を保存してあれば、その絵も選べる。
+ */
+function CardLookEditor({ card }: { card: CardDefinition }) {
+  const cards = useApp((s) => s.cards);
+  const look = useCardLooks((s) => s.looks[card.name]);
+  const { setArt, setFoil, addUpload, removeUpload } = useCardLooks.getState();
+  const [err, setErr] = useState('');
+  // 同名カードの画像（自分自身を含む。同じ画像は1つにまとめる）
+  const variants = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { key: string; label: string }[] = [];
+    for (const c of [card, ...cards.filter((c) => c.name === card.name && c.id !== card.id)]) {
+      if (!c.imageRef || seen.has(c.imageRef)) continue;
+      seen.add(c.imageRef);
+      out.push({ key: c.imageRef, label: [c.rarity, c.set?.replace(/^公式 /, '')].filter(Boolean).join(' ') || c.id.replace(/^dm:/, '') });
+    }
+    return out;
+  }, [cards, card]);
+  const art = look?.art;
+  const isOn = (key: string | undefined) => (key === card.imageRef ? !art || art === key : art === key);
+  return (
+    <div className="look-editor" data-testid="look-editor">
+      <h3>見た目（この名前のカードすべてに反映）</h3>
+      <div className="look-arts">
+        {!card.imageRef && <ArtThumb label="標準" on={!art} onPick={() => setArt(card.name, undefined)} />}
+        {variants.map((v) => (
+          <ArtThumb key={v.key} imgKey={v.key} label={v.key === card.imageRef ? `標準 ${v.label}` : v.label} on={isOn(v.key)} onPick={() => setArt(card.name, v.key === card.imageRef ? undefined : v.key)} />
+        ))}
+        {(look?.uploads ?? []).map((k, i) => (
+          <ArtThumb key={k} imgKey={k} label={`自分の画像${i + 1}`} on={art === k} onPick={() => setArt(card.name, k)} onDelete={() => void removeUpload(card.name, k)} />
+        ))}
+        <label className="look-art add" title="自分の画像を追加（この端末に保存）">
+          <input
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void addUpload(card.name, f).then(() => setErr(''), (x: Error) => setErr(x.message));
+            }}
+          />
+          ＋
+        </label>
+      </div>
+      {err && <small className="ng">{err}</small>}
+      <div className="look-foils">
+        <span className="muted small">キラ加工</span>
+        {(Object.keys(FOIL_LABEL) as Foil[]).map((f) => (
+          <button key={f} className={(look?.foil ?? 'none') === f ? 'on' : ''} onClick={() => setFoil(card.name, f)}>
+            {FOIL_LABEL[f]}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

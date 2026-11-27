@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/types.ts（1124行）
+# src/core/cards/types.ts（1128行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -37,14 +37,14 @@ generated: 2026-11-27
 - L895 **export** interface `TwinSide`
 - L905 **export** interface `AttackSwap`
 - L918 **export** interface `AltPlay`
-- L961 **export** interface `ZoneGate`
-- L973 **export** interface `HandTrigger`
-- L1001 **export** interface `EvolveSpec`
-- L1018 **export** interface `CardDefinition`
-- L1088 **export** interface `PsychicSide`
-- L1094 **export** fn `isCreatureType`
-- L1099 **export** fn `isNonCreaturePermanent`
-- L1104 **export** fn `manaCivilizations`
-- L1109 **export** interface `PlayFace`
-- L1118 **export** fn `playFace`
+- L965 **export** interface `ZoneGate`
+- L977 **export** interface `HandTrigger`
+- L1005 **export** interface `EvolveSpec`
+- L1022 **export** interface `CardDefinition`
+- L1092 **export** interface `PsychicSide`
+- L1098 **export** fn `isCreatureType`
+- L1103 **export** fn `isNonCreaturePermanent`
+- L1108 **export** fn `manaCivilizations`
+- L1113 **export** interface `PlayFace`
+- L1122 **export** fn `playFace`
 

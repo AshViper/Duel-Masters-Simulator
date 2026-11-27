@@ -2,6 +2,7 @@ import { CARD_TYPE_LABEL, CIV_LABEL, type CardDefinition } from '../core/cards/t
 import { buildPdf, cropMarks, proxyLayout, type PdfImage, type PdfPage, type ProxyLayoutOptions } from '../core/print/proxyPdf';
 import { db } from '../db/db';
 import { CIV_COLOR } from './components/CardView';
+import { lookOf } from './cardLooks';
 
 // デッキからプロキシ印刷用の A4 PDF を作る。
 // 画像は IndexedDB に保存済みのものを使う（公式サーバーへはアクセスしない）。画像がないカードは文字だけのプロキシを描く。
@@ -78,8 +79,10 @@ async function renderCard(e: ProxyEntry): Promise<PdfImage> {
 
 async function loadBitmap(card?: CardDefinition): Promise<ImageBitmap | null> {
   try {
-    if (card?.imageRef) {
-      const row = await db.images.get(card.imageRef);
+    // 詳細で選んだイラスト（cardLooks.ts）があればそれを使う
+    for (const key of [lookOf(card?.name)?.art, card?.imageRef]) {
+      if (!key) continue;
+      const row = await db.images.get(key);
       if (row) return await createImageBitmap(row.blob);
     }
     if (card?.imageUrl) {

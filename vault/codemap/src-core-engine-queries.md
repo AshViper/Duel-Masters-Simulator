@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/engine/queries.ts（1185行）
+# src/core/engine/queries.ts（1188行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -83,17 +83,17 @@ generated: 2026-11-27
 - L1039 **export** fn `payMana`
 - L1062 fn `assignCivs`
 - L1080 **export** fn `altCost`
-- L1089 **export** fn `altPayment`
-- L1094 **export** fn `altUsable`
-- L1108 **export** fn `canPlayAlt`
-- L1116 **export** fn `fushigiCandidates`
-- L1120 **export** fn `canPlay`
-- L1124 fn `canPlayImpl`
-- L1144 **export** fn `untappedManaCount`
-- L1148 **export** fn `isIdle`
-- L1152 **export** fn `instancesIn`
-- L1157 **export** fn `attackSwapCandidates`
-- L1181 **export** fn `sClassCards`
+- L1092 **export** fn `altPayment`
+- L1097 **export** fn `altUsable`
+- L1111 **export** fn `canPlayAlt`
+- L1119 **export** fn `fushigiCandidates`
+- L1123 **export** fn `canPlay`
+- L1127 fn `canPlayImpl`
+- L1147 **export** fn `untappedManaCount`
+- L1151 **export** fn `isIdle`
+- L1155 **export** fn `instancesIn`
+- L1160 **export** fn `attackSwapCandidates`
+- L1184 **export** fn `sClassCards`
 
 ## switch の case（`ラベル:行`）
 

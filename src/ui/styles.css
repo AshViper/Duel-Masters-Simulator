@@ -457,6 +457,32 @@ a.btn { display: inline-block; padding: 6px 12px; border: 1px solid var(--line);
 .img-power.up { background: var(--ok); }
 .img-manual { top: -4px; right: -4px; background: #a0406a; color: #fff; }
 .card-lg.has-image { --w: 300px; }
+
+/* キラ加工（カード名ごとに選ぶ。cardLooks.ts）。カードの上に重ねる光の層 */
+.foil-layer { position: absolute; inset: 0; border-radius: 6px; pointer-events: none; overflow: hidden; background-size: 300% 300%; animation: foilSweep 7s linear infinite; }
+.foil-shine { background-image: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.55) 47%, rgba(255, 255, 255, 0.15) 52%, transparent 62%); mix-blend-mode: screen; }
+.foil-rainbow {
+  background-image: linear-gradient(115deg, #ff3c8e, #ffd23c, #4dff9a, #3cc8ff, #a04dff, #ff3c8e, #ffd23c, #4dff9a);
+  mix-blend-mode: color-dodge; opacity: 0.38;
+}
+.foil-rainbow::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(60deg, rgba(255, 255, 255, 0.12) 0 2px, transparent 2px 6px); mix-blend-mode: overlay; }
+.foil-gold { background-image: linear-gradient(115deg, rgba(255, 215, 120, 0.15) 20%, rgba(255, 236, 170, 0.75) 45%, rgba(190, 130, 30, 0.35) 55%, rgba(255, 215, 120, 0.15) 80%); mix-blend-mode: overlay; }
+.card:hover .foil-layer { animation-duration: 2.5s; }
+@keyframes foilSweep { from { background-position: 0% 0%; } to { background-position: 300% 300%; } }
+@media (prefers-reduced-motion: reduce) { .foil-layer { animation: none; background-position: 50% 50%; } }
+
+/* カード詳細：見た目（イラスト・キラ）の選択 */
+.look-editor { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.look-editor h3 { margin: 0; font-size: 13px; }
+.look-arts { display: flex; flex-wrap: wrap; gap: 6px; }
+.look-art { position: relative; width: 56px; aspect-ratio: 63 / 88; padding: 0; border-radius: 5px; overflow: hidden; border: 2px solid transparent; background: #0b1428; cursor: pointer; display: grid; place-items: center; font-size: 10px; color: var(--muted); }
+.look-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.look-art.on { border-color: var(--gold); box-shadow: 0 0 8px rgba(244, 211, 94, 0.6); }
+.look-art .look-tag { position: absolute; left: 0; right: 0; bottom: 0; background: #000b; color: #fff; font-size: 9px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.look-art .look-del { position: absolute; top: 1px; right: 1px; width: 16px; height: 16px; line-height: 14px; padding: 0; border-radius: 50%; border: none; background: #000c; color: #fff; font-size: 11px; cursor: pointer; }
+.look-art.add { border: 1px dashed var(--line-light, #556); font-size: 18px; }
+.look-foils { display: flex; flex-wrap: wrap; gap: 4px; }
+.look-foils button.on { border-color: var(--gold); color: var(--gold); }
 .getting-started { border-color: var(--accent) !important; }
 
 .official-picker { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; }

@@ -1,6 +1,7 @@
 import type { CSSProperties, DragEvent, MouseEvent, PointerEvent, ReactNode } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, type CardDefinition, type Civilization } from '../../core/cards/types';
 import { useCachedImage } from '../../db/imageCache';
+import { useCardLooks } from '../cardLooks';
 
 export const CIV_COLOR: Record<Civilization, string> = {
   light: '#f4d35e',
@@ -53,7 +54,13 @@ interface Props {
 export function CardView({ card, faceDown, tapped, size = 'md', power, cost, selected, highlight, badge, onClick, onContextMenu, onHover, draggable, onDragStart, title, testId, dimmed, onPointerDown, dropId, className }: Props) {
   const cls = ['card', `card-${size}`, className, tapped && 'tapped', dimmed && 'dimmed', selected && 'selected', highlight && `hl-${highlight}`, onClick && 'clickable'].filter(Boolean).join(' ');
   // 保存済みの画像（公式カードなど）。ブラウザ内の IndexedDB から読むので通信しない
-  const cachedImg = useCachedImage(faceDown ? undefined : card?.imageRef);
+  // カード名ごとに選んだイラスト・キラ加工（cardLooks.ts）
+  const look = useCardLooks((s) => (faceDown || !card ? undefined : s.looks[card.name]));
+  const chosenImg = useCachedImage(faceDown ? undefined : look?.art);
+  const ownImg = useCachedImage(faceDown ? undefined : card?.imageRef);
+  // 選んだ画像が消えていたら本来の画像に戻す
+  const cachedImg = chosenImg ?? ownImg;
+  const foil = look?.foil && look.foil !== 'none' ? <span className={'foil-layer foil-' + look.foil} aria-hidden /> : null;
   if (faceDown || !card) {
     return (
       <div className={cls + ' face-down'} onClick={onClick} onContextMenu={onContextMenu} onPointerDown={onPointerDown} data-drop={dropId} title={title} data-testid={testId}>
@@ -72,6 +79,7 @@ export function CardView({ card, faceDown, tapped, size = 'md', power, cost, sel
         <img className="card-full-img" src={cachedImg} alt={card.name} draggable={false} />
         {costChanged && <span className={'img-badge img-cost ' + (cost! < card.cost ? 'down' : 'up')}>{cost}</span>}
         {powerChanged && <span className={'img-badge img-power ' + (power! > card.power! ? 'up' : 'down')}>{power}</span>}
+        {foil}
         {card.support !== 'full' && size !== 'xs' && <span className="img-badge img-manual" title="手動処理が必要な効果を含みます">手</span>}
         {badge}
       </div>
@@ -104,6 +112,7 @@ export function CardView({ card, faceDown, tapped, size = 'md', power, cost, sel
           )}
         </div>
       </div>
+      {foil}
       {badge}
     </div>
   );
