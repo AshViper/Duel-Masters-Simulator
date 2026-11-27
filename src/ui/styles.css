@@ -642,3 +642,8 @@ a.bookmarklet, .official a.bookmarklet { display: inline-block; padding: 2px 10p
   .settings-group.restricted { min-height: 360px; }
 }
 
+
+/* デッキ一覧：デフォルトデッキ */
+.default-decks { margin-bottom: 14px; padding: 10px 12px; border: 1px solid rgba(93, 217, 245, 0.25); border-radius: 10px; background: rgba(16, 24, 39, 0.6); }
+.default-decks h3 { margin: 0 0 4px; font-size: 15px; }
+.default-decks .row.wrap { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }

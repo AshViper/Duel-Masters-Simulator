@@ -343,6 +343,7 @@ export function DeckBuilderScreen() {
       {printing && <ProxyPrintDialog deckName={deck.name} entries={entries.map(({ id, n, card }) => ({ id, count: n, card }))} onClose={() => setPrinting(false)} />}
       {textImport && (
         <DeckTextImport
+          initialText={typeof textImport === 'string' ? textImport : undefined}
           onClose={() => setTextImport(false)}
           onApply={(cards, mode) =>
             update((cur) => {

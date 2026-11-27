@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { deckCountLabel, isDeckLegal, type Deck } from '../../core/deck/rules';
 import { db, type SavedGame } from '../../db/db';
+import { DEFAULT_DECKS } from '../../core/deck/defaultDecks';
 import { useApp } from '../../store/appStore';
 import { useBattle } from '../../store/battleStore';
 import { Header } from '../components/AppShell';
@@ -100,6 +101,10 @@ export function DeckListScreen() {
     useApp.setState({ pendingTextImport: true });
     await newDeck();
   };
+  const fromDefault = async (d: (typeof DEFAULT_DECKS)[number]) => {
+    useApp.setState({ pendingTextImport: d.text });
+    await newDeck(d.name);
+  };
   return (
     <div className="screen">
       <Header title="デッキ一覧" sub={<span className="muted">{decks.length}個</span>}>
@@ -112,6 +117,20 @@ export function DeckListScreen() {
         <button className="primary" onClick={() => void newDeck()}>＋ 新しいデッキ</button>
       </Header>
       <div className="screen-body">
+        <section className="default-decks" data-testid="default-decks">
+          <h3>デフォルトデッキ</h3>
+          <p className="muted small">押すとデッキを作り、カード名を公式カード検索で照合します（保存済みのカードは通信しません）。「デッキをこの内容にする」で完成です。</p>
+          <div className="row wrap">
+            {DEFAULT_DECKS.map((d) => {
+              const added = decks.some((x) => x.name === d.name);
+              return (
+                <button key={d.id} onClick={() => void fromDefault(d)} data-testid={`default-deck-${d.id}`} title={added ? '同じ名前のデッキがすでにあります（もう1つ作ります）' : undefined}>
+                  ＋ {d.name}{added ? ' ✓' : ''}
+                </button>
+              );
+            })}
+          </div>
+        </section>
         <div className="deck-grid">
           <button className="deck-tile new" onClick={() => void newDeck()}>
             <span className="deck-tile-new-icon">＋</span>

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { officialCardId } from '../../core/cards/officialConvert';
 import type { CardDefinition } from '../../core/cards/types';
 import { nameMatchScore, parseDeckText, type DeckTextEntry } from '../../core/deck/deckText';
@@ -44,10 +44,10 @@ function localChoices(name: string, cards: CardDefinition[]): Choice[] {
     .map(({ c, score }) => ({ key: c.id, label: c.name, local: c, score }));
 }
 
-export function DeckTextImport({ onClose, onApply }: { onClose: () => void; onApply: (cards: Record<string, number>, mode: 'replace' | 'add') => void }) {
+export function DeckTextImport({ onClose, onApply, initialText }: { initialText?: string; onClose: () => void; onApply: (cards: Record<string, number>, mode: 'replace' | 'add') => void }) {
   const cards = useApp((s) => s.cards);
   const registry = useApp((s) => s.registry);
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialText ?? '');
   const [rows, setRows] = useState<Row[] | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
   const [busy, setBusy] = useState('');
@@ -56,8 +56,8 @@ export function DeckTextImport({ onClose, onApply }: { onClose: () => void; onAp
 
   const patch = (i: number, p: Partial<Row>) => setRows((rs) => rs && rs.map((r, k) => (k === i ? { ...r, ...p } : r)));
 
-  const read = async () => {
-    const parsed = parseDeckText(text);
+  const read = async (src = text) => {
+    const parsed = parseDeckText(src);
     setSkipped(parsed.skipped);
     setError(parsed.entries.length === 0 ? 'カード名と枚数を読み取れませんでした。「《カード名》 4」や表の形で貼り付けてください。' : '');
     const initial: Row[] = parsed.entries.map((entry) => {
@@ -87,6 +87,16 @@ export function DeckTextImport({ onClose, onApply }: { onClose: () => void; onAp
     }
     setBusy('');
   };
+
+  // デフォルトデッキなど、最初から内容が決まっている時はすぐ読み取る
+  const autoRead = useRef(false);
+  useEffect(() => {
+    if (initialText && !autoRead.current) {
+      autoRead.current = true;
+      void read(initialText);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const apply = async (mode: 'replace' | 'add') => {
     if (!rows) return;

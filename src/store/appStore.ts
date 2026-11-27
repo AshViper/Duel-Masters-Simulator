@@ -33,7 +33,8 @@ interface AppState {
   decks: Deck[];
   editingDeckId: string | null;
   /** デッキ構築を開いた時に「テキストから取り込み」を開く */
-  pendingTextImport: boolean;
+  /** デッキ構築を開いた時に「テキストから作成」を開く。文字列なら、その内容を貼り付けた状態で読み取る */
+  pendingTextImport: boolean | string;
   settings: Settings;
   recentDeckIds: string[];
   go: (s: Screen) => void;
@@ -41,7 +42,7 @@ interface AppState {
   saveDeck: (d: Deck) => Promise<void>;
   deleteDeck: (id: string) => Promise<void>;
   duplicateDeck: (id: string) => Promise<Deck | undefined>;
-  newDeck: () => Promise<Deck>;
+  newDeck: (name?: string) => Promise<Deck>;
   editDeck: (id: string) => void;
   importCards: (cards: CardDefinition[]) => Promise<void>;
   clearCustomCards: () => Promise<void>;
@@ -138,9 +139,9 @@ export const useApp = create<AppState>((set, get) => ({
     return copy;
   },
 
-  newDeck: async () => {
+  newDeck: async (name) => {
     const now = Date.now();
-    const d: Deck = { id: uid(), name: '新しいデッキ', cards: {}, formatId: 'standard', createdAt: now, updatedAt: now };
+    const d: Deck = { id: uid(), name: name ?? '新しいデッキ', cards: {}, formatId: 'standard', createdAt: now, updatedAt: now };
     await get().saveDeck(d);
     set({ editingDeckId: d.id, screen: 'builder' });
     return d;
