@@ -11,7 +11,7 @@ updated: 2026-11-27
 - 公式カード検索・保存（ローカル版は Vite 中継、Pages 版はブックマークレット）
 - プロキシPDF（A4・3×3・実寸）、テキストからデッキ作成
 - 能力語 352種のうち 200種が自動処理（`design/ability-coverage.md`、2026-11-27 計測。grammar を入れた後は再計測していない）
-- 実カード600枚（`design/corpus600.json.local`）のうち 363枚が全自動（2026-11-27。測り方は log/2026-11-27）
+- 実カード600枚（`design/corpus600.json.local`）のうち 372枚が全自動（2026-11-27。測り方は log/2026-11-27）
 
 ## やりかけ・気になる点
 - **能力テキストの読み取りを作り替え中**（[[howto/text-parser-rewrite]]）。字句解析 `lexer.ts` と構文解析 `grammar.ts` の最初の版ができた。いまは textParser で読めなかった行だけを grammar で読む。次は grammar の読める形を広げ、textParser の正規表現を減らす

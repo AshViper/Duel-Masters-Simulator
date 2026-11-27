@@ -1959,7 +1959,7 @@ export class Ctx {
         const key = `${src}:${i}`;
         if (used.includes(key)) continue;
         if (ab.event === 'destroyed' && cause !== 'destroy') continue;
-        const subjectOk = ab.subject === 'self' ? src === iid : ab.subject === 'otherOwn' ? src !== iid : true;
+        const subjectOk = ab.subject === 'self' ? src === iid : ab.subject === 'otherOwn' ? src !== iid : ab.subject === 'equipped' ? s.cards[src].equippedTo === iid : true;
         if (!subjectOk || !matchFilter(s, this.reg, iid, ab.filter, src)) continue;
         if (ab.instead === 'destroySelf' && src === iid) continue;
         if (ab.condition && !evalCondition(s, this.reg, s.cards[src].owner, ab.condition, false, src)) continue;

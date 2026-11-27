@@ -106,6 +106,10 @@ export interface CardFilter {
   enteredThisTurn?: boolean;
   /** 「このクリーチャーがバトルゾーンに出た時」で始まる能力（出た時の誘発）を持つ */
   hasOnSummonAbility?: boolean;
+  /** クロスギアがクロスされている（「クロスギアをクロスしているクリーチャー」） */
+  crossed?: boolean;
+  /** 効果の発生源（クロスギア）をクロスしたクリーチャーと同じ種族を持つ */
+  sameRaceAsEquipped?: boolean;
 }
 
 /** 効果の対象指定 */
@@ -197,8 +201,10 @@ export type Condition =
   | { type: 'nthAttackThisTurn'; n: number }
   /** このターン、そのプレイヤーが名前に name を含むクリーチャーをバトルゾーンに出した */
   | { type: 'enteredNamedThisTurn'; who: 'self' | 'opponent'; name: string }
-  /** このクリーチャーにクロスギアがクロスされている（any: 自分のクリーチャーのどれかにクロスされている） */
-  | { type: 'crossed'; any?: boolean }
+  /** このクリーチャーにクロスギアがクロスされている（any: 自分のクリーチャーのどれかにクロスされている。min: クロスされている数） */
+  | { type: 'crossed'; any?: boolean; min?: number }
+  /** このカード（クロスギア）がクリーチャーにクロスされている（「このカードがどのクリーチャーにもクロスされていない時」は not で包む） */
+  | { type: 'gearAttached' }
   /** このクリーチャーがタップしている */
   | { type: 'selfTapped' }
   /** このターンに、そのプレイヤーのクリーチャーがバトルに勝っていた */
@@ -596,8 +602,8 @@ export type StaticAbility = (
 export interface ReplacementAbility {
   /** destroyed: 破壊される時 / leaveBattle: バトルゾーンを離れる時（破壊・バウンス・マナ送りなど） */
   event: 'destroyed' | 'leaveBattle';
-  /** self: このクリーチャー / otherOwn: 自分の他のクリーチャー / anyOwn: 自分のクリーチャー */
-  subject: 'self' | 'otherOwn' | 'anyOwn';
+  /** self: このクリーチャー / otherOwn: 自分の他のクリーチャー / anyOwn: 自分のクリーチャー / equipped: これ（クロスギア・ウエポン）をクロス・装備したクリーチャー */
+  subject: 'self' | 'otherOwn' | 'anyOwn' | 'equipped';
   filter?: CardFilter;
   /** destroySelf: かわりにこのクリーチャーを破壊する（セイバー） / stay: とどまる */
   /** escape: かわりに自分のシールドを1つ手札に加える（エスケープ）。shedUnder: かわりに下のカードすべてが離れる（G-NEO進化） */
@@ -746,6 +752,12 @@ export interface Keywords {
   attackCreaturesIfAble?: boolean;
   /** 召喚以外の方法でバトルゾーンに出ない */
   summonOnly?: boolean;
+  /** 攻撃1回にブレイクできるシールドの数の上限（「クリーチャーは攻撃1回につきシールドを1枚しかブレイクできない」） */
+  maxBreakPerAttack?: number;
+  /** パワーN以下のクリーチャーに攻撃もブロックもされない */
+  immuneToPowerAtMost?: number;
+  /** クロスギアがクロスされた、タップされていないクリーチャーを攻撃できる */
+  attackUntappedCrossed?: boolean;
 }
 
 /** 禁断の鼓動の裏側（禁断クリーチャー） */

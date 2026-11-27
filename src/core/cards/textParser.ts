@@ -108,6 +108,9 @@ export function normalizeText(s: string): string {
     .replace(/^(鬼タイム|メテオバーン)[:：]/, '$1：')
     .replace(/真上の[▪■▫□◼◾・]+能力/g, '真上の能力')
     .replace(/^このクリーチャーを召喚するコストは、/, 'このクリーチャーの召喚コストは、')
+    // 「自分のクリーチャーを召喚する時支払うコストは1少なくなる」
+    .replace(/を召喚する時(?:に)?支払うコストは(\d+)(少なく|多く)なる/, 'の召喚コストを$1$2する')
+    .replace(/^バトルゾーンにある、?(これを(?:クロス|装備)したクリーチャーと同じ種族の)/, '$1')
     .replace(/(クリーチャーを\d+体)、バトルゾーンから(?:自分の)?手札に戻/g, '$1、手札に戻')
     .replace(/(\d+)(体|枚|つ)でもあれば/g, '$1$2以上あれば')
     .replace(/クリーチャー(\d+)体選び/g, 'クリーチャーを$1体選び')
@@ -288,6 +291,10 @@ const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArr
   ['このクリーチャーはこれよりコストが小さいクリーチャーに攻撃されない', { cannotBeAttackedBySmallerCost: true }],
   ['バトルゾーンに置く時、このカードはタップして置く', { entersTapped: true }],
   [/^このクリーチャーは(?:バトルゾーンを)?離れない$/, { cannotLeave: true }],
+  // クロスギアの種類だけを書いた行（クロスの仕方はエンジンが処理する）
+  ['クロスギア', {}],
+  [/^このクリーチャーは、?パワー(\d+)以下のクリーチャーに攻撃(?:またはブロック|もブロックも)されない$/, (m) => ({ immuneToPowerAtMost: Number(m[1]) })],
+  [/^このクリーチャーは、?クロスギアをクロスされた(?:タップされていない|アンタップしている)クリーチャーを攻撃できる$/, { attackUntappedCrossed: true }],
   [/^このクリーチャーは、?破壊以外の方法で(?:バトルゾーンを)?離れない$/, { cannotLeaveExceptDestroy: true }],
   [/^このクリーチャーは、?召喚以外の方法で(?:バトルゾーンに)?出ない$/, { summonOnly: true }],
   // 「可能なら毎ターン攻撃する」「可能なら毎ターン、クリーチャーを攻撃する」「可能なら攻撃する」（期間つきで与える時）
@@ -512,6 +519,7 @@ function parseMods(mods: string, filter: CardFilter): boolean {
     [/^コスト(\d+)以上の/, (x) => (filter.minCost = n(x[1]))],
     [/^コスト(\d+)の/, (x) => (filter.minCost = filter.maxCost = n(x[1]))],
     [/^タップしている/, () => (filter.tapped = true)],
+    [/^クロスギアをクロス(?:している|されている|された)/, () => (filter.crossed = true)],
     [/^アンタップしている/, () => (filter.untapped = true)],
     [/^(光|水|闇|火|自然)の/, (x) => (filter.civilization = CIV[x[1]])],
     [/^((?:光|水|闇|火|自然)(?:または(?:光|水|闇|火|自然))+)の/, (x) => (filter.civilizations = x[1].split('または').map((c) => CIV[c]))],
@@ -1983,6 +1991,12 @@ function parseStatic(t: string): StaticAbility[] | null {
     }
     return out;
   }
+  // 「クリーチャーは攻撃1回につきシールドを1枚しかブレイクできない」
+  const maxBreak = t.match(/^(?:すべての)?クリーチャーは、?攻撃1回につきシールドを(\d+)(?:枚|つ)しかブレイクできない$/);
+  if (maxBreak) return [{ type: 'grantKeyword', keywords: { maxBreakPerAttack: n(maxBreak[1]) }, appliesTo: { owner: 'any' } }];
+  // 「（バトルゾーンにある、）これをクロスしたクリーチャーと同じ種族のクリーチャーすべてのパワーを+1000する」
+  const sameRace = t.match(/^これを(?:クロス|装備)したクリーチャーと同じ種族のクリーチャーすべてのパワーを([+-]\d+)する$/);
+  if (sameRace) return [{ type: 'powerMod', amount: n(sameRace[1]), appliesTo: { owner: 'any', filter: { cardType: 'creature', sameRaceAsEquipped: true } } }];
   // 「自分はゲームに負けない」「自分はゲームに負けず、相手はゲームに勝てない」「自分の山札にカードがなくなっても、自分はゲームに負けない」
   const noLose = t.match(/^(自分の山札にカードがなくなっても、)?(?:自分はゲームに負けない|相手はゲームに勝てない|自分はゲームに負けず、相手はゲームに勝てない)$/);
   if (noLose) return [{ type: 'cannotLose', who: 'self', ...(noLose[1] ? { deckOutOnly: true } : {}) }];
@@ -2558,6 +2572,12 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
   // 「それがこのターン最初の攻撃なら、」「それがそのターン最初のクリーチャーによる攻撃でなければ、」
   const firstAtk = body.match(/^それが(?:この|その)ターン最初の(?:クリーチャーによる)?攻撃(なら|であれば|でなければ)、(.+)$/);
   if (firstAtk) return { body: firstAtk[2], condition: firstAtk[1] === 'でなければ' ? { type: 'not', condition: { type: 'firstAttackThisTurn' } } : { type: 'firstAttackThisTurn' } };
+  // クロスギア：「このカードがどのクリーチャーにもクロスされていない時、」。主語のない「クリーチャーは〜」はすべてのクリーチャー
+  const unattached = body.match(/^この(?:カード|クロスギア)がどのクリーチャーにもクロスされていない時、(.+)$/);
+  if (unattached) return { body: unattached[1].replace(/^((?:パワー\d+以(?:下|上)の)?クリーチャーは)/, 'すべての$1').replace(/^バトルゾーンにある(?!自分|相手|他|、)/, 'すべての'), condition: { type: 'not', condition: { type: 'gearAttached' } } };
+  // 「このクリーチャーにクロスギアが4つ以上クロスされていれば、」
+  const manyGears = body.match(/^このクリーチャーにクロスギアが(\d+)つ以上クロスされていれば、(.+)$/);
+  if (manyGears) return { body: manyGears[2], condition: { type: 'crossed', min: n(manyGears[1]) } };
   // アクセル：「このクリーチャーにクロスギアがクロスされている時、」／スーパー・アクセル：「自分のクリーチャーにクロスギアがクロスされている時、」
   const crossed = body.match(/^(この|自分の)クリーチャーにクロスギアがクロスされている時、(.+)$/);
   if (crossed) return { body: crossed[2], condition: { type: 'crossed', ...(crossed[1] === '自分の' ? { any: true } : {}) } };
@@ -2769,14 +2789,16 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     return !tmp.replacements.length;
   }
   // 「これを装備したクリーチャーに〜／が〜時、〜」（ドラグハート・ウエポン）：「このクリーチャー」の文として読み、装備先にかかる形にする
-  const eq = t.match(/^これを(?:装備|クロス)したクリーチャー(.+)$/);
+  const eq = t.match(/^これを(?:装備|クロス)したクリーチャー(?!と同じ種族)(.+)$/);
   if (eq && kind === 'creature') {
     const tmp: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
     const asSelf = `このクリーチャー${eq[1]}`;
     if (!applyKeywordLine(asSelf, tmp.keywords) && !parseLine(asSelf, options, kind, tmp)) return false;
     const selfRef = (e: EffectDef): boolean => e.type === 'selfAction' || (('target' in e) && e.target === 'self') || e.type === 'manual';
-    if (tmp.replacements.length || tmp.abilities.some((a) => a.effects.some(selfRef))) return false;
+    // 置換効果は「このクリーチャーが〜時、かわりに〜」の形だけ、装備先にかかる置換にする（「かわりにこのクリーチャーを破壊する」などは読まない）
+    if (tmp.replacements.some((r) => r.subject !== 'self' || r.instead === 'destroySelf' || r.instead === 'stay') || tmp.abilities.some((a) => a.effects.some(selfRef))) return false;
     if (tmp.statics.some((st) => !('appliesTo' in st) || !st.appliesTo.onlySelf)) return false;
+    for (const r of tmp.replacements) out.replacements.push({ ...r, subject: 'equipped' });
     const appliesTo: Applies = { owner: 'self', equipped: true };
     if (Object.keys(tmp.keywords).length) out.statics.push({ type: 'grantKeyword', keywords: tmp.keywords, appliesTo });
     for (const st of tmp.statics) out.statics.push({ ...st, appliesTo } as StaticAbility);
@@ -3457,6 +3479,9 @@ function parseReplacement(t: string): ReplacementAbility | null {
     山札の上に置く: 'toDeckTop',
     山札の一番上に置く: 'toDeckTop',
     シールド化する: 'toShield',
+    裏向きにして自分のシールドに加える: 'toShield',
+    裏向きにしてシールドに加える: 'toShield',
+    シールドゾーンに裏向きにして置く: 'toShield',
     バトルゾーンにとどまる: 'stay',
     とどまる: 'stay',
     他のクリーチャーを1体破壊する: 'destroyOther',

@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/textParser.ts（3489行）
+# src/core/cards/textParser.ts（3514行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -13,68 +13,68 @@ generated: 2026-11-27
 - L29 **export** interface `ParsedAbilities`
 - L78 **export** const `INFINITE_POWER`
 - L83 **export** fn `normalizeText`
-- L182 **export** fn `lineDefKey`
-- L189 fn `findLineDef`
-- L199 fn `stripIcons`
-- L204 fn `normalizeKeepSpace`
-- L301 **export** fn `applyKeywordLine`
-- L357 type `ParsedTrigger`
-- L377 fn `parseOtherTrigger`
-- L408 fn `parseTrigger`
-- L489 fn `stripOptional`
-- L505 fn `parseMods`
-- L570 fn `civList`
-- L574 fn `setRaces`
-- L589 fn `parseObject`
-- L657 type `Zone`
-- L658 type `VerbRule`
-- L700 fn `parseSelfVerb`
-- L718 fn `parseTargeted`
-- L756 fn `parseGrant`
-- L774 fn `parseSubject`
-- L802 fn `refTarget`
-- L808 fn `refAnyZone`
-- L814 fn `choosesCards`
-- L820 fn `parseRefSentence`
-- L872 fn `parseSentence`
-- L1161 fn `splitClauses`
-- L1178 interface `Group`
-- L1184 fn `flattenGroups`
-- L1189 fn `hasRealEffect`
-- L1199 fn `parseBothCondition`
-- L1231 fn `parseBody`
-- L1556 fn `pushGroup`
-- L1565 fn `parseLook`
-- L1695 fn `parseLookMulti`
-- L1758 fn `parseRevealIf`
-- L1781 fn `parsePickWhat`
-- L1817 fn `parsePer`
-- L1839 fn `parseSelfCost`
-- L1852 fn `parseStatic`
-- L2122 fn `parseFromReminder`
-- L2177 fn `mergeParsed`
-- L2189 fn `parseGateTrigger`
-- L2212 fn `parseZoneGate`
-- L2235 fn `parseGrantFrame`
-- L2244 **export** fn `splitAbilityLines`
-- L2289 **export** fn `parseAbilityText`
-- L2463 fn `parseOverloadBody`
-- L2480 fn `readByGrammar`
-- L2485 fn `mergeGrammar`
-- L2494 type `Snapshot`
-- L2495 fn `snapshot`
-- L2499 fn `restore`
-- L2512 fn `parseAwakenLink`
-- L2520 fn `splitCondition`
-- L2720 fn `parseLine`
-- L3214 fn `isUnsafe`
-- L3219 fn `selfKeywordStatic`
-- L3227 fn `parseMark`
-- L3291 fn `parseAltPlay`
-- L3320 fn `evolveFilter`
-- L3342 fn `parseEvolveSpec`
-- L3381 fn `sClassZones`
-- L3397 fn `parseSwapCondition`
-- L3419 fn `parseReplacement`
-- L3472 **export** fn `explainManual`
+- L185 **export** fn `lineDefKey`
+- L192 fn `findLineDef`
+- L202 fn `stripIcons`
+- L207 fn `normalizeKeepSpace`
+- L308 **export** fn `applyKeywordLine`
+- L364 type `ParsedTrigger`
+- L384 fn `parseOtherTrigger`
+- L415 fn `parseTrigger`
+- L496 fn `stripOptional`
+- L512 fn `parseMods`
+- L578 fn `civList`
+- L582 fn `setRaces`
+- L597 fn `parseObject`
+- L665 type `Zone`
+- L666 type `VerbRule`
+- L708 fn `parseSelfVerb`
+- L726 fn `parseTargeted`
+- L764 fn `parseGrant`
+- L782 fn `parseSubject`
+- L810 fn `refTarget`
+- L816 fn `refAnyZone`
+- L822 fn `choosesCards`
+- L828 fn `parseRefSentence`
+- L880 fn `parseSentence`
+- L1169 fn `splitClauses`
+- L1186 interface `Group`
+- L1192 fn `flattenGroups`
+- L1197 fn `hasRealEffect`
+- L1207 fn `parseBothCondition`
+- L1239 fn `parseBody`
+- L1564 fn `pushGroup`
+- L1573 fn `parseLook`
+- L1703 fn `parseLookMulti`
+- L1766 fn `parseRevealIf`
+- L1789 fn `parsePickWhat`
+- L1825 fn `parsePer`
+- L1847 fn `parseSelfCost`
+- L1860 fn `parseStatic`
+- L2136 fn `parseFromReminder`
+- L2191 fn `mergeParsed`
+- L2203 fn `parseGateTrigger`
+- L2226 fn `parseZoneGate`
+- L2249 fn `parseGrantFrame`
+- L2258 **export** fn `splitAbilityLines`
+- L2303 **export** fn `parseAbilityText`
+- L2477 fn `parseOverloadBody`
+- L2494 fn `readByGrammar`
+- L2499 fn `mergeGrammar`
+- L2508 type `Snapshot`
+- L2509 fn `snapshot`
+- L2513 fn `restore`
+- L2526 fn `parseAwakenLink`
+- L2534 fn `splitCondition`
+- L2740 fn `parseLine`
+- L3236 fn `isUnsafe`
+- L3241 fn `selfKeywordStatic`
+- L3249 fn `parseMark`
+- L3313 fn `parseAltPlay`
+- L3342 fn `evolveFilter`
+- L3364 fn `parseEvolveSpec`
+- L3403 fn `sClassZones`
+- L3419 fn `parseSwapCondition`
+- L3441 fn `parseReplacement`
+- L3497 **export** fn `explainManual`
 

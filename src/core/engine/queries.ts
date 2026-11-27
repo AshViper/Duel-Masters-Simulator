@@ -215,6 +215,14 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   if (f.enteredThisTurn && !(inst.zone === 'battle' && inst.enteredTurn === state.turn)) return false;
   if (f.hasOnSummonAbility && !(d.abilities ?? []).some((a) => a.when === 'onSummon')) return false;
   if (f.typeLabelIncludes && !(d.typeLabel ?? '').includes(f.typeLabelIncludes)) return false;
+  if (f.crossed && !gearsOn(state, reg, iid).length) return false;
+  // 「これをクロスしたクリーチャーと同じ種族の」：発生源のクロスギアをクロスしたクリーチャーと比べる
+  if (f.sameRaceAsEquipped) {
+    const host = source ? state.cards[source]?.equippedTo : undefined;
+    if (!host || !state.cards[host] || state.cards[host].zone !== 'battle') return false;
+    const races = def(state, reg, host).races;
+    if (!d.races.some((r) => races.includes(r))) return false;
+  }
   if (f.costIsChosenNumber && d.cost !== state.chosenNumber) return false;
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(d.type) : d.type !== f.cardType)) return false;
   if (f.civilization && !d.civilizations.includes(f.civilization)) return false;
@@ -262,6 +270,11 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
     if (f.minPower !== undefined && p < f.minPower) return false;
   }
   return true;
+}
+
+/** このクリーチャーにクロスされているクロスギア */
+export function gearsOn(state: GameState, reg: CardRegistry, iid: string): string[] {
+  return [...state.players[0].zones.battle, ...state.players[1].zones.battle].filter((b) => state.cards[b].equippedTo === iid && isCrossGear(reg[state.cards[b].cardId]));
 }
 
 /** 使う面（ツインパクトの呪文側を含む）が条件に合うか */
@@ -398,7 +411,9 @@ export function breakerCount(state: GameState, reg: CardRegistry, iid: string): 
     if (a.static.type === 'breakerBonus' && a.source === iid) base += a.static.amount * Math.floor(countQuantity(state, reg, a.controller, a.static.perCount, true, iid) / a.static.unit);
   }
   // パワード・ブレイカー：パワー6000ごとに1つ多くブレイクする
-  return kw.poweredBreaker ? Math.max(base, 1 + Math.floor(power(state, reg, iid) / 6000)) : base;
+  const n = kw.poweredBreaker ? Math.max(base, 1 + Math.floor(power(state, reg, iid) / 6000)) : base;
+  // 「クリーチャーは攻撃1回につきシールドを1枚しかブレイクできない」
+  return kw.maxBreakPerAttack !== undefined ? Math.min(n, kw.maxBreakPerAttack) : n;
 }
 
 /** ジャストダイバーが有効か（出てから次の自分のターンのはじめまで） */
@@ -650,7 +665,10 @@ function attackTargetsImpl(state: GameState, reg: CardRegistry, player: PlayerId
     if (cannotBeAttacked(state, reg, t)) continue;
     // 「これよりコストが小さいクリーチャーに攻撃されない」
     if (keywords(state, reg, t).cannotBeAttackedBySmallerCost && def(state, reg, iid).cost < def(state, reg, t).cost) continue;
-    if (state.cards[t].tapped || kw.attackUntapped || machOnly) out.push({ kind: 'creature', iid: t });
+    // 「パワー2000以下のクリーチャーに攻撃またはブロックされない」
+    const immune = keywords(state, reg, t).immuneToPowerAtMost;
+    if (immune !== undefined && power(state, reg, iid) <= immune) continue;
+    if (state.cards[t].tapped || kw.attackUntapped || machOnly || (kw.attackUntappedCrossed && gearsOn(state, reg, t).length)) out.push({ kind: 'creature', iid: t });
   }
   // 「相手のクリーチャーが攻撃するなら、可能ならこのクリーチャーを攻撃する」：攻撃できるなら攻撃先はそれに限られる
   const lures = out.filter((t) => t.kind === 'creature' && keywords(state, reg, t.iid).attackLure);
@@ -668,6 +686,7 @@ export function blockersFor(state: GameState, reg: CardRegistry, defender: Playe
     if (state.cards[b].tapped) return false;
     const kw = keywords(state, reg, b);
     if (kw.cannotBlock) return false;
+    if (akw.immuneToPowerAtMost !== undefined && power(state, reg, b) <= akw.immuneToPowerAtMost) return false;
     // 「このクリーチャーよりパワーが小さいクリーチャーにブロックされない」
     if (akw.unblockableBySmaller && !kw.superGuardman && !kw.guardman && power(state, reg, b) < power(state, reg, attacker)) return false;
     // ガードマンは「ブロック」ではなく攻撃先の変更なので、ブロックされないクリーチャーにも使える
@@ -768,7 +787,11 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       return (state.players[state.activePlayer].attacksThisTurn ?? 0) === 1;
     case 'crossed': {
       const gears = [...state.players[0].zones.battle, ...state.players[1].zones.battle].filter((b) => state.cards[b].equippedTo && isCrossGear(reg[state.cards[b].cardId]));
-      return c.any ? gears.some((b) => state.cards[state.cards[b].equippedTo!]?.owner === controller) : !!source && gears.some((b) => state.cards[b].equippedTo === source);
+      return c.any ? gears.some((b) => state.cards[state.cards[b].equippedTo!]?.owner === controller) : !!source && gears.filter((b) => state.cards[b].equippedTo === source).length >= (c.min ?? 1);
+    }
+    case 'gearAttached': {
+      const host = source ? state.cards[source]?.equippedTo : undefined;
+      return !!host && state.cards[host]?.zone === 'battle';
     }
     case 'selfTapped':
       return !!source && state.cards[source]?.zone === 'battle' && state.cards[source].tapped;

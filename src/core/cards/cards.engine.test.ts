@@ -1456,6 +1456,14 @@ const C = {
   noBounce: mk('b-63', ['自分のクリーチャーは、破壊以外の方法で離れない。']),
   killOwn: spell('b-64', ['自分のクリーチャーをすべて破壊する。']),
   killOpp: spell('b-73', ['相手のクリーチャーをすべて破壊する。']),
+  // クロスギア
+  gearSpeed: mk('b-80', ['クロスギア', 'これをクロスしたクリーチャーは「パワーアタッカー+4000」を得る。', 'このカードがどのクリーチャーにもクロスされていない時、バトルゾーンにあるクリーチャーはすべて「スピードアタッカー」を得る。'], { type: 'クロスギア', power: '' }),
+  gearShield: mk('b-81', ['クロスギア', 'これをクロスしたクリーチャーが破壊される時、墓地に置くかわりに裏向きにして自分のシールドに加える。', 'このカードがどのクリーチャーにもクロスされていない時、クリーチャーは攻撃１回につきシールドを１枚しかブレイクできない。'], { type: 'クロスギア', power: '' }),
+  gearGuard: mk('b-82', ['クロスギア', 'これをクロスしたクリーチャーは、パワー2000以下のクリーチャーに攻撃またはブロックされない。'], { type: 'クロスギア', power: '' }),
+  gearRace: mk('b-83', ['クロスギア', 'バトルゾーンにある、これをクロスしたクリーチャーと同じ種族のクリーチャーすべてのパワーは+1000される。'], { type: 'クロスギア', power: '' }),
+  killCrossed: spell('b-84', ['クロスギアをクロスしているクリーチャーをすべて破壊する。']),
+  hitCrossed: mk('b-85', ['このクリーチャーは、クロスギアをクロスされたタップされていないクリーチャーを攻撃できる。']),
+  wBreaker: mk('b-86', ['W・ブレイカー'], { power: '6000' }),
   buzz: mk('b-74', ['バズレンダ [cc02]（このクリーチャーのコストを支払う時、追加で[cc02]を好きな回数支払ってもよい。このクリーチャーがバトルゾーンに出た時、その[OL]能力を１回と、追加で[cc02]支払った回数、使う）\n\n[OL]カードを１枚引く。'], { cost: '3' }),
   bounceAll: spell('b-65', ['相手のクリーチャーをすべて持ち主の手札に戻す。']),
   mustAtk: mk('b-66', ['このクリーチャーは、可能なら毎ターン攻撃する。']),
@@ -1514,6 +1522,63 @@ describe('読み取り', () => {
     expect(C.zenithDiscount.statics).toEqual([{ type: 'costMod', amount: -3, appliesTo: { owner: 'self', filter: { race: 'ゼニス', cardType: 'creature' } } }]);
     // 「バトルゾーンにある、〜を選び」は両方のプレイヤーのカードの言い方のまま
     expect(parseAbilityText('バトルゾーンにあるクリーチャーを１体選び、持ち主の手札に戻す。', 'spell').manualLines).toEqual([]);
+  });
+});
+
+describe('クロスギア', () => {
+  it('クロスされていない時だけ全体の能力が働き、クロスすると装備先に能力を与える', () => {
+    const s = newGame();
+    const gear = put(s, 0, C.gearSpeed.id, 'battle');
+    const a = put(s, 0, C.vanilla.id, 'battle');
+    const v = put(s, 1, C.small.id, 'battle');
+    expect(keywords(s, reg, v).speedAttacker).toBe(true);
+    s.cards[gear].equippedTo = a;
+    expect(keywords(s, reg, v).speedAttacker).toBeUndefined();
+    expect(keywords(s, reg, a).powerAttacker).toBe(4000);
+  });
+  it('「攻撃1回につきシールドを1枚しかブレイクできない」と、装備先が破壊される時シールドに加える置換', () => {
+    let s = newGame();
+    const gear = put(s, 0, C.gearShield.id, 'battle');
+    const w = put(s, 0, C.wBreaker.id, 'battle');
+    expect(breakerCount(s, reg, w)).toBe(1);
+    s.cards[gear].equippedTo = w;
+    expect(breakerCount(s, reg, w)).toBe(2);
+    const shields = s.players[0].zones.shield.length;
+    s = play(s, C.killOwn.id).s;
+    expect(s.cards[w].zone).toBe('shield');
+    expect(s.players[0].zones.shield.length).toBe(shields + 1);
+  });
+  it('「パワー2000以下のクリーチャーに攻撃またはブロックされない」', () => {
+    const s = newGame();
+    const gear = put(s, 1, C.gearGuard.id, 'battle');
+    const t = put(s, 1, C.vanilla.id, 'battle');
+    s.cards[t].tapped = true;
+    const atk = put(s, 0, C.small.id, 'battle');
+    expect(attackTargets(s, reg, 0, atk).some((x) => x.kind === 'creature')).toBe(true);
+    s.cards[gear].equippedTo = t;
+    expect(attackTargets(s, reg, 0, atk).some((x) => x.kind === 'creature')).toBe(false);
+    // ブロックもされない
+    const s2 = newGame();
+    const g2 = put(s2, 0, C.gearGuard.id, 'battle');
+    const a2 = put(s2, 0, C.vanilla.id, 'battle');
+    s2.cards[g2].equippedTo = a2;
+    put(s2, 1, C.blocker.id, 'battle');
+    expect(blockersFor(s2, reg, 1, a2)).toEqual([]);
+  });
+  it('「クロスギアをクロスしているクリーチャーをすべて破壊する」「同じ種族のクリーチャーのパワー」「クロスされたアンタップのクリーチャーを攻撃できる」', () => {
+    let s = newGame();
+    const gear = put(s, 1, C.gearRace.id, 'battle');
+    const host = put(s, 1, C.vanilla.id, 'battle');
+    const kin = put(s, 1, C.small.id, 'battle');
+    const other = put(s, 1, C.dragon.id, 'battle');
+    expect(power(s, reg, kin)).toBe(2000);
+    s.cards[gear].equippedTo = host;
+    expect([power(s, reg, host), power(s, reg, kin), power(s, reg, other)]).toEqual([6000, 3000, 3000]);
+    const hitter = put(s, 0, C.hitCrossed.id, 'battle');
+    expect(attackTargets(s, reg, 0, hitter)).toContainEqual({ kind: 'creature', iid: host });
+    expect(attackTargets(s, reg, 0, hitter)).not.toContainEqual({ kind: 'creature', iid: kin });
+    s = play(s, C.killCrossed.id).s;
+    expect([s.cards[host].zone, s.cards[kin].zone]).toEqual(['graveyard', 'battle']);
   });
 });
 

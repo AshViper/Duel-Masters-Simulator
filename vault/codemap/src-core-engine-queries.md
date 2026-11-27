@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/engine/queries.ts（1048行）
+# src/core/engine/queries.ts（1071行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -25,72 +25,73 @@ generated: 2026-11-27
 - L174 fn `hyperDef`
 - L191 **export** fn `hyperizeCandidates`
 - L204 **export** fn `matchFilter`
-- L268 fn `matchFace`
-- L288 **export** interface `ActiveStatic`
-- L295 **export** fn `activeStatics`
-- L299 fn `activeStaticsImpl`
-- L315 fn `ownerMatches`
-- L319 fn `appliesToCreature`
-- L329 fn `mergeKeywords`
-- L341 **export** fn `keywords`
-- L345 fn `keywordsImpl`
-- L361 **export** fn `withoutAttackLocks`
-- L367 **export** fn `ignoresAttackLocks`
-- L371 **export** fn `power`
-- L375 fn `powerImpl`
-- L393 **export** fn `breakerCount`
-- L405 fn `justDiving`
-- L412 **export** fn `isUntargetable`
-- L421 **export** fn `cannotBeAttacked`
-- L428 **export** fn `effectiveCost`
-- L432 fn `effectiveCostImpl`
-- L484 **export** fn `usesHyperEnergy`
-- L492 **export** fn `sasageruCandidates`
-- L504 **export** fn `minimalSacrifice`
-- L519 **export** fn `playLimitReached`
-- L533 **export** fn `isCrossGear`
-- L538 **export** fn `isGrCard`
-- L543 **export** fn `canCross`
-- L553 **export** fn `cannotLeaveNow`
-- L561 **export** fn `cannotLose`
-- L571 **export** fn `forcedAttackers`
-- L576 **export** fn `entryBlocked`
-- L586 **export** fn `playRestriction`
-- L611 **export** fn `isSummoningSick`
-- L620 **export** fn `canAttackWith`
-- L624 fn `canAttackWithImpl`
-- L636 **export** fn `attackTargets`
-- L640 fn `attackTargetsImpl`
-- L663 **export** fn `blockersFor`
-- L683 **export** fn `targetCandidates`
-- L710 **export** fn `countQuantity`
-- L720 **export** fn `evalCondition`
-- L812 fn `simpleSpec`
-- L817 **export** fn `multiEvolveSpec`
-- L822 **export** fn `evolveSourceCandidates`
-- L835 **export** fn `validEvolveSources`
-- L845 **export** fn `defaultEvolveSources`
-- L858 **export** fn `evolutionBases`
-- L874 fn `matchesEvolvesFrom`
-- L882 **export** fn `canBeEvolutionSource`
-- L895 **export** fn `choosePayment`
-- L902 **export** fn `payMana`
-- L925 fn `assignCivs`
-- L943 **export** fn `altCost`
-- L952 **export** fn `altPayment`
-- L957 **export** fn `altUsable`
-- L971 **export** fn `canPlayAlt`
-- L979 **export** fn `fushigiCandidates`
-- L983 **export** fn `canPlay`
-- L987 fn `canPlayImpl`
-- L1007 **export** fn `untappedManaCount`
-- L1011 **export** fn `isIdle`
-- L1015 **export** fn `instancesIn`
-- L1020 **export** fn `attackSwapCandidates`
-- L1044 **export** fn `sClassCards`
+- L276 **export** fn `gearsOn`
+- L281 fn `matchFace`
+- L301 **export** interface `ActiveStatic`
+- L308 **export** fn `activeStatics`
+- L312 fn `activeStaticsImpl`
+- L328 fn `ownerMatches`
+- L332 fn `appliesToCreature`
+- L342 fn `mergeKeywords`
+- L354 **export** fn `keywords`
+- L358 fn `keywordsImpl`
+- L374 **export** fn `withoutAttackLocks`
+- L380 **export** fn `ignoresAttackLocks`
+- L384 **export** fn `power`
+- L388 fn `powerImpl`
+- L406 **export** fn `breakerCount`
+- L420 fn `justDiving`
+- L427 **export** fn `isUntargetable`
+- L436 **export** fn `cannotBeAttacked`
+- L443 **export** fn `effectiveCost`
+- L447 fn `effectiveCostImpl`
+- L499 **export** fn `usesHyperEnergy`
+- L507 **export** fn `sasageruCandidates`
+- L519 **export** fn `minimalSacrifice`
+- L534 **export** fn `playLimitReached`
+- L548 **export** fn `isCrossGear`
+- L553 **export** fn `isGrCard`
+- L558 **export** fn `canCross`
+- L568 **export** fn `cannotLeaveNow`
+- L576 **export** fn `cannotLose`
+- L586 **export** fn `forcedAttackers`
+- L591 **export** fn `entryBlocked`
+- L601 **export** fn `playRestriction`
+- L626 **export** fn `isSummoningSick`
+- L635 **export** fn `canAttackWith`
+- L639 fn `canAttackWithImpl`
+- L651 **export** fn `attackTargets`
+- L655 fn `attackTargetsImpl`
+- L681 **export** fn `blockersFor`
+- L702 **export** fn `targetCandidates`
+- L729 **export** fn `countQuantity`
+- L739 **export** fn `evalCondition`
+- L835 fn `simpleSpec`
+- L840 **export** fn `multiEvolveSpec`
+- L845 **export** fn `evolveSourceCandidates`
+- L858 **export** fn `validEvolveSources`
+- L868 **export** fn `defaultEvolveSources`
+- L881 **export** fn `evolutionBases`
+- L897 fn `matchesEvolvesFrom`
+- L905 **export** fn `canBeEvolutionSource`
+- L918 **export** fn `choosePayment`
+- L925 **export** fn `payMana`
+- L948 fn `assignCivs`
+- L966 **export** fn `altCost`
+- L975 **export** fn `altPayment`
+- L980 **export** fn `altUsable`
+- L994 **export** fn `canPlayAlt`
+- L1002 **export** fn `fushigiCandidates`
+- L1006 **export** fn `canPlay`
+- L1010 fn `canPlayImpl`
+- L1030 **export** fn `untappedManaCount`
+- L1034 **export** fn `isIdle`
+- L1038 **export** fn `instancesIn`
+- L1043 **export** fn `attackSwapCandidates`
+- L1067 **export** fn `sClassCards`
 
 ## switch の case（`ラベル:行`）
 
 ### evalCondition
-not:722 · and:724 · or:726 · compare:728 · attackedThisTurn:733 · selfIsEvolution:735 · summonedThisTurn:741 · castThisTurn:743 · turnTally:745 · chosenDistinctNames:755 · didNot:759 · enteredFreeThisTurn:761 · nthAttackThisTurn:763 · enteredNamedThisTurn:765 · firstAttackThisTurn:767 · crossed:769 · selfTapped:773 · wonBattleThisTurn:775 · selfEnteredThisTurn:777 · subjectEnteredFree:779 · enteredThisTurn:781 · underCount:785 · opponentTurn:787 · inExtraTurn:789 · shieldsBrokenThisTurn:791 · playedFreeThisTurn:793 · enteredByRevolution:797 · usedThisTurn:799 · chosenMatches:801
+not:741 · and:743 · or:745 · compare:747 · attackedThisTurn:752 · selfIsEvolution:754 · summonedThisTurn:760 · castThisTurn:762 · turnTally:764 · chosenDistinctNames:774 · didNot:778 · enteredFreeThisTurn:780 · nthAttackThisTurn:782 · enteredNamedThisTurn:784 · firstAttackThisTurn:786 · crossed:788 · gearAttached:792 · selfTapped:796 · wonBattleThisTurn:798 · selfEnteredThisTurn:800 · subjectEnteredFree:802 · enteredThisTurn:804 · underCount:808 · opponentTurn:810 · inExtraTurn:812 · shieldsBrokenThisTurn:814 · playedFreeThisTurn:816 · enteredByRevolution:820 · usedThisTurn:822 · chosenMatches:824
 
