@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/engine/queries.ts（1193行）
+# src/core/engine/queries.ts（1199行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -71,32 +71,32 @@ generated: 2026-11-27
 - L788 **export** fn `targetCandidates`
 - L815 **export** fn `countQuantity`
 - L828 **export** fn `evalCondition`
-- L951 fn `simpleSpec`
-- L956 **export** fn `multiEvolveSpec`
-- L961 **export** fn `evolveSourceCandidates`
-- L974 **export** fn `validEvolveSources`
-- L984 **export** fn `defaultEvolveSources`
-- L997 **export** fn `evolutionBases`
-- L1013 fn `matchesEvolvesFrom`
-- L1021 **export** fn `canBeEvolutionSource`
-- L1034 **export** fn `choosePayment`
-- L1041 **export** fn `payMana`
-- L1064 fn `assignCivs`
-- L1082 **export** fn `altCost`
-- L1097 **export** fn `altPayment`
-- L1102 **export** fn `altUsable`
-- L1116 **export** fn `canPlayAlt`
-- L1124 **export** fn `fushigiCandidates`
-- L1128 **export** fn `canPlay`
-- L1132 fn `canPlayImpl`
-- L1152 **export** fn `untappedManaCount`
-- L1156 **export** fn `isIdle`
-- L1160 **export** fn `instancesIn`
-- L1165 **export** fn `attackSwapCandidates`
-- L1189 **export** fn `sClassCards`
+- L957 fn `simpleSpec`
+- L962 **export** fn `multiEvolveSpec`
+- L967 **export** fn `evolveSourceCandidates`
+- L980 **export** fn `validEvolveSources`
+- L990 **export** fn `defaultEvolveSources`
+- L1003 **export** fn `evolutionBases`
+- L1019 fn `matchesEvolvesFrom`
+- L1027 **export** fn `canBeEvolutionSource`
+- L1040 **export** fn `choosePayment`
+- L1047 **export** fn `payMana`
+- L1070 fn `assignCivs`
+- L1088 **export** fn `altCost`
+- L1103 **export** fn `altPayment`
+- L1108 **export** fn `altUsable`
+- L1122 **export** fn `canPlayAlt`
+- L1130 **export** fn `fushigiCandidates`
+- L1134 **export** fn `canPlay`
+- L1138 fn `canPlayImpl`
+- L1158 **export** fn `untappedManaCount`
+- L1162 **export** fn `isIdle`
+- L1166 **export** fn `instancesIn`
+- L1171 **export** fn `attackSwapCandidates`
+- L1195 **export** fn `sClassCards`
 
 ## switch の case（`ラベル:行`）
 
 ### evalCondition
-not:830 · and:832 · or:834 · compare:836 · attackedThisTurn:841 · selfIsEvolution:843 · summonedThisTurn:849 · castThisTurn:851 · turnTally:853 · chosenDistinctNames:863 · didNot:867 · enteredFreeThisTurn:869 · nthAttackThisTurn:871 · enteredNamedThisTurn:873 · firstAttackThisTurn:875 · crossed:877 · entry:881 · godLinked:890 · shieldForce:892 · selfPower:896 · selfAttacking:901 · civsInBattle:903 · gearAttached:908 · selfTapped:912 · wonBattleThisTurn:914 · selfEnteredThisTurn:916 · subjectEnteredFree:918 · enteredThisTurn:920 · underCount:924 · opponentTurn:926 · inExtraTurn:928 · shieldsBrokenThisTurn:930 · playedFreeThisTurn:932 · enteredByRevolution:936 · usedThisTurn:938 · chosenMatches:940
+not:830 · and:832 · or:834 · compare:836 · attackedThisTurn:841 · selfIsEvolution:843 · summonedThisTurn:849 · castThisTurn:851 · turnTally:853 · chosenDistinctNames:863 · didNot:867 · enteredFreeThisTurn:869 · nthAttackThisTurn:871 · enteredNamedThisTurn:873 · firstAttackThisTurn:875 · crossed:877 · entry:881 · godLinked:890 · shieldForce:892 · selfPower:896 · selfAttacking:901 · civsInBattle:903 · gearAttached:914 · selfTapped:918 · wonBattleThisTurn:920 · selfEnteredThisTurn:922 · subjectEnteredFree:924 · enteredThisTurn:926 · underCount:930 · opponentTurn:932 · inExtraTurn:934 · shieldsBrokenThisTurn:936 · playedFreeThisTurn:938 · enteredByRevolution:942 · usedThisTurn:944 · chosenMatches:946
 

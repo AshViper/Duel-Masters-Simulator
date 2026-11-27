@@ -36,6 +36,8 @@ const C = {
   small: mk('s12-8', 'こもの', [], { cost: '2', power: '2000' }),
   water: mk('s12-9', 'みず', [], { civ: '水', cost: '2', power: '2000' }),
   big: mk('s12-10', 'おおもの', [], { cost: '6', power: '10000' }),
+  egg: mk('s12-11', 'ふれあえっぐ', ['自分のターンのはじめに、自分の山札の上から１枚目を墓地に置く。そのカードが進化ではないドラゴンであれば、このクリーチャーを破壊してもよい。そうした場合、そのドラゴンをバトルゾーンに出す。', 'このクリーチャーは攻撃することができない。'], { race: 'エッグ', cost: '3', power: '1000' }),
+  world: mk('s12-12', 'りゅうせかい', ['自分のターンのはじめに、自分の山札の上から１枚目を墓地に置く。それが進化ではないドラゴンなら、このドラゴニック・フィールドを墓地に置いてもよい。そうしたら、そのドラゴンをバトルゾーンに出す。'], { race: 'ドラゴン・ワールド', type: 'ドラゴニック・フィールド', cost: '4', power: '' }),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
 const filler = Array.from({ length: 40 }, () => 'S01-043');
@@ -90,7 +92,7 @@ function clearShields(s: GameState, p: PlayerId): void {
 
 describe('例文12の読み取り', () => {
   it('4枚とも自動の効果になる', () => {
-    for (const c of [C.mega, C.drago, C.dogi, C.gaial]) expect([c.id, c.support]).toEqual([c.id, 'full']);
+    for (const c of [C.mega, C.drago, C.dogi, C.gaial, C.egg, C.world]) expect([c.id, c.support]).toEqual([c.id, 'full']);
   });
   it('ドラゴン以外をすべて破壊し、その数だけ進化ではないドラゴンが出るまで表向きにする', () => {
     expect(C.mega.abilities?.[0].effects).toEqual([
@@ -247,5 +249,59 @@ describe('例文12の動作', () => {
     const [dr2] = stack(s, 0, [C.dragon.id]);
     s = settle(runTask(s, { kind: 'leave', iid: o2, to: 'graveyard', cause: 'destroy' }));
     expect([zone(s, o2), zone(s, dr2)]).toEqual(['graveyard', 'deck']);
+  });
+
+  /** 自分（0）のターンを終え、相手（1）のターンも終えて、次の自分のターンのはじめまで進める */
+  function toMyNextTurn(s: GameState, accept: boolean): GameState {
+    s = settle(act(s, { type: 'END_TURN', player: 0 }), false);
+    return settle(act(s, { type: 'END_TURN', player: 1 }), accept, undefined, (x) => x.pending?.player === 0 && x.pending.kind === 'confirm' && !accept);
+  }
+
+  it('フレア・エッグ：ターンのはじめに山札の上を墓地に置き、進化ではないドラゴンなら、このクリーチャーを破壊してそのドラゴンを出してもよい', () => {
+    let s = newGame();
+    s.phase = 'main';
+    const egg = put(s, 0, C.egg.id, 'battle');
+    // 2枚積む：ターンのはじめの能力は引く前（上の1枚目が墓地へ）。どちらがめくられても同じになるようドラゴン2枚
+    const [d1, d2] = stack(s, 0, [C.dragon.id, C.dragon.id]);
+    s = toMyNextTurn(s, true);
+    expect(zone(s, egg)).toBe('graveyard');
+    expect([zone(s, d1), zone(s, d2)].filter((z) => z === 'battle')).toHaveLength(1);
+  });
+
+  it('フレア・エッグ：使わなければドラゴンは墓地に残る。ドラゴンでなければ聞かない', () => {
+    let s = newGame();
+    s.phase = 'main';
+    const egg = put(s, 0, C.egg.id, 'battle');
+    const [d1, d2] = stack(s, 0, [C.dragon.id, C.dragon.id]);
+    s = toMyNextTurn(s, false);
+    s = settle(s, false);
+    expect(zone(s, egg)).toBe('battle');
+    expect([zone(s, d1), zone(s, d2)]).not.toContain('battle');
+    expect([zone(s, d1), zone(s, d2)]).toContain('graveyard');
+
+    s = newGame();
+    s.phase = 'main';
+    const egg2 = put(s, 0, C.egg.id, 'battle');
+    const [x1, x2] = stack(s, 0, [C.small.id, C.small.id]);
+    s = toMyNextTurn(s, true);
+    expect(zone(s, egg2)).toBe('battle');
+    expect([zone(s, x1), zone(s, x2)]).toContain('graveyard');
+  });
+
+  it('龍世界（ドラゴニック・フィールド）：墓地に置いて、めくった進化ではないドラゴンを出す。進化のドラゴンでは出さない', () => {
+    let s = newGame();
+    s.phase = 'main';
+    const w = put(s, 0, C.world.id, 'battle');
+    const [d1, d2] = stack(s, 0, [C.dragon.id, C.dragon.id]);
+    s = toMyNextTurn(s, true);
+    expect(zone(s, w)).toBe('graveyard');
+    expect([zone(s, d1), zone(s, d2)].filter((z) => z === 'battle')).toHaveLength(1);
+
+    s = newGame();
+    s.phase = 'main';
+    const w2 = put(s, 0, C.world.id, 'battle');
+    stack(s, 0, [C.evoDragon.id, C.evoDragon.id]);
+    s = toMyNextTurn(s, true);
+    expect(zone(s, w2)).toBe('battle');
   });
 });

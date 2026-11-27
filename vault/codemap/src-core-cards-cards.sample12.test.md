@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/cards.sample12.test.ts（252行）
+# src/core/cards/cards.sample12.test.ts（308行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -10,5 +10,5 @@ generated: 2026-11-27
 
 ## describe
 
-- L91 例文12の読み取り
-- L129 例文12の動作
+- L93 例文12の読み取り
+- L131 例文12の動作

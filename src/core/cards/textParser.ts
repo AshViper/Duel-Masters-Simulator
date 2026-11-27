@@ -82,6 +82,8 @@ const CIV: Record<string, Civilization> = { 光: 'light', 水: 'water', 闇: 'da
 /** 全角→半角、空白除去、カッコ内の補足説明（リマインダー）を除く */
 export function normalizeText(s: string): string {
   let t = s.normalize('NFKC').replace(/[\s　]+/g, '').replace(/[−‐－–]/g, '-').replace(/[︎️]/g, '');
+  // 「次の中から2回選ぶ。（同じものを選んでもよい）」：カッコの中が大事な指定なので、カッコを消す前に文にする
+  t = t.replace(/\(同じものを選んでもよい\)/g, '。同じものを選んでもよい');
   // 入れ子のカッコにも対応して内側から消す
   for (let i = 0; i < 3; i++) t = t.replace(/\([^()]*\)/g, '');
   return t
@@ -95,6 +97,8 @@ export function normalizeText(s: string): string {
     .replace(/_(?=\d)/g, '-')
     .replace(/そのターン、そのクリーチャー/g, 'このターン、そのクリーチャー')
     .replace(/^この(クリーチャー|ドラグハート)をバトルゾーンに出した時/, 'この$1が出た時')
+    // 《お清めシャラップ》「自身の山札の上から1枚目をマナゾーンに置く」：主語のない「自身の」は唱えたプレイヤー
+    .replace(/^自身の山札の上から/, '自分の山札の上から')
     .replace(/ひとつ/g, '1つ')
     .replace(/ふたつ/g, '2つ')
     .replace(/みっつ/g, '3つ')
@@ -357,7 +361,7 @@ const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArr
   [['∞ブレイカー', '「∞ブレイカー」を持つクリーチャーは、相手のシールドを好きな数ブレイクできる', 'このクリーチャーは、相手のシールドを好きな数ブレイクできる'], { breaker: 99 }],
   // フュリー・チャージ：出たターンにタップしているクリーチャーを攻撃できる（マッハファイターと同じ扱い）
   [/^(?:フュリー・チャージ[:：])?このクリーチャーは、?バトルゾーンに出たターンに、?タップしているクリーチャーを攻撃できる$/, () => ({ machFighter: true })],
-  ['相手のターンに相手のクリーチャーが出て、その能力がトリガーした時、自分もその能力を使ってもよい', { mimicEnemySummon: true }],
+  [/^相手のターンに相手のクリーチャーが出て、その(?:クリーチャーの)?能力がトリガーした時、自分もその能力を使ってもよい$/, { mimicEnemySummon: true }],
   [['相手が自分のクリーチャーを選ぶ時、相手は可能ならこのクリーチャーを選ぶ', '相手が自分のクリーチャーを選ぶ時、可能ならこのクリーチャーを選ぶ'], { lure: true }],
   [
     /^(?:相手のクリーチャーが攻撃する(?:なら|時)、|相手のクリーチャーは、?|このクリーチャーがタップされている間、相手の攻撃クリーチャーは)可能(?:なら|であれば)このクリーチャーを攻撃する$/,
@@ -968,6 +972,11 @@ function choosesCards(e: EffectDef): boolean {
 
 /** 「それ」「そのクリーチャー」が主語・目的語の文 */
 function parseRefSentence(s: string): EffectDef[] | null {
+  // 「そうしたら、そのカードをバトルゾーンに出す」：前の文で選んだ（墓地に置いた）カードを、どのゾーンからでも出す
+  if (/^(?:その(?:カード|クリーチャー)|それ)を、?(?:自分の)?(?:墓地から)?、?(?:バトルゾーンに)?出す$/.test(s)) {
+    const target = refCtx.chosen ? refAnyZone() : null;
+    return target && [{ type: 'move', target, to: 'battle' }];
+  }
   // 「このターン、それらのGRクリーチャーに「スピードアタッカー」と「ブロッカー」を与える」
   const toThem = s.match(/^(このターン|次の自分のターンのはじめまで)、(?:それら|その|それらの|こうして出した)(?:GR)?(?:クリーチャー)?(?:すべて)?に、?((?:「[^「」]+」(?:と)?)+を与える)$/);
   if (toThem) {
@@ -1038,6 +1047,14 @@ function parseSentence(s: string): EffectDef[] | null {
   let m: RegExpMatchArray | null;
   s = s.replace(/^(一番パワーが(?:大きい|小さい)|このクリーチャーより(?:パワー|コスト)が(?:小さい|大きい)|(?:その捨てたカード|そのクリーチャー|それ)(?:と同じコストの|以下のコストの|と同じ文明を持つ、?))(相手|自分)の/, '$2の$1');
   s = s.replace(/^そのターン、/, 'このターン、');
+  // 「このドラゴニック・フィールドを墓地に置く」「このタマシードを破壊する」：カードの種類の名前で書いた自分自身
+  s = s.replace(/^この(?:ドラゴニック・フィールド|フィールド|タマシード|クロスギア|カード)を(?=、?(?:自分の|持ち主の)?(?:墓地に置|破壊する|手札に戻す|マナゾーンに置))/, 'このクリーチャーを');
+  // 「それがドラゴンなら、〜。そうしたら、そのドラゴンを出す」：前の文で選んだカードを種族の名前で指す
+  {
+    const rm = refCtx.chosen ? s.match(/^その([^、。をのが「」《》]+)を/) : null;
+    const rf: CardFilter = {};
+    if (rm && !/クリーチャー|カード|呪文|エレメント|シールド|プレイヤー|数字|枚数|数|クロスギア|ドラグハート|フィールド|タマシード|ウエポン|フォートレス|オーラ|城|手札|山札|墓地|マナ/.test(rm[1]) && parseSubject(rm[1], rf)) s = `そのカードを${s.slice(rm[0].length)}`;
+  }
   // 「相手はバトルゾーン、マナゾーン、手札から自身のカードを1枚ずつ選び、好きな順序で山札の一番下に置く」：ゾーンごとに持ち主が選んで動かす
   if ((m = s.match(/^(相手|自分)は、?((?:(?:バトルゾーン|マナゾーン|手札|墓地|シールドゾーン)(?:、|と|または)?)+)から自身の(カード|クリーチャー)を(\d+)(?:枚|体|つ)ずつ選び、(?:好きな順序で)?(山札の(?:一番)?下|山札の(?:一番)?上|墓地|手札|マナゾーン)に(?:置く|加える|戻す)$/))) {
     const zoneOf: Record<string, TargetSpec['zone']> = { バトルゾーン: 'battle', マナゾーン: 'mana', 手札: 'hand', 墓地: 'graveyard', シールドゾーン: 'shield' };
@@ -1698,6 +1715,13 @@ function parseBody(body: string, options: string[], allowPartial = false): Group
       pushGroup(groups, false, [{ type: 'lookAtTop', count: 1, pickCount: 1, pickTo: 'mana', pickToAlt: 'shield', restTo: 'top' }], chain);
       continue;
     }
+    // 「自分の山札の上から1枚目を見る。そのカードを手札に加えるか、タップしてマナゾーンに置く」：手札に加えなければマナゾーンへ
+    const lookOne = (sentences[i + 1] ?? '').match(/^(?:その|この)カードを(?:自分の)?手札に加えるか、?(タップして)?(?:自分の)?マナゾーンに置く$/);
+    if (/^自分の山札の上から1枚(?:目)?を見る$/.test(s) && lookOne) {
+      i++;
+      pushGroup(groups, false, [{ type: 'lookAtTop', count: 1, pickCount: 1, pickTo: 'hand', restTo: 'mana', ...(lookOne[1] ? { restTapped: true } : {}) }], chain);
+      continue;
+    }
     // 「相手は自身の山札の上から2枚をすべてのプレイヤーに見せる。そのうちの1枚を選び、墓地に置かせる」
     const oppTop = s.match(/^相手は(?:自身の)?山札の上から(\d+)枚を表向きにする$/);
     const oppTopPick = oppTop ? (sentences[i + 1] ?? '').match(/^(?:その中から|そのうちの)(\d+)枚を選び、(?:持ち主の)?墓地に置かせる$/) : null;
@@ -1802,6 +1826,18 @@ function parseBody(body: string, options: string[], allowPartial = false): Group
     if (s === 'プレイヤーを1人選ぶ' && /^そのプレイヤーは、?自身の墓地にある(?:カードの枚数を数え、|カードをすべて、?)シャッフルして(?:自身の)?山札の(?:一番)?下に置く$/.test(sentences[i + 1] ?? '')) {
       i++;
       pushGroup(groups, false, [{ type: 'graveToDeckBottom', who: 'choose' }], chain);
+      continue;
+    }
+    // 「プレイヤーを1人選ぶ。そのプレイヤーは、自身の墓地のカードをすべて山札に加えてシャッフルする」
+    if (s === 'プレイヤーを1人選ぶ' && /^そのプレイヤーは、?自身の墓地(?:にある|の)カードをすべて、?(?:自身の)?山札に加え(?:て|、)(?:山札を)?シャッフルする$/.test(sentences[i + 1] ?? '')) {
+      i++;
+      pushGroup(groups, false, [{ type: 'graveyardToDeck', who: 'choose' }], chain);
+      continue;
+    }
+    // 「カードを1枚以上、いずれかのプレイヤーの墓地から選んでもよい。そのプレイヤーは、それらを自身の山札に加えてシャッフルする」
+    if (/^カードを1枚以上、?いずれかのプレイヤーの墓地から選んでもよい$/.test(s) && /^そのプレイヤーは、?それらを自身の山札に加え(?:て|、)(?:山札を)?シャッフルする$/.test(sentences[i + 1] ?? '')) {
+      i++;
+      pushGroup(groups, true, [{ type: 'graveyardToDeck', who: 'choose', pick: true }], chain);
       continue;
     }
     const eachS = stripOptional(s);
@@ -1934,6 +1970,22 @@ function parseBody(body: string, options: string[], allowPartial = false): Group
       const c = splitCondition(s);
       const cb = c.condition && c.body ? stripOptional(c.body) : null;
       const inner = cb ? parseSentence(cb.text) : null;
+      // 「それが〜なら、このクリーチャーを破壊してもよい。そうしたら、そのドラゴンを出す」：条件の中の「〜てもよい。そうしたら、〜」
+      const thenS = inner && cb!.optional ? (sentences[i + 1] ?? '').match(/^(?:そうしたら|そしたら|そうした場合)、(.+)$/) : null;
+      if (thenS) {
+        const wasChosen = refCtx.chosen;
+        refCtx.chosen = true;
+        const more = parseSentence(thenS[1]);
+        refCtx.chosen = wasChosen;
+        if (more) {
+          const last = inner![inner!.length - 1];
+          // 選ぶ効果の続きは、実際に選んだ時だけ（自分自身を動かす効果はそのまま続ける）
+          const tail: EffectDef[] = choosesCards(last) ? [{ type: 'ifChosen', then: more }] : more;
+          i++;
+          pushGroup(groups, false, [{ type: 'conditional', condition: c.condition!, then: [{ type: 'optional', effects: [...inner!, ...tail] }] }], chain);
+          continue;
+        }
+      }
       if (inner) {
         // 条件つきの「〜してもよい」は、条件を満たした時に使うかどうかを聞く
         pushGroup(groups, false, [{ type: 'conditional', condition: c.condition!, then: cb!.optional ? [{ type: 'optional', effects: inner }] : inner }], chain);
@@ -2760,8 +2812,10 @@ export function splitAbilityLines(text: string): { line: string; options: string
     // 「次のうちいずれかひとつを選ぶ。 ▼カードを1枚引く。 ▼…」のように同じ行に並んだ選択肢
     const parts = raw.split(/\s*(?:[▼▽]|__)\s*/).map((x) => x.trim()).filter(Boolean);
     const p = parts[0] ?? raw;
-    if (/^[▶►■・▼▽]/.test(raw.normalize('NFKC').replace(/[︎️]/g, '').trim()) && last) {
-      last.options.push(...(parts.length > 1 ? parts : [raw.replace(/^[\s▶►■・▼▽︎️]+/, '')]));
+    // 「→」：古い書式の選択肢（「次の中から2回選ぶ。」の後の行）
+    const arrow = /^→/.test(raw.normalize('NFKC').trim()) && !!last && (last.options.length > 0 || /選ぶ。?(?:[(（][^()（）]*[)）])?$/.test(last.line.normalize('NFKC').trim()));
+    if ((/^[▶►■・▼▽]/.test(raw.normalize('NFKC').replace(/[︎️]/g, '').trim()) || arrow) && last) {
+      last.options.push(...(parts.length > 1 ? parts : [raw.replace(/^[\s▶►■・▼▽→︎️]+/, '')]));
       continue;
     }
     if (parts.length > 1) {
@@ -3146,10 +3200,10 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
     }
   }
   // 「こうして捨てたカードがジョーカーズなら、」：直前に選んだ（動かした）カードが条件に合う時だけ
-  const chosenIs = body.match(/^(?:こうして(?:捨てた|墓地に置いた|手札に(?:加えた|戻した)|マナゾーンに置いた|山札の(?:一番)?(?:上|下)に置いた)|その(?:捨てた)?)(?:カード|クリーチャー)が([^、。]+?)(?:なら|であれば)、(.+)$/);
+  const chosenIs = body.match(/^(?:(?:こうして(?:捨てた|墓地に置いた|手札に(?:加えた|戻した)|マナゾーンに置いた|山札の(?:一番)?(?:上|下)に置いた)|その(?:捨てた)?)(?:カード|クリーチャー)が|それが)([^、。]+?)(?:なら|であれば)、(.+)$/);
   if (chosenIs) {
     const f: CardFilter = {};
-    if (parseSubject(chosenIs[1], f) && Object.keys(f).length) return { body: chosenIs[2], condition: { type: 'chosenMatches', filter: f } };
+    if ((parsePickWhat(chosenIs[1], f) || parseSubject(chosenIs[1], f)) && Object.keys(f).length) return { body: chosenIs[2], condition: { type: 'chosenMatches', filter: f } };
   }
   // 水晶武装：「自分のマナゾーンに裏向きのカードが4枚以上あれば、」
   const crystal = body.match(/^(自分|相手)のマナゾーンに裏向きのカードが(\d+)枚以上あれば、(.+)$/);
@@ -3228,6 +3282,13 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
   // 「バトルゾーンに5文明すべてのカードがそろっていれば」
   const civs5 = body.match(/^バトルゾーンに5文明すべてのカードが(?:そろって|揃って)いれば、(.+)$/);
   if (civs5) return { body: civs5[1], condition: { type: 'civsInBattle', min: 5 } };
+  // 「自分のマナゾーンにすべての文明が揃っていれば、さらにもう1枚、〜」：「さらにもう1枚、自分の山札の上からカードを」＝山札の上から1枚目を
+  const manaCivs = body.match(/^(自分|相手)のマナゾーンに(?:すべての文明|5文明すべて)(?:のカード)?が(?:そろって|揃って)いれば、(.+)$/);
+  if (manaCivs)
+    return {
+      body: manaCivs[2].replace(/^(?:さらに)?(?:もう)?(\d+)枚、?自分の山札の上からカードを/, '自分の山札の上から$1枚を'),
+      condition: { type: 'civsInBattle', min: 5, manaOf: manaCivs[1] === '自分' ? 'self' : 'opponent' },
+    };
   // 「9枚以上手札を持つプレイヤーがいれば」
   const bigHand = body.match(/^(\d+)枚以上手札を持つプレイヤーがいれば、(.+)$/);
   if (bigHand)
@@ -4181,6 +4242,9 @@ function parseAltPlay(t: string, rawLine: string, kind: 'creature' | 'spell'): A
   }
   const recital = body.match(/^この呪文を(?:自分の)?墓地からコスト(\d+)を支払って唱えてもよい(。そうして唱えた後、墓地に置くかわりに(?:自分の)?山札の(?:一番)?下に置く)?$/);
   if (recital && kind === 'spell') return { name: `墓地からコスト${n(recital[1])}で唱える`, cost: n(recital[1]), from: 'graveyard', ...(recital[2] ? { spellAfter: 'deckBottom' as const } : {}) };
+  // 「この呪文を、自分の墓地から唱えてもよい。そうしたら、唱えた後、墓地に置くかわりに自分の山札の一番下に置く」：コストはふつうに支払う
+  const fromGrave = body.match(/^この呪文を、?(?:自分の)?墓地から唱えてもよい(。(?:そうしたら|そうして唱えた|そうした場合)、?(?:唱えた後、?)?墓地に置くかわりに(?:自分の)?山札の(?:一番)?下に置く)?$/);
+  if (fromGrave && kind === 'spell') return { name: '墓地から唱える', from: 'graveyard', ...(fromGrave[1] ? { spellAfter: 'deckBottom' as const } : {}) };
   // 「自分の墓地にカードが6枚以上あれば、この呪文を[wdf04]支払って唱えてもよい」「この呪文を[ll04]支払って唱えてもよい。そうしたら、〜」
   const m = body.match(/^(?:(.+)、)?この呪文を\[([a-z]+)(\d+)\]支払って唱えてもよい(?:。そうしたら、(.+))?$/);
   if (!m || kind !== 'spell') return null;
