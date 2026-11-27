@@ -1105,6 +1105,16 @@ function flattenGroups(groups: Group[]): EffectDef[] {
   return groups.flatMap((g) => (g.optional ? [{ type: 'optional', effects: g.effects } as EffectDef] : g.effects));
 }
 
+/** 手動処理だけでない効果を含むか（部分的に読めた文を、読めた能力として扱うかの判定） */
+function hasRealEffect(e: EffectDef): boolean {
+  if (e.type === 'manual') return false;
+  if (e.type === 'chooseOne') return e.options.some((o) => o.effects.some(hasRealEffect));
+  if (e.type === 'conditional') return e.then.some(hasRealEffect) || (e.else ?? []).some(hasRealEffect);
+  if (e.type === 'gachinko') return e.then.some(hasRealEffect) || (e.lose ?? []).some(hasRealEffect);
+  if ('effects' in e && Array.isArray(e.effects)) return e.effects.some(hasRealEffect);
+  return true;
+}
+
 /** 「〜があれば、両方選んでもよい」の条件 */
 function parseBothCondition(text: string): Condition | null {
   // 「バトルゾーンに自分の闇のクリーチャーと火のクリーチャーがそれぞれ1体以上あれば」
@@ -1133,8 +1143,12 @@ function parseBothCondition(text: string): Condition | null {
   return c.condition && c.body === 'x' ? c.condition : null;
 }
 
-/** 能力の本文（誘発条件を除いた部分）を読む。読めなければ null */
-function parseBody(body: string, options: string[]): Group[] | null {
+/**
+ * 能力の本文（誘発条件を除いた部分）を読む。読めなければ null。
+ * allowPartial: 文の途中まで読めた時、読めた文は自動処理し、残りだけを手動にする。
+ * 前に書かれた文が読めていないのに、後ろの文だけを実行することはしない（順番の前提を壊さないため）。
+ */
+function parseBody(body: string, options: string[], allowPartial = false): Group[] | null {
   const sentences = body
     .replace(/シャッフルし、(?:その後|そのあと)、/g, 'シャッフルし、')
     .split('。')
@@ -1412,10 +1426,20 @@ function parseBody(body: string, options: string[]): Group[] | null {
     }
     const { text, optional } = stripOptional(s);
     const effects = parseSentence(text);
-    if (!effects) return null;
+    if (!effects) {
+      // ここから先は読めない。読めた所までを自動処理し、残りは手動にする
+      if (!allowPartial) return null;
+      const rest = [...sentences.slice(i), ...options.map((o) => `▶${o}`)].join('。');
+      pushGroup(groups, false, [{ type: 'manual', text: rest }], chain);
+      i = sentences.length;
+      break;
+    }
     pushGroup(groups, optional, effects, chain);
   }
-  if (options.length) return null;
+  if (options.length) {
+    if (!allowPartial) return null;
+    pushGroup(groups, false, [{ type: 'manual', text: options.map((o) => `▶${o}`).join('。') }], false);
+  }
   refCtx.chosen = outerChosen;
   return groups;
 }
@@ -2853,7 +2877,9 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     const { body, condition } = splitCondition(trig ? trig.rest : t);
     refCtx.event = !!trig?.subject;
     refCtx.chosen = false;
-    const groups = unsafe || body === null ? null : parseBody(body, opts);
+    const parsedGroups = unsafe || body === null ? null : parseBody(body, opts, true);
+    // 手動処理の文だけになったら、読めた能力としては扱わない（補足説明や行定義の読み取りを試す）
+    const groups = parsedGroups && parsedGroups.some((g) => g.effects.some(hasRealEffect)) ? parsedGroups : null;
     refCtx.event = false;
     for (const when of whens) {
       if (!groups) {

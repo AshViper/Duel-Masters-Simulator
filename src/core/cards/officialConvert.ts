@@ -2,7 +2,7 @@
 // 能力テキストは textParser で読み取り、定型文の能力は自動処理にする。
 // 読み取れない能力は「手動処理」として残す（誤って自動処理しないため）。
 import type { OfficialCardDetail, OfficialCardFace } from '../../server/dmOfficial';
-import { isCreatureType, type CardDefinition, type CardType, type Civilization, type ForbiddenSide, type PsychicSide, type SupportLevel, type TwinSide } from './types';
+import { isCreatureType, type CardDefinition, type CardType, type Civilization, type EffectDef, type ForbiddenSide, type PsychicSide, type SupportLevel, type TwinSide } from './types';
 import { parseAbilityText, type ParsedAbilities } from './textParser';
 
 export const OFFICIAL_PREFIX = 'dm:';
@@ -49,6 +49,22 @@ function mapType(label: string, hasPower: boolean): CardType {
 
 function faceText(f: OfficialCardFace): string {
   return f.abilities.join('\n');
+}
+
+/** 自動処理できない効果（manual）の数。入れ子の効果も数える */
+function manualEffectCount(abilities: ParsedAbilities['abilities']): number {
+  const count = (effects: EffectDef[]): number => {
+    let n = 0;
+    for (const e of effects) {
+      if (e.type === 'manual') n++;
+      else if (e.type === 'chooseOne') n += e.options.reduce((m, o) => m + count(o.effects), 0);
+      else if (e.type === 'conditional') n += count(e.then) + count(e.else ?? []);
+      else if (e.type === 'gachinko') n += count(e.then) + count(e.lose ?? []);
+      else if ('effects' in e && Array.isArray(e.effects)) n += count(e.effects);
+    }
+    return n;
+  };
+  return abilities.reduce((n, a) => n + count(a.effects), 0);
 }
 
 export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
@@ -231,7 +247,13 @@ export function applyParsedEffects(card: CardDefinition): CardDefinition {
       abilities: twinParsed.abilities.length ? twinParsed.abilities : undefined,
     };
   }
-  const manual = main.manualLines.length + (twinParsed?.manualLines.length ?? 0) + (hyperParsed?.manualLines.length ?? 0) + (fParsed?.manualLines.length ?? 0) + (pParsed?.manualLines.length ?? 0);
+  const manual =
+    main.manualLines.length +
+    manualEffectCount(main.abilities) +
+    (twinParsed ? twinParsed.manualLines.length + manualEffectCount(twinParsed.abilities) : 0) +
+    (hyperParsed ? hyperParsed.manualLines.length + manualEffectCount(hyperParsed.abilities) : 0) +
+    (fParsed ? fParsed.manualLines.length + manualEffectCount(fParsed.abilities) : 0) +
+    (pParsed ? pParsed.manualLines.length + manualEffectCount(pParsed.abilities) : 0);
   const auto =
     (isForbidden ? 1 : 0) +
     (fParsed ? Object.keys(fParsed.keywords).length + fParsed.parsedLines.length : 0) +
