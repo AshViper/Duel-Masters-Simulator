@@ -1474,6 +1474,11 @@ export class Ctx {
         const toBottom = srcKw?.shieldBreakTo === 'deckBottom';
         let bottomed = 0;
         for (const sh of chosen) {
+          // 「そのシールドをかわりに持ち主の山札の一番上に置く」
+          if (srcKw?.shieldBreakTo === 'deckTop') {
+            this.moveCard(sh, 'deck', { toTop: true });
+            continue;
+          }
           if (toBottom) {
             this.moveCard(sh, 'deck', { toTop: false });
             bottomed++;
@@ -2599,6 +2604,15 @@ export class Ctx {
         // 「自分のツインパクトクリーチャー1体の呪文側を」：選んだクリーチャーの呪文側
         if (e.target) return this.withTargets(controller, source, e.target, '呪文側を唱える', false, (iid) => castFrom(iid));
         castFrom(source);
+        return false;
+      }
+      case 'swapGraveMana': {
+        const P = s.players[controller];
+        const grave = [...P.zones.graveyard];
+        const manaZ = [...P.zones.mana];
+        for (const g of grave) this.moveCard(g, 'mana');
+        for (const m of manaZ) this.moveCard(m, 'graveyard');
+        this.log(`墓地の${grave.length}枚とマナゾーンの${manaZ.length}枚を入れ替えた`, controller);
         return false;
       }
       case 'shieldForce': {
@@ -3890,6 +3904,8 @@ export class Ctx {
     if (idx >= 0) fromList.splice(idx, 1);
     // 進化元、またはシールドの束の下のカードは、一緒に動く
     const under = (from === 'battle' && to !== 'battle') || (from === 'shield' && to !== 'shield') ? inst.under : [];
+    // 「下にあったカード」で指せるように覚える
+    if (under.length && from === 'battle') inst.formerUnder = [...under];
     if (under.length) inst.under = [];
     // バトルゾーンを離れたカードの封印は墓地へ
     const seals = from === 'battle' && to !== 'battle' ? (inst.seals ?? []) : [];

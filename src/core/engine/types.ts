@@ -54,6 +54,8 @@ export interface CardInstance {
   enteredBySummon?: boolean;
   /** シールド・フォースで選んだシールド */
   shieldForce?: string;
+  /** バトルゾーンを離れた時に下にあったカード（「下にあったカード」） */
+  formerUnder?: string[];
   /** バトルゾーンに出る前にあったゾーン（「手札以外から出た時」「墓地から出した時」） */
   enteredFrom?: ZoneName;
   /** 「革命チェンジ」で出た */

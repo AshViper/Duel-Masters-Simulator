@@ -1514,6 +1514,11 @@ const C = {
   elementHome: mk('b-134', ['エレメントが手札以外から出る時、かわりに持ち主の手札に戻す。']),
   tapWatch: mk('b-135', ['各ターン、はじめて相手のクリーチャーがタップした時、自分の山札の上から１枚をシールド化してもよい。']),
   manaCostPick: mk('b-136', ['このクリーチャーが出た時、自分のマナゾーンにあるカードの枚数以下のコストを持つクリーチャーを１体、自分のマナゾーンから出してもよい。']),
+  underBack: mk('b-140', ['このクリーチャーが破壊された時、下にあったカードをすべて墓地から手札に戻す。']),
+  underFeed: mk('b-141', ['このクリーチャーが出た時、自分のマナゾーンと墓地からカードを最大１枚ずつ、このクリーチャーの下に置いてもよい。']),
+  swapper: spell('b-142', ['自分の墓地にあるカードすべてと、自分のマナゾーンにあるカードすべてを入れ替える。']),
+  topBreaker: mk('b-143', ['このクリーチャーがシールドをブレイクする時、そのシールドをかわりに持ち主の山札の一番上に置く。']),
+  graveShrink: spell('b-144', ['相手のクリーチャーを１体選ぶ。このターン、自分の墓地にあるカード１枚につき、そのクリーチャーのパワーを－1000する。']),
   discardJump: mk('b-117', ['相手のターンにこのクリーチャーが自分の手札から捨てられる時、墓地に置くかわりに出す。']),
   reanimSelf: mk('b-110', ['このクリーチャーが破壊された時、相手の手札が１枚もなければ、このクリーチャーを自分の墓地から出してもよい。']),
   kinDraw: mk('b-95', ['クロスギア', 'これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時、カードを１枚引いてもよい。'], { type: 'クロスギア', power: '' }),
@@ -2065,6 +2070,64 @@ describe('シールド・フォース・呪文の封印を無視・NEO進化の�
     // マナは2枚（vanilla 1枚＋big）なので、コスト8は出せない
     expect(s.cards[big].zone).toBe('mana');
     expect(C.manaCostPick.abilities?.[0]).toMatchObject({ optional: true, effects: [{ target: { zone: 'mana', filter: { maxCostCount: { who: 'self', zone: 'mana' } } } }] });
+  });
+});
+
+describe('下にあったカード・下に置く・墓地とマナの入れ替え・ブレイクしたシールドを山札の上へ', () => {
+  const resolve = (s: GameState): GameState => {
+    let guard = 0;
+    while (s.pending && guard++ < 20) {
+      const p = s.pending;
+      if (p.kind === 'confirm') s = act(s, { type: 'RESPOND', player: p.player, accept: true });
+      else if (p.kind === 'selectCards') s = act(s, { type: 'RESPOND', player: p.player, selected: p.candidates.slice(0, Math.max(p.min, 1)) });
+      else s = act(s, { type: 'RESPOND', player: p.player, selected: ['0'] });
+    }
+    return s;
+  };
+  it('破壊された時、下にあったカードを墓地から手札に戻す', () => {
+    let s = newGame();
+    const top = put(s, 0, C.underBack.id, 'battle');
+    const u = put(s, 0, C.vanilla.id, 'hand');
+    new Ctx(s, reg).moveCard(u, 'battle');
+    s.players[0].zones.battle.splice(s.players[0].zones.battle.indexOf(u), 1);
+    s.cards[top].under.push(u);
+    s = resolve(play(s, C.killOwn.id).s);
+    expect(s.cards[top].zone).toBe('graveyard');
+    expect(s.cards[u].zone).toBe('hand');
+  });
+  it('マナゾーンと墓地から1枚ずつ、このクリーチャーの下に置く', () => {
+    let s = newGame();
+    const g = put(s, 0, C.vanilla.id, 'graveyard');
+    const r = play(s, C.underFeed.id);
+    s = resolve(r.s);
+    expect(s.cards[r.iid].under).toContain(g);
+    expect(s.cards[r.iid].under.length).toBe(2);
+  });
+  it('墓地とマナゾーンを入れ替える', () => {
+    let s = newGame();
+    const g = put(s, 0, C.vanilla.id, 'graveyard');
+    const m = put(s, 0, C.small.id, 'mana');
+    s = resolve(play(s, C.swapper.id).s);
+    expect(s.cards[g].zone).toBe('mana');
+    expect(s.cards[m].zone).toBe('graveyard');
+  });
+  it('ブレイクしたシールドを持ち主の山札の一番上に置く', () => {
+    let s = toAttack(newGame());
+    const a = put(s, 0, C.topBreaker.id, 'battle');
+    const hand = s.players[1].zones.hand.length;
+    const deck = s.players[1].zones.deck.length;
+    s = resolve(act(s, { type: 'ATTACK', player: 0, attacker: a, target: { kind: 'player' } }));
+    expect(s.players[1].zones.hand.length).toBe(hand);
+    expect(s.players[1].zones.deck.length).toBe(deck + 1);
+  });
+  it('自分の墓地にあるカード1枚につき、選んだクリーチャーのパワーを下げる', () => {
+    let s = newGame();
+    const t = put(s, 1, C.vanilla.id, 'battle');
+    put(s, 0, C.small.id, 'graveyard');
+    put(s, 0, C.small.id, 'graveyard');
+    s = resolve(play(s, C.graveShrink.id).s);
+    // 唱えている呪文はまだ墓地にないので、墓地は2枚
+    expect(power(s, reg, t)).toBe(3000);
   });
 });
 

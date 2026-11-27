@@ -99,6 +99,8 @@ export function normalizeText(s: string): string {
     .replace(/相手がこのクリーチャーを選んだ時/g, 'このクリーチャーが相手に選ばれた時')
     .replace(/パワーは、?([+-]\d+)される/g, 'パワーを$1する')
     .replace(/パワーは、?([^。]+?につき)、?([+-]\d+)される/g, 'パワーを、$1$2する')
+    // 「このターン、自分の墓地にあるカード1枚につき、そのクリーチャーのパワーを-1000する」＝そのクリーチャーのパワーを、〜1枚につき-1000する
+    .replace(/(このターン、)?([^。、]+?\d+(?:枚|体|つ)につき)、そのクリーチャーのパワーを([+-]\d+)する/g, '$1そのクリーチャーのパワーを、$2$3する')
     .replace(/全て/g, 'すべて')
     .replace(/(相手|自分)の、(?=クリーチャーではない)/g, '$1の')
     .replace(/クリーチャーではない表向きのカード/g, 'クリーチャーではないカード')
@@ -126,6 +128,12 @@ export function normalizeText(s: string): string {
     // 「新しいシールドとして自分のシールドゾーンに加える」＝シールド化する
     .replace(/を、?裏向きのまま、?新しいシールドとして(?:自分の)?シールドゾーンに(?:加え|置)る/g, 'をシールド化する')
     .replace(/を、?裏向きのまま、?新しいシールドとして(?:自分の)?シールドゾーンに(?:加え|置い)てもよい/g, 'をシールド化してもよい')
+    // 「水または火のカードが合計7枚以上」
+    .replace(/((?:光|水|闇|火|自然)(?:または(?:光|水|闇|火|自然))+のカードが)合計(\d+)枚以上/g, '$1$2枚以上')
+    // 「そのターン、自分のクリーチャーを2体以上バトルゾーンに出していれば」＝自分のクリーチャーが2体以上出ていれば
+    .replace(/(?:その|この)ターン、?自分のクリーチャーを(\d+)体以上(?:バトルゾーンに)?出していれば/g, 'そのターン、自分のクリーチャーが$1体以上出ていれば')
+    // 「山札の上から1枚目を見る。それを表向きまたは裏向きにして、新しいシールドとしてシールドゾーンに置く」＝シールド化する（裏向きを選ぶ）
+    .replace(/自分の山札の上から1枚目を見る。それを表向きまたは裏向きにして、?新しいシールドとして(?:自分の)?シールドゾーンに置く/g, '自分の山札の上から1枚目をシールド化する')
     // 「各ターン、はじめて相手のクリーチャーがタップした時」＝各ターンに1度（最初の1回で誘発する）
     .replace(/^各ターン、はじめて((?:相手|自分)の[^、。]*?クリーチャーが(?:タップした|攻撃する|出た|破壊された)時、)/, '各ターンに1度、$1')
     // 「自分のマナゾーンにあるカードの枚数以下のコストを持つ」：数えるゾーンの印にする（「自分のマナゾーンから」と取り違えない）
@@ -351,6 +359,7 @@ const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArr
   [/^このクリーチャーは、?パワーが(\d+)以上の(?:時|間)、「(W|T|Q)・ブレイカー」を得る$/, (m) => ({ breakerAtPower: { min: Number(m[1]), breaker: m[2] === 'W' ? 2 : m[2] === 'T' ? 3 : 4 } })],
   [/^このカードを(?:自分の)?手札からマナゾーンに置いた時、アンタップする$/, { manaUntapped: true }],
   [/^相手のターンにこのクリーチャーが(?:自分の)?手札から捨てられる時、墓地に置くかわりに(?:バトルゾーンに)?出す$/, { discardToBattle: 'always' }],
+  [/^このクリーチャーがシールドをブレイクする時、そのシールドを、?かわりに持ち主の山札の一番上に置く$/, { shieldBreakTo: 'deckTop' }],
   [/^このクリーチャーは、?パワー(\d+)以下のクリーチャーとのバトル中、?破壊されない$/, (m) => ({ battleImmuneVsPowerAtMost: Number(m[1]) })],
   [/^この呪文を唱えられなくする(?:効果|能力)を無視する$/, { ignoreCastLocksSelf: true }],
   [/^相手のターンにこのクリーチャーが(?:自分の)?手札から捨てられる時、墓地に置くかわりに(?:バトルゾーンに)?出してもよい$/, { discardToBattle: 'may' }],
@@ -896,6 +905,13 @@ function parseRefSentence(s: string): EffectDef[] | null {
     const kw = parseGrant(toThem[2].replace(/」(?!と)「/g, '」と「'));
     return target && kw && [{ type: 'grantKeyword', target, keywords: kw, ...(toThem[1] !== 'このターン' ? { untilNextTurn: true } : {}) }];
   }
+  // 「このターン、自分の墓地にあるカード1枚につき、そのクリーチャーのパワーを-1000する」
+  const perRef = s.match(/^(?:このターン、)?(.+?につき)、?(?:その(?:クリーチャー)?|それ)のパワーを([+-]\d+)する$/);
+  if (perRef) {
+    const target = refTarget();
+    const p = parsePer(perRef[1]);
+    return target && p && p.unit === 1 ? [{ type: 'powerMod', target, amount: n(perRef[2]), perCount: p.per }] : null;
+  }
   // 「そのターン、そのクリーチャーはパワーを+2000され、相手プレイヤーを攻撃できない」
   const powAnd = s.match(/^(このターン|そのターン|次の自分のターンのはじめまで)、(?:その(?:クリーチャー)?|それ)は、?パワーを([+-]\d+)され、(.+)$/);
   if (powAnd) {
@@ -999,6 +1015,28 @@ function parseSentence(s: string): EffectDef[] | null {
   // 「自分のツインパクトクリーチャー1体の呪文側を、バトルゾーンに置いたままコストを支払わずに唱える」
   if (/^自分のツインパクト・?クリーチャー1体の呪文側を、?バトルゾーンに置いたまま、?コストを支払わずに唱える$/.test(s))
     return [{ type: 'castOwnTwin', target: { owner: 'self', zone: 'battle', count: 1, filter: { twinpact: true } } }];
+  // 「下にあったカードをすべて墓地から手札に戻す」（このクリーチャーが破壊された時）
+  const formerAll = s.match(/^下にあったカードをすべて、?(?:自分の)?墓地から(?:自分の)?(手札に戻す|手札に加える|マナゾーンに置く)$/);
+  if (formerAll) return [{ type: 'move', target: { owner: 'self', zone: 'graveyard', count: 'all', filter: { wasUnderSource: true } }, to: formerAll[1].startsWith('マナ') ? 'mana' : 'hand' }];
+  // 「自分のマナゾーンと墓地からカードを最大1枚ずつ、このクリーチャーの下に置く」
+  const underEach = s.match(/^自分の(マナゾーン|墓地|手札)と(マナゾーン|墓地|手札)からカードを最大1枚ずつ、?このクリーチャーの下に置(く|いてもよい)$/);
+  if (underEach) {
+    const mv = (z: string): EffectDef => ({ type: 'move', target: { owner: 'self', zone: ZONE_WORD[z], count: 1, upTo: true }, to: 'under' });
+    return [mv(underEach[1]), mv(underEach[2])];
+  }
+  // 「自分の墓地にあるカードすべてと、自分のマナゾーンにあるカードすべてを入れ替える」
+  if (/^自分の墓地にあるカードすべてと、?自分のマナゾーンにあるカードすべてを入れ替え(?:る|てもよい)$/.test(s))
+    return /てもよい$/.test(s) ? [{ type: 'optional', effects: [{ type: 'swapGraveMana' }] }] : [{ type: 'swapGraveMana' }];
+  // 「コストの合計が7以下になるよう、水のサイキック・クリーチャーを2体まで選び、自分の超次元ゾーンからバトルゾーンに出す」
+  const psyTotal = s.match(/^コストの合計が(\d+)以下になるよう(?:に)?、(.*?)サイキック・クリーチャーを(\d+)体まで選び、自分の超次元ゾーンから(?:バトルゾーンに)?出す$/);
+  if (psyTotal) {
+    const filter: CardFilter = { cardType: 'creature' };
+    if (!parseMods(psyTotal[2], filter)) return null;
+    return [{ type: 'move', target: { owner: 'self', zone: 'hyperspatial', count: n(psyTotal[3]), upTo: true, maxTotalCost: n(psyTotal[1]), filter }, to: 'battle' }];
+  }
+  // 「このターン、このクリーチャーはブロックされず、このクリーチャーがシールドをブレイクする時、相手はそのシールドを手札に加えるかわりに自身の墓地に置く」
+  if (/^このターン、このクリーチャーはブロックされず、このクリーチャーがシールドをブレイクする時、相手はそのシールドを手札に加えるかわりに(?:自身の|持ち主の)?墓地に置く$/.test(s))
+    return [{ type: 'grantKeyword', target: 'self', keywords: { unblockable: true, shieldBurn: true } }];
   // 「パワーの合計がこのクリーチャーのパワー以下になるように相手のクリーチャーを好きな数選び、破壊する」
   if (/^パワーの合計がこのクリーチャーのパワー以下になるように、?相手のクリーチャーを好きな数選び、破壊する$/.test(s))
     return [{ type: 'destroy', target: { owner: 'opponent', zone: 'battle', count: 99, upTo: true, maxTotalPowerOfSource: true } }];

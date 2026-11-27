@@ -114,6 +114,8 @@ export interface CardFilter {
   sameNameAsEquipped?: boolean;
   /** コストが、発生源の持ち主から数えた数以下（「自分のマナゾーンにあるカードの枚数以下のコストを持つ」） */
   maxCostCount?: Quantity;
+  /** 効果の発生源（このクリーチャー）がバトルゾーンを離れた時に、その下にあったカード（「下にあったカード」） */
+  wasUnderSource?: boolean;
 }
 
 /** 効果の対象指定 */
@@ -460,6 +462,8 @@ export type EffectDef =
   | { type: 'dynamo' }
   /** シールド・フォース：自分のシールドを1つ選んでもよい（選んだシールドがある間、{l} 能力が働く） */
   | { type: 'shieldForce' }
+  /** 自分の墓地にあるカードすべてと、マナゾーンにあるカードすべてを入れ替える */
+  | { type: 'swapGraveMana' }
   /**
    * 「〜1体につき、〜する」：数えた数だけ effects を行う（引く枚数・選ぶ数は掛け算にする）。
    * per: 'chosen' は直前の効果で選んだ（動かした）カードの数（「こうして破壊したクリーチャー1体につき」）。n: エンジン内部用
@@ -739,7 +743,7 @@ export interface Keywords {
   /** avertLoss のかわりに、自分のシールドをこの数だけ墓地に置いてもよい（CRY-S-MAX進化） */
   avertLossShield?: number;
   /** ブレイクしたシールドを手札に加えるかわりに置く場所（墓地は shieldBurn） */
-  shieldBreakTo?: 'deckBottom';
+  shieldBreakTo?: 'deckBottom' | 'deckTop';
   /** shieldBreakTo の後、各プレイヤーはその数だけカードを引く */
   shieldBreakEachDraws?: boolean;
   /** 唱えた後、墓地のかわりに自分の超次元ゾーンに置く */
