@@ -2292,7 +2292,27 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
   let soul: ParsedAbilities | null = null;
   const empty = (): ParsedAbilities => ({ keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] });
   let pendingFrame: { condition: Condition; line: string } | null = null;
+  // バズレンダ：「バズレンダ [cc02]」の行と、[OL] で始まる能力の行を組にして読む
+  let buzz: { cost: number; key: string } | null = null;
   for (const { line: rawLine, options } of splitAbilityLines(text)) {
+    const nfkc = rawLine.normalize('NFKC').trim();
+    const buzzM = kind === 'creature' && !options.length ? nfkc.match(/^バズレンダ\s*\[cc0*(\d+)\]/) : null;
+    if (buzzM) {
+      if (buzz) result.manualLines.push(buzz.key);
+      buzz = { cost: Number(buzzM[1]), key: rawLine };
+      continue;
+    }
+    const olM = nfkc.match(/^[[{]OL[\]}]\s*([\s\S]+)$/);
+    if (olM) {
+      const key = [rawLine, ...options.map((o) => `▶${o}`)].join('\n');
+      const effects = buzz ? parseOverloadBody(olM[1], options) : null;
+      if (buzz && effects) {
+        result.abilities.push({ when: 'onSummon', effects: [{ type: 'buzzRenda', cost: buzz.cost, effects }] });
+        result.parsedLines.push(buzz.key, key);
+      } else result.manualLines.push(...(buzz ? [buzz.key] : []), key);
+      buzz = null;
+      continue;
+    }
     // 条件つきの能力のアイコン：{S} サバイバー、{x+} S・トリガー・プラス、{xB} スーパー・S・トリガー
     // （アイコンが文字になって「xB次の自分のターンの〜」のように本文の頭に付いていることもある）
     const iconM = rawLine.normalize('NFKC').trim().match(/^(?:\{(S|x\+|xB)\}|(x\+|xB)(?=[^\x00-\x7F]))\s*([\s\S]*)$/);
@@ -2433,8 +2453,27 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
     if (soul && !parseLine(line, options, kind, soul)) parseFromReminder(line, options, kind, soul);
     (ok ? result.parsedLines : result.manualLines).push([line, ...options.map((o) => `▶${o}`)].join('\n'));
   }
+  // [OL] の行がなかったバズレンダは手動
+  if (buzz) result.manualLines.push(buzz.key);
   if (soul) result.soul = { keywords: soul.keywords, abilities: soul.abilities, statics: soul.statics, replacements: soul.replacements };
   return result;
+}
+
+/** [OL] 能力の本文を効果の列にする（出た時の能力として読み、手動の効果や条件が残れば null） */
+function parseOverloadBody(body: string, options: string[]): EffectDef[] | null {
+  const line = `このクリーチャーが出た時、${body}`;
+  let tmp: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
+  if (!parseLine(line, options, 'creature', tmp) || JSON.stringify(tmp.abilities).includes('"type":"manual"')) {
+    const g = readByGrammar(line, options, 'creature');
+    if (!g) return null;
+    tmp = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
+    mergeGrammar(tmp, g);
+  }
+  const ab = tmp.abilities;
+  if (ab.length !== 1 || ab[0].when !== 'onSummon' || ab[0].condition || Object.keys(tmp.keywords).length || tmp.statics.length || tmp.replacements.length) return null;
+  if (JSON.stringify(ab[0].effects).includes('"type":"manual"')) return null;
+  // 「〜してもよい」の能力は、1回ごとに使うかどうかを聞く
+  return ab[0].optional ? [{ type: 'optional', effects: ab[0].effects }] : ab[0].effects;
 }
 
 /** 語の組み立て（grammar.ts）で1行を読む。選択肢（▶）のある行は読まない */

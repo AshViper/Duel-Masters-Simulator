@@ -1456,6 +1456,7 @@ const C = {
   noBounce: mk('b-63', ['自分のクリーチャーは、破壊以外の方法で離れない。']),
   killOwn: spell('b-64', ['自分のクリーチャーをすべて破壊する。']),
   killOpp: spell('b-73', ['相手のクリーチャーをすべて破壊する。']),
+  buzz: mk('b-74', ['バズレンダ [cc02]（このクリーチャーのコストを支払う時、追加で[cc02]を好きな回数支払ってもよい。このクリーチャーがバトルゾーンに出た時、その[OL]能力を１回と、追加で[cc02]支払った回数、使う）\n\n[OL]カードを１枚引く。'], { cost: '3' }),
   bounceAll: spell('b-65', ['相手のクリーチャーをすべて持ち主の手札に戻す。']),
   mustAtk: mk('b-66', ['このクリーチャーは、可能なら毎ターン攻撃する。']),
   mustAtkCreature: mk('b-67', ['このクリーチャーは、可能なら毎ターン、クリーチャーを攻撃する。']),
@@ -1632,6 +1633,29 @@ describe('攻撃・ブロック', () => {
 });
 
 describe('出る時・離れる時', () => {
+  it('バズレンダ：追加で支払った回数だけ、[OL]能力を多く使う', () => {
+    expect(C.buzz.abilities).toEqual([{ when: 'onSummon', effects: [{ type: 'buzzRenda', cost: 2, effects: [{ type: 'draw', count: 1 }] }] }]);
+    let s = newGame();
+    const iid = put(s, 0, C.buzz.id, 'hand');
+    mana(s, 7);
+    const hand = s.players[0].zones.hand.length;
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid });
+    // コスト3を払った残りは4枚：追加で0〜2回
+    expect(s.pending).toMatchObject({ kind: 'chooseMode', player: 0 });
+    expect(s.pending?.kind === 'chooseMode' && s.pending.options).toHaveLength(3);
+    s = act(s, { type: 'RESPOND', player: 0, selected: ['2'] });
+    expect(s.players[0].zones.hand.length).toBe(hand - 1 + 3);
+    expect(s.players[0].zones.mana.every((m) => s.cards[m].tapped)).toBe(true);
+  });
+  it('バズレンダ：追加で払えるマナがなければ聞かずに1回使う', () => {
+    let s = newGame();
+    const iid = put(s, 0, C.buzz.id, 'hand');
+    mana(s, 3);
+    const hand = s.players[0].zones.hand.length;
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid });
+    expect(s.pending).toBeNull();
+    expect(s.players[0].zones.hand.length).toBe(hand - 1 + 1);
+  });
   it('「次の自分のターンのはじめまで、このクリーチャーは離れない」：破壊されずに残る', () => {
     let s = newGame();
     const r = play(s, C.stayTurn.id);

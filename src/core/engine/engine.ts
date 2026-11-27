@@ -2188,6 +2188,35 @@ export class Ctx {
         this.insertFront(...tasks);
         return false;
       }
+      case 'buzzRenda': {
+        const inst = s.cards[source];
+        // 追加の支払いは、コストを支払って出た時だけ（コストを支払わずに出た時は [OL] 能力を1回だけ使う）
+        const paid = !!inst && inst.zone === 'battle' && inst.enteredTurn === s.turn && !inst.enteredFree;
+        const untapped = s.players[controller].zones.mana.filter((m) => !s.cards[m].tapped);
+        const max = paid ? Math.min(20, Math.floor(untapped.length / e.cost)) : 0;
+        let extra = 0;
+        if (max > 0) {
+          const r = this.takeResponse();
+          if (!r) {
+            s.pending = {
+              kind: 'chooseMode',
+              player: controller,
+              source,
+              prompt: `${this.name(source)}：バズレンダ。追加で[${e.cost}]を何回支払いますか？（アンタップしているマナ${untapped.length}枚）`,
+              options: Array.from({ length: max + 1 }, (_, i) => (i === 0 ? '追加で支払わない' : `${i}回（マナを${i * e.cost}枚タップ）→ 能力を${i + 1}回使う`)),
+            };
+            return true;
+          }
+          extra = Math.max(0, Math.min(max, Number(r.selected?.[0] ?? 0)));
+          for (const m of untapped.slice(0, extra * e.cost)) s.cards[m].tapped = true;
+          if (extra) this.log(`${this.name(source)}：バズレンダで追加で[${e.cost}]を${extra}回支払った`, controller);
+        }
+        this.log(`${this.name(source)}：[OL]能力を${extra + 1}回使う`, controller);
+        const all: EffectDef[] = [];
+        for (let i = 0; i <= extra; i++) all.push(...e.effects);
+        this.insertFront(...this.effectTasks(controller, source, all));
+        return false;
+      }
       case 'upToTimes': {
         const r = this.takeResponse();
         if (!r) {

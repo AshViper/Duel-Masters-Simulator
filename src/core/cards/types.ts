@@ -410,6 +410,11 @@ export type EffectDef =
   /** 「次の能力をN回まで使う」：使うかどうかを1回ずつ聞く */
   | { type: 'upToTimes'; times: number; effects: EffectDef[] }
   /**
+   * バズレンダ：出た時に [OL] 能力（effects）を1回と、追加で cost を支払った回数使う。
+   * 追加の支払いは、コストを支払って出た時だけ、この効果を処理する時に回数を選んでマナをタップする
+   */
+  | { type: 'buzzRenda'; cost: number; effects: EffectDef[] }
+  /**
    * 「〜1体につき、〜する」：数えた数だけ effects を行う（引く枚数・選ぶ数は掛け算にする）。
    * per: 'chosen' は直前の効果で選んだ（動かした）カードの数（「こうして破壊したクリーチャー1体につき」）。n: エンジン内部用
    */

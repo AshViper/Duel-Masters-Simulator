@@ -56,7 +56,8 @@ function respond(state: GameState, reg: CardRegistry, me: PlayerId, level: Diffi
 
   if (p.kind === 'chooseMode') {
     // S・トリガーの面選択は「使う」側、モード選択は先頭（EASY はランダム）
-    const i = level === 'easy' ? Math.floor(rand() * p.options.length) : 0;
+    // バズレンダの追加の支払いは、払えるだけ払う（選択肢は回数の少ない順）
+    const i = level === 'easy' ? Math.floor(rand() * p.options.length) : p.prompt.includes('バズレンダ') ? p.options.length - 1 : 0;
     return { type: 'RESPOND', player: me, selected: [String(i)] };
   }
 

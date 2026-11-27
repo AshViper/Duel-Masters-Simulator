@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/textParser.ts（3450行）
+# src/core/cards/textParser.ts（3489行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -58,22 +58,23 @@ generated: 2026-11-27
 - L2235 fn `parseGrantFrame`
 - L2244 **export** fn `splitAbilityLines`
 - L2289 **export** fn `parseAbilityText`
-- L2441 fn `readByGrammar`
-- L2446 fn `mergeGrammar`
-- L2455 type `Snapshot`
-- L2456 fn `snapshot`
-- L2460 fn `restore`
-- L2473 fn `parseAwakenLink`
-- L2481 fn `splitCondition`
-- L2681 fn `parseLine`
-- L3175 fn `isUnsafe`
-- L3180 fn `selfKeywordStatic`
-- L3188 fn `parseMark`
-- L3252 fn `parseAltPlay`
-- L3281 fn `evolveFilter`
-- L3303 fn `parseEvolveSpec`
-- L3342 fn `sClassZones`
-- L3358 fn `parseSwapCondition`
-- L3380 fn `parseReplacement`
-- L3433 **export** fn `explainManual`
+- L2463 fn `parseOverloadBody`
+- L2480 fn `readByGrammar`
+- L2485 fn `mergeGrammar`
+- L2494 type `Snapshot`
+- L2495 fn `snapshot`
+- L2499 fn `restore`
+- L2512 fn `parseAwakenLink`
+- L2520 fn `splitCondition`
+- L2720 fn `parseLine`
+- L3214 fn `isUnsafe`
+- L3219 fn `selfKeywordStatic`
+- L3227 fn `parseMark`
+- L3291 fn `parseAltPlay`
+- L3320 fn `evolveFilter`
+- L3342 fn `parseEvolveSpec`
+- L3381 fn `sClassZones`
+- L3397 fn `parseSwapCondition`
+- L3419 fn `parseReplacement`
+- L3472 **export** fn `explainManual`
 

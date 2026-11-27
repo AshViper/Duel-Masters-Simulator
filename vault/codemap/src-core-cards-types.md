@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/types.ts（983行）
+# src/core/cards/types.ts（988行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -26,25 +26,25 @@ generated: 2026-11-27
 - L161 **export** type `Condition`
 - L224 **export** type `MoveDest`
 - L227 **export** type `EffectDef`
-- L419 **export** const `TRIGGER_EVENTS`
-- L486 **export** type `TriggerEvent`
-- L488 **export** interface `TriggeredAbility`
-- L523 **export** interface `Applies`
-- L534 **export** type `StaticAbility`
-- L591 **export** interface `ReplacementAbility`
-- L619 **export** interface `Keywords`
-- L747 **export** interface `ForbiddenSide`
-- L754 **export** interface `TwinSide`
-- L764 **export** interface `AttackSwap`
-- L777 **export** interface `AltPlay`
-- L820 **export** interface `ZoneGate`
-- L832 **export** interface `HandTrigger`
-- L860 **export** interface `EvolveSpec`
-- L877 **export** interface `CardDefinition`
-- L947 **export** interface `PsychicSide`
-- L953 **export** fn `isCreatureType`
-- L958 **export** fn `isNonCreaturePermanent`
-- L963 **export** fn `manaCivilizations`
-- L968 **export** interface `PlayFace`
-- L977 **export** fn `playFace`
+- L424 **export** const `TRIGGER_EVENTS`
+- L491 **export** type `TriggerEvent`
+- L493 **export** interface `TriggeredAbility`
+- L528 **export** interface `Applies`
+- L539 **export** type `StaticAbility`
+- L596 **export** interface `ReplacementAbility`
+- L624 **export** interface `Keywords`
+- L752 **export** interface `ForbiddenSide`
+- L759 **export** interface `TwinSide`
+- L769 **export** interface `AttackSwap`
+- L782 **export** interface `AltPlay`
+- L825 **export** interface `ZoneGate`
+- L837 **export** interface `HandTrigger`
+- L865 **export** interface `EvolveSpec`
+- L882 **export** interface `CardDefinition`
+- L952 **export** interface `PsychicSide`
+- L958 **export** fn `isCreatureType`
+- L963 **export** fn `isNonCreaturePermanent`
+- L968 **export** fn `manaCivilizations`
+- L973 **export** interface `PlayFace`
+- L982 **export** fn `playFace`
 
