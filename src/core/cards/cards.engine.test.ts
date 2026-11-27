@@ -1472,6 +1472,9 @@ const C = {
   gearTap: mk('b-92', ['クロスギア', 'これをクロスしたクリーチャーで攻撃するかわりに、タップして次の能力を使ってもよい。', 'カードを１枚引く。'], { type: 'クロスギア', power: '', cost: '1' }),
   gearsToMana: spell('b-93', ['バトルゾーンにある相手のクリーチャーを１体選び、そのクリーチャーとそれにクロスされているクロスギアをすべて持ち主のマナゾーンに置く。']),
   oppSearch: spell('b-94', ['相手の山札を見る。その中から１枚選び、持ち主の墓地に置いてもよい。その後、相手は山札をシャッフルする。']),
+  sameCostReveal: spell('b-96', ['コストが同じカードが２枚出るまで、自分の山札の上からカードを表向きにする。', 'こうして自分の山札をすべて表向きにした場合、このターンの後に自分のターンを追加し、残りのゲーム中、自分の山札のカードが１枚もなくても、自分はゲームに負けない。', '表向きにしたカードをすべて手札に加える。']),
+  handGuard: mk('b-97', ['相手の呪文の効果やクリーチャーの能力によって、自分の手札は捨てられない。']),
+  discardOne: spell('b-98', ['相手の手札を１枚見ないで選び、捨てさせる。']),
   kinDraw: mk('b-95', ['クロスギア', 'これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時、カードを１枚引いてもよい。'], { type: 'クロスギア', power: '' }),
   buzz: mk('b-74', ['バズレンダ [cc02]（このクリーチャーのコストを支払う時、追加で[cc02]を好きな回数支払ってもよい。このクリーチャーがバトルゾーンに出た時、その[OL]能力を１回と、追加で[cc02]支払った回数、使う）\n\n[OL]カードを１枚引く。'], { cost: '3' }),
   bounceAll: spell('b-65', ['相手のクリーチャーをすべて持ち主の手札に戻す。']),
@@ -1684,6 +1687,46 @@ describe('クロスギア（出す・クロスする・タップして使う能�
     expect(s.pending).toMatchObject({ kind: 'confirm', player: 0 });
     s = act(s, { type: 'RESPOND', player: 0, accept: true });
     expect(s.players[0].zones.hand.length).toBe(hand + 1);
+  });
+});
+
+describe('山札を表向きにする・手札を捨てられない', () => {
+  it('コストが同じカードが2枚出るまで表向きにし、表向きにしたカードを手札に加える', () => {
+    let s = newGame();
+    const hand = s.players[0].zones.hand.length;
+    const deck = s.players[0].zones.deck.length;
+    s = play(s, C.sameCostReveal.id).s;
+    // 山札はすべて同じコストなので2枚で止まる。追加ターンはない
+    expect(s.players[0].zones.hand.length).toBe(hand + 2);
+    expect(s.players[0].zones.deck.length).toBe(deck - 2);
+    expect(s.players[0].extraTurns).toBe(0);
+  });
+  it('山札をすべて表向きにした時は、追加ターンを得て、残りのゲーム中は山札がなくても負けない', () => {
+    let s = newGame();
+    for (const iid of s.players[0].zones.deck) delete s.cards[iid];
+    s.players[0].zones.deck.splice(0);
+    for (const id of [C.big.id, C.buzz.id, C.vanilla.id]) put(s, 0, id, 'deck');
+    const hand = s.players[0].zones.hand.length;
+    s = play(s, C.sameCostReveal.id).s;
+    expect(s.players[0].zones.deck.length).toBe(0);
+    expect(s.players[0].zones.hand.length).toBe(hand + 3);
+    expect(s.players[0].extraTurns).toBe(1);
+    expect(s.gameOverReason).toBeNull();
+    // ターンが変わっても続く
+    s = act(s, { type: 'END_TURN', player: 0 });
+    expect(s.gameOverReason).toBeNull();
+    expect(s.turnStatics.some((t) => t.forGame)).toBe(true);
+  });
+  it('「相手の呪文の効果やクリーチャーの能力によって、自分の手札は捨てられない」', () => {
+    let s = newGame();
+    put(s, 1, C.handGuard.id, 'battle');
+    const hand = s.players[1].zones.hand.length;
+    s = play(s, C.discardOne.id).s;
+    expect(s.players[1].zones.hand.length).toBe(hand);
+    let s2 = newGame();
+    const hand2 = s2.players[1].zones.hand.length;
+    s2 = play(s2, C.discardOne.id).s;
+    expect(s2.players[1].zones.hand.length).toBe(hand2 - 1);
   });
 });
 

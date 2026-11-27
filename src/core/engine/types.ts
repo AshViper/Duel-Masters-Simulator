@@ -278,6 +278,8 @@ export interface TurnStatic {
   /** 次のこのプレイヤーのターンの終わりまで有効（fromTurn: 効果を使ったターン） */
   untilTurnEndOf?: PlayerId;
   fromTurn?: number;
+  /** 残りのゲーム中ずっと有効 */
+  forGame?: boolean;
 }
 
 export interface GameState {

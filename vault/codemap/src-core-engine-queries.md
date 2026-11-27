@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/engine/queries.ts（1082行）
+# src/core/engine/queries.ts（1087行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -55,44 +55,45 @@ generated: 2026-11-27
 - L569 **export** fn `canCross`
 - L579 **export** fn `cannotLeaveNow`
 - L587 **export** fn `cannotLose`
-- L597 **export** fn `forcedAttackers`
-- L602 **export** fn `entryBlocked`
-- L612 **export** fn `playRestriction`
-- L637 **export** fn `isSummoningSick`
-- L646 **export** fn `canAttackWith`
-- L650 fn `canAttackWithImpl`
-- L662 **export** fn `attackTargets`
-- L666 fn `attackTargetsImpl`
-- L692 **export** fn `blockersFor`
-- L713 **export** fn `targetCandidates`
-- L740 **export** fn `countQuantity`
-- L750 **export** fn `evalCondition`
-- L846 fn `simpleSpec`
-- L851 **export** fn `multiEvolveSpec`
-- L856 **export** fn `evolveSourceCandidates`
-- L869 **export** fn `validEvolveSources`
-- L879 **export** fn `defaultEvolveSources`
-- L892 **export** fn `evolutionBases`
-- L908 fn `matchesEvolvesFrom`
-- L916 **export** fn `canBeEvolutionSource`
-- L929 **export** fn `choosePayment`
-- L936 **export** fn `payMana`
-- L959 fn `assignCivs`
-- L977 **export** fn `altCost`
-- L986 **export** fn `altPayment`
-- L991 **export** fn `altUsable`
-- L1005 **export** fn `canPlayAlt`
-- L1013 **export** fn `fushigiCandidates`
-- L1017 **export** fn `canPlay`
-- L1021 fn `canPlayImpl`
-- L1041 **export** fn `untappedManaCount`
-- L1045 **export** fn `isIdle`
-- L1049 **export** fn `instancesIn`
-- L1054 **export** fn `attackSwapCandidates`
-- L1078 **export** fn `sClassCards`
+- L597 **export** fn `handProtected`
+- L602 **export** fn `forcedAttackers`
+- L607 **export** fn `entryBlocked`
+- L617 **export** fn `playRestriction`
+- L642 **export** fn `isSummoningSick`
+- L651 **export** fn `canAttackWith`
+- L655 fn `canAttackWithImpl`
+- L667 **export** fn `attackTargets`
+- L671 fn `attackTargetsImpl`
+- L697 **export** fn `blockersFor`
+- L718 **export** fn `targetCandidates`
+- L745 **export** fn `countQuantity`
+- L755 **export** fn `evalCondition`
+- L851 fn `simpleSpec`
+- L856 **export** fn `multiEvolveSpec`
+- L861 **export** fn `evolveSourceCandidates`
+- L874 **export** fn `validEvolveSources`
+- L884 **export** fn `defaultEvolveSources`
+- L897 **export** fn `evolutionBases`
+- L913 fn `matchesEvolvesFrom`
+- L921 **export** fn `canBeEvolutionSource`
+- L934 **export** fn `choosePayment`
+- L941 **export** fn `payMana`
+- L964 fn `assignCivs`
+- L982 **export** fn `altCost`
+- L991 **export** fn `altPayment`
+- L996 **export** fn `altUsable`
+- L1010 **export** fn `canPlayAlt`
+- L1018 **export** fn `fushigiCandidates`
+- L1022 **export** fn `canPlay`
+- L1026 fn `canPlayImpl`
+- L1046 **export** fn `untappedManaCount`
+- L1050 **export** fn `isIdle`
+- L1054 **export** fn `instancesIn`
+- L1059 **export** fn `attackSwapCandidates`
+- L1083 **export** fn `sClassCards`
 
 ## switch の case（`ラベル:行`）
 
 ### evalCondition
-not:752 · and:754 · or:756 · compare:758 · attackedThisTurn:763 · selfIsEvolution:765 · summonedThisTurn:771 · castThisTurn:773 · turnTally:775 · chosenDistinctNames:785 · didNot:789 · enteredFreeThisTurn:791 · nthAttackThisTurn:793 · enteredNamedThisTurn:795 · firstAttackThisTurn:797 · crossed:799 · gearAttached:803 · selfTapped:807 · wonBattleThisTurn:809 · selfEnteredThisTurn:811 · subjectEnteredFree:813 · enteredThisTurn:815 · underCount:819 · opponentTurn:821 · inExtraTurn:823 · shieldsBrokenThisTurn:825 · playedFreeThisTurn:827 · enteredByRevolution:831 · usedThisTurn:833 · chosenMatches:835
+not:757 · and:759 · or:761 · compare:763 · attackedThisTurn:768 · selfIsEvolution:770 · summonedThisTurn:776 · castThisTurn:778 · turnTally:780 · chosenDistinctNames:790 · didNot:794 · enteredFreeThisTurn:796 · nthAttackThisTurn:798 · enteredNamedThisTurn:800 · firstAttackThisTurn:802 · crossed:804 · gearAttached:808 · selfTapped:812 · wonBattleThisTurn:814 · selfEnteredThisTurn:816 · subjectEnteredFree:818 · enteredThisTurn:820 · underCount:824 · opponentTurn:826 · inExtraTurn:828 · shieldsBrokenThisTurn:830 · playedFreeThisTurn:832 · enteredByRevolution:836 · usedThisTurn:838 · chosenMatches:840
 

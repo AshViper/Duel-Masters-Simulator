@@ -354,7 +354,13 @@ export type EffectDef =
   /** ターン終了時まで有効な常在効果（例：このターン、相手のクリーチャーは攻撃できない） */
   /** onlyOpponentTurn: 相手のターンの間だけ有効（「次の相手のターン中、」） */
   /** untilNextTurnEnd: 次の自分のターンの終わりまで */
-  | { type: 'turnStatic'; static: StaticAbility; untilNextTurn?: boolean; untilNextTurnEnd?: boolean; onlyOpponentTurn?: boolean }
+  /** forGame: 残りのゲーム中ずっと有効（「残りのゲーム中、〜」） */
+  | { type: 'turnStatic'; static: StaticAbility; untilNextTurn?: boolean; untilNextTurnEnd?: boolean; onlyOpponentTurn?: boolean; forGame?: boolean }
+  /**
+   * コストが同じカードが count 枚出るまで、自分の山札の上からカードを表向きにする。表向きにしたカードは山札の上に残り、
+   * 後の文の「表向きにしたカード」で指せる（lastChosen）。山札をすべて表向きにした（そろわなかった）時は lastDid が true
+   */
+  | { type: 'revealUntilSameCost'; count: number }
   | { type: 'conditional'; condition: Condition; then: EffectDef[]; else?: EffectDef[] }
   /** モード選択（「次の中から1つ選ぶ」） */
   /** times: 選ぶ回数（「次の中から2回選ぶ」）。distinct: 同じものは選べない */
@@ -603,6 +609,8 @@ export type StaticAbility = (
    * deckOutOnly: 山札がなくなった時だけ（「自分の山札にカードがなくなっても、自分はゲームに負けない」）
    */
   | { type: 'cannotLose'; who: 'self' | 'opponent' | 'both'; deckOutOnly?: boolean }
+  /** 相手の呪文の効果やクリーチャーの能力によって、自分の手札は捨てられない */
+  | { type: 'handProtected' }
   /** 持ち主の zones 以外からはバトルゾーンに出ない（「相手のエレメントは、相手の手札以外から出ない」。who: カードの持ち主） */
   | { type: 'entryOnlyFrom'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; zones: Array<'hand' | 'deck'> }
 ) & {

@@ -935,6 +935,27 @@ function parseSentence(s: string): EffectDef[] | null {
       { type: 'playFree', target: { owner: 'self', zone: 'deck', count: 'all', ref: 'chosen', anyZone: true } },
     ];
   }
+  // 「コストが同じカードが2枚出るまで、自分の山札の上からカードを表向きにする」
+  const sameCost = s.match(/^コストが同じカードが(\d+)枚出るまで、?自分の山札の上から(?:カードを)?(?:1枚ずつ)?表向きにする$/);
+  if (sameCost) return [{ type: 'revealUntilSameCost', count: n(sameCost[1]) }];
+  // 「こうして自分の山札をすべて表向きにした場合、このターンの後に自分のターンを追加し、残りのゲーム中、〜」
+  const wholeDeck = s.match(/^こうして自分の山札をすべて表向きにした場合、(.+)$/);
+  if (wholeDeck) {
+    const parts = wholeDeck[1].split(/(?<=追加)し、/);
+    const then: EffectDef[] = [];
+    for (const [i, p] of parts.entries()) {
+      const e = parseSentence(i < parts.length - 1 ? `${p}する` : p);
+      if (!e) return null;
+      then.push(...e);
+    }
+    return [{ type: 'conditional', condition: { type: 'not', condition: { type: 'didNot' } }, then }];
+  }
+  // 「残りのゲーム中、自分の山札のカードが1枚もなくても、自分はゲームに負けない」
+  if (/^残りのゲーム中、?自分の山札(?:の|に)カードが(?:1枚も)?なくても、?自分はゲームに負けない$/.test(s))
+    return [{ type: 'turnStatic', static: { type: 'cannotLose', who: 'self', deckOutOnly: true }, forGame: true }];
+  // 「表向きにしたカードをすべて手札に加える」：前の文で表向きにしたカード
+  if (/^(?:こうして)?表向きにしたカードをすべて、?(?:自分の)?手札に加える$/.test(s))
+    return [{ type: 'move', target: { owner: 'self', zone: 'deck', count: 'all', ref: 'chosen', anyZone: true }, to: 'hand' }];
   // 「そのクロスギアをこのクリーチャーに、コストを支払わずにクロスする」（前の文で出したクロスギア）
   if (/^(?:その|それらの)クロスギアを、?このクリーチャーに、?(?:コストを支払わずに)?クロスする$/.test(s)) {
     const target = refTarget();
@@ -2037,6 +2058,8 @@ function parseStatic(t: string): StaticAbility[] | null {
   // 「（バトルゾーンにある、）これをクロスしたクリーチャーと同じ種族のクリーチャーすべてのパワーを+1000する」
   const sameRace = t.match(/^これを(?:クロス|装備)したクリーチャーと同じ種族のクリーチャーすべてのパワーを([+-]\d+)する$/);
   if (sameRace) return [{ type: 'powerMod', amount: n(sameRace[1]), appliesTo: { owner: 'any', filter: { cardType: 'creature', sameRaceAsEquipped: true } } }];
+  // 「相手の呪文の効果やクリーチャーの能力によって、自分の手札は捨てられない」
+  if (/^相手の(?:呪文の効果|クリーチャーの能力)(?:や|または|と|か)(?:相手の)?(?:呪文の効果|クリーチャーの能力)によって、?自分の手札(?:のカード)?は捨てられない$/.test(t)) return [{ type: 'handProtected' }];
   // 「自分はゲームに負けない」「自分はゲームに負けず、相手はゲームに勝てない」「自分の山札にカードがなくなっても、自分はゲームに負けない」
   const noLose = t.match(/^(自分の山札にカードがなくなっても、)?(?:自分はゲームに負けない|相手はゲームに勝てない|自分はゲームに負けず、相手はゲームに勝てない)$/);
   if (noLose) return [{ type: 'cannotLose', who: 'self', ...(noLose[1] ? { deckOutOnly: true } : {}) }];

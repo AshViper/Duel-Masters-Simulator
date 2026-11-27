@@ -29,6 +29,7 @@ import {
   blockersFor,
   cannotLeaveNow,
   canTapAbility,
+  handProtected,
   gearsOn,
   cannotLose,
   forcedAttackers,
@@ -447,7 +448,7 @@ export class Ctx {
     }
     // 「次の自分のターンの終わりまで」は、効果を使ったターンより後の、そのプレイヤーのターンの終わりで終わる
     s.turnStatics = s.turnStatics.filter(
-      (t) => t.untilNextTurnOf !== undefined || (t.untilTurnEndOf !== undefined && !(t.untilTurnEndOf === s.activePlayer && s.turn > (t.fromTurn ?? 0))),
+      (t) => t.forGame || t.untilNextTurnOf !== undefined || (t.untilTurnEndOf !== undefined && !(t.untilTurnEndOf === s.activePlayer && s.turn > (t.fromTurn ?? 0))),
     );
     s.usedThisTurn = [];
     for (const p of s.players) {
@@ -2057,8 +2058,34 @@ export class Ctx {
         }
         return false;
       }
+      case 'revealUntilSameCost': {
+        const deck = s.players[controller].zones.deck;
+        const revealed: string[] = [];
+        const counts = new Map<number, number>();
+        let matched = false;
+        for (let i = deck.length - 1; i >= 0; i--) {
+          const iid = deck[i];
+          revealed.push(iid);
+          const c = def(s, this.reg, iid).cost;
+          counts.set(c, (counts.get(c) ?? 0) + 1);
+          if ((counts.get(c) ?? 0) >= e.count) {
+            matched = true;
+            break;
+          }
+        }
+        this.log(`山札の上から${revealed.length}枚を表向きにした：${revealed.map((x) => this.name(x)).join('、') || 'なし'}${matched ? '' : '（山札をすべて表向きにした）'}`, controller);
+        // 後の文の「表向きにしたカード」「こうして山札をすべて表向きにした場合」で使う
+        s.lastChosen = revealed;
+        s.lastDid = !matched;
+        return false;
+      }
       case 'discardRandom': {
         const who = e.self ? controller : opp;
+        // 「相手の〜によって、自分の手札は捨てられない」
+        if (who !== controller && handProtected(s, this.reg, who)) {
+          this.log(`${this.name(handProtected(s, this.reg, who)!)} の効果：手札は捨てられない`, who);
+          return false;
+        }
         const picked: string[] = [];
         // 「こうして捨てたカード1枚につき」
         const times = e.perChosen ? e.count * (s.lastChosen ?? []).length : e.count;
@@ -2408,8 +2435,9 @@ export class Ctx {
           ...(e.untilNextTurn ? { untilNextTurnOf: controller } : {}),
           ...(e.untilNextTurnEnd ? { untilTurnEndOf: controller, fromTurn: s.turn } : {}),
           ...(e.onlyOpponentTurn ? { onlyDuringTurnOf: other(controller) } : {}),
+          ...(e.forGame ? { forGame: true } : {}),
         });
-        this.log(`${this.name(source)} の効果が${e.untilNextTurn ? '次の自分のターンのはじめまで' : e.untilNextTurnEnd ? '次の自分のターンの終わりまで' : 'このターンの間'}有効`, controller);
+        this.log(`${this.name(source)} の効果が${e.forGame ? '残りのゲーム中' : e.untilNextTurn ? '次の自分のターンのはじめまで' : e.untilNextTurnEnd ? '次の自分のターンの終わりまで' : 'このターンの間'}有効`, controller);
         return false;
       }
       case 'playFree':
@@ -2897,6 +2925,14 @@ export class Ctx {
   /** カードを動かす共通の効果。移動先ごとの違いはここだけに書く */
   private execMove(controller: PlayerId, source: string, e: MoveEffect): boolean {
     const s = this.s;
+    // 「相手の〜によって、自分の手札は捨てられない」：相手の手札を捨てさせる効果は何もしない
+    if (e.to === 'graveyard' && e.target.zone === 'hand' && e.target.owner === 'opponent') {
+      const guard = handProtected(s, this.reg, other(controller));
+      if (guard) {
+        this.log(`${this.name(guard)} の効果：手札は捨てられない`, other(controller));
+        return false;
+      }
+    }
     const info = MOVE_DEST[e.to];
     return this.withTargets(controller, source, e.target, info.verb, info.harmful(e.target.zone), (iid) => {
       // 「そのクリーチャーとそれにクロスされているクロスギアをすべて」：クロスギアも同じところへ

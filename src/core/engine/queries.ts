@@ -593,6 +593,11 @@ export function cannotLose(state: GameState, reg: CardRegistry, player: PlayerId
   return null;
 }
 
+/** 「相手の呪文の効果やクリーチャーの能力によって、自分の手札は捨てられない」 */
+export function handProtected(state: GameState, reg: CardRegistry, player: PlayerId): string | null {
+  return activeStatics(state, reg).find((a) => a.static.type === 'handProtected' && a.controller === player)?.source ?? null;
+}
+
 /** 「可能なら毎ターン攻撃する」：まだ攻撃できるのに攻撃していないクリーチャー */
 export function forcedAttackers(state: GameState, reg: CardRegistry, player: PlayerId): string[] {
   return battleCards(state, reg, player).filter((iid) => keywords(state, reg, iid).mustAttack && attackTargets(state, reg, player, iid).length > 0);
