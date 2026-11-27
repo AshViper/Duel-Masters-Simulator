@@ -341,4 +341,6 @@ export type Action =
   /** ハイパー化する（タップするクリーチャーは判断パネルで選ぶ） */
   | { type: 'HYPERIZE'; player: PlayerId; iid: string }
   /** クロスギアを、コストを支払って自分のクリーチャーにクロスする（付け替える） */
-  | { type: 'CROSS'; player: PlayerId; iid: string; target: string; manaIids?: string[] };
+  | { type: 'CROSS'; player: PlayerId; iid: string; target: string; manaIids?: string[] }
+  /** 「攻撃するかわりに、タップして次の能力を使ってもよい」：このクリーチャー（またはクロスしたクロスギア）の能力を使う */
+  | { type: 'TAP_ABILITY'; player: PlayerId; iid: string };

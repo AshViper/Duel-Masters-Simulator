@@ -108,6 +108,13 @@ export function normalizeText(s: string): string {
     .replace(/^(鬼タイム|メテオバーン)[:：]/, '$1：')
     .replace(/真上の[▪■▫□◼◾・]+能力/g, '真上の能力')
     .replace(/^このクリーチャーを召喚するコストは、/, 'このクリーチャーの召喚コストは、')
+    // ジェネレート：クロスギアをバトルゾーンに出すこと
+    .replace(/ジェネレートしてもよい/g, 'バトルゾーンに出してもよい')
+    .replace(/ジェネレートする/g, 'バトルゾーンに出す')
+    // 「このクリーチャーにクロスギアをクロスする時」＝このクリーチャーにクロスされた時
+    .replace(/^このクリーチャーにクロスギアをクロス(?:する|した)時、/, 'このクリーチャーがクロスされた時、')
+    // 「相手に見せてから自分の手札に加える」「クリーチャー1体またはクロスギア1枚を選び」
+    .replace(/その中からクリーチャー1体またはクロスギア1枚を選び、/, 'その中からクリーチャーまたはクロスギアを1枚選び、')
     // 「自分のクリーチャーを召喚する時支払うコストは1少なくなる」
     .replace(/を召喚する時(?:に)?支払うコストは(\d+)(少なく|多く)なる/, 'の召喚コストを$1$2する')
     .replace(/^バトルゾーンにある、?(これを(?:クロス|装備)したクリーチャーと同じ種族の)/, '$1')
@@ -350,6 +357,7 @@ const EVENTS: { re: RegExp; self?: TriggerEvent; other?: TriggerEvent; ownInclud
   { re: /^攻撃された時/, self: 'onAttacked' },
   { re: /^自分を攻撃する時/, other: 'onOtherAttackPlayer' },
   { re: /^相手に選ばれた時/, self: 'onTargeted' },
+  { re: /^クロスされた時/, self: 'onCrossed' },
   { re: /^(?:相手の)?シールドを(?:1つ以上)?ブレイクした時/, self: 'onBreak', other: 'onOtherBreak' },
 ];
 /** 「このクリーチャーが」に続く1つの出来事 */
@@ -520,6 +528,8 @@ function parseMods(mods: string, filter: CardFilter): boolean {
     [/^コスト(\d+)の/, (x) => (filter.minCost = filter.maxCost = n(x[1]))],
     [/^タップしている/, () => (filter.tapped = true)],
     [/^クロスギアをクロス(?:している|されている|された)/, () => (filter.crossed = true)],
+    [/^これを(?:クロス|装備)したクリーチャーと同じ種族の/, () => (filter.sameRaceAsEquipped = true)],
+    [/^これを(?:クロス|装備)したクリーチャーと同じ名前の/, () => (filter.sameNameAsEquipped = true)],
     [/^アンタップしている/, () => (filter.untapped = true)],
     [/^(光|水|闇|火|自然)の/, (x) => (filter.civilization = CIV[x[1]])],
     [/^((?:光|水|闇|火|自然)(?:または(?:光|水|闇|火|自然))+)の/, (x) => (filter.civilizations = x[1].split('または').map((c) => CIV[c]))],
@@ -607,7 +617,7 @@ function parseObject(s: string): { target: TargetSpec; noun: string; filter: Car
     text = text.replace(from[0], '');
   }
   const m = text.match(
-    /^(相手の|自分の)?(好きな数の)?(.*?)(クリーチャー|エレメント|カード|シールド|呪文|手札|ドラグハート)?を、?(?:(\d+)(?:体|枚|つ)(まで)?|(すべて)|(好きな(?:数|枚数)))(?:選び|選んで)?、?(.+)$/,
+    /^(相手の|自分の)?(好きな数の)?(.*?)(クリーチャー|エレメント|カード|シールド|呪文|手札|ドラグハート|クロスギア)?を、?(?:(\d+)(?:体|枚|つ)(まで)?|(すべて)|(好きな(?:数|枚数)))(?:選び|選んで)?、?(.+)$/,
   );
   if (!m) return null;
   const [, ownerWord, anyPrefix, mods, nounRaw, count, upTo, all, anyCount, verbRaw] = m;
@@ -621,7 +631,7 @@ function parseObject(s: string): { target: TargetSpec; noun: string; filter: Car
     noun = 'クリーチャー';
   } else if (!parseMods(mods ?? '', filter)) return null;
   // ドラグハート：カードの種類で絞る（クリーチャーではない）
-  if (noun === 'ドラグハート') filter.typeLabelIncludes = 'ドラグハート';
+  if (noun === 'ドラグハート' || noun === 'クロスギア') filter.typeLabelIncludes = noun;
   if (noun === 'シールド') {
     if (fromZone) return null;
     zone = 'shield';
@@ -655,7 +665,7 @@ function parseObject(s: string): { target: TargetSpec; noun: string; filter: Car
     ...(upTo || many ? { upTo: true } : {}),
     ...(Object.keys(filter).length ? { filter } : {}),
     ...(extraZones ? { extraZones } : {}),
-    ...((zone === 'battle' && (noun === 'カード' || noun === 'ドラグハート')) || noun === 'エレメント' ? { element: true } : {}),
+    ...((zone === 'battle' && (noun === 'カード' || noun === 'ドラグハート' || noun === 'クロスギア')) || noun === 'エレメント' ? { element: true } : {}),
   };
   // 手札・墓地などの「エレメント」：呪文以外のカード（クリーチャー・フィールド・タマシードなど）
   if (noun === 'エレメント' && zone !== 'battle') target.filter = { ...(target.filter ?? {}), not: { cardType: 'spell' } };
@@ -925,6 +935,23 @@ function parseSentence(s: string): EffectDef[] | null {
       { type: 'playFree', target: { owner: 'self', zone: 'deck', count: 'all', ref: 'chosen', anyZone: true } },
     ];
   }
+  // 「そのクロスギアをこのクリーチャーに、コストを支払わずにクロスする」（前の文で出したクロスギア）
+  if (/^(?:その|それらの)クロスギアを、?このクリーチャーに、?(?:コストを支払わずに)?クロスする$/.test(s)) {
+    const target = refTarget();
+    return target && [{ type: 'attachGear', target, to: 'self' }];
+  }
+  // 「自分のクロスギアを好きな数、コストを支払わずに自分のクリーチャーにクロスする」
+  const gearsTo = s.match(/^自分の(?:バトルゾーンにある)?クロスギアを、?(?:(好きな数)|(\d+)つ(まで)?)、?(?:コストを支払わずに)?(自分のクリーチャー|このクリーチャー)にクロスする$/);
+  if (gearsTo) {
+    const count = gearsTo[1] ? 99 : n(gearsTo[2]);
+    return [{ type: 'attachGear', target: { owner: 'self', zone: 'battle', count, ...(gearsTo[1] || gearsTo[3] ? { upTo: true } : {}), element: true, filter: { typeLabelIncludes: 'クロスギア' } }, to: gearsTo[4] === 'このクリーチャー' ? 'self' : 'choose' }];
+  }
+  // ストマック・ガーデン：「相手のクリーチャーを1体選び、そのクリーチャーとそれにクロスされているクロスギアをすべて持ち主のマナゾーンに置く」
+  const withGears = s.match(/^(?:バトルゾーンにある)?(相手|自分)のクリーチャーを(\d+)体選び、そのクリーチャーとそれにクロスされているクロスギアをすべて持ち主の(マナゾーン|手札|墓地)に(?:置く|戻す)$/);
+  if (withGears) {
+    const to = withGears[3] === 'マナゾーン' ? 'mana' : withGears[3] === '手札' ? 'hand' : 'graveyard';
+    return [{ type: 'move', target: { owner: withGears[1] === '相手' ? 'opponent' : 'self', zone: 'battle', count: n(withGears[2]) }, to, withGears: true }];
+  }
   // ラスト・バースト：「このカードの呪文側をコストを支払わずに唱える」
   if (/^このカードの呪文側を、?コストを支払わずに唱える$/.test(s)) return [{ type: 'castSelfTwin' }];
   // フレンド・バーストなど：「このクリーチャーの呪文側を、バトルゾーンに置いたままコストを支払わずに唱える」
@@ -1086,8 +1113,8 @@ function parseSentence(s: string): EffectDef[] | null {
     return [{ type: 'powerMod', target: { owner: m[1] === '自分' ? 'self' : 'opponent', zone: 'battle', count: n(m[3]), ...(Object.keys(filter).length ? { filter } : {}) }, amount: n(m[4]) }];
   }
   // 「コスト5以下の呪文を1枚、自分の手札からコストを支払わずに唱える」
-  if ((m = s.match(/^(.*?)(呪文|クリーチャー|カード)を1(?:枚|体)、?自分の手札からコストを支払わずに(?:唱える|召喚する|使う|実行する|出す|バトルゾーンに出す)$/))) {
-    const filter: CardFilter = m[2] === 'カード' ? {} : { cardType: m[2] === '呪文' ? 'spell' : 'creature' };
+  if ((m = s.match(/^(.*?)(呪文|クリーチャー|カード|クロスギア)を1(?:枚|体|つ)、?自分の手札からコストを支払わずに(?:唱える|召喚する|使う|実行する|出す|バトルゾーンに出す)$/))) {
+    const filter: CardFilter = m[2] === 'カード' ? {} : m[2] === 'クロスギア' ? { typeLabelIncludes: 'クロスギア' } : { cardType: m[2] === '呪文' ? 'spell' : 'creature' };
     if (!parseMods(m[1], filter)) return null;
     return [{ type: 'playFromHandFree', ...(Object.keys(filter).length ? { filter } : {}) }];
   }
@@ -1340,6 +1367,14 @@ function parseBody(body: string, options: string[], allowPartial = false): Group
     if (order && /^(?:それら|そのカード)を、?好きな順序で(?:自分の)?山札の上(?:または|か)下に(?:置く|戻す)$/.test(sentences[i + 1] ?? '')) {
       i++;
       pushGroup(groups, false, [{ type: 'lookAtTop', count: n(order[1]), pickCount: n(order[1]), pickTo: 'deckBottom', restTo: 'top' }], chain);
+      continue;
+    }
+    // ギガザンダ：「相手の山札を見る。その中から1枚選び、持ち主の墓地に置いてもよい。その後、相手は山札をシャッフルする」
+    const oppPick = s === '相手の山札を見る' ? (sentences[i + 1] ?? '').match(/^その中から(?:カードを)?(\d+)枚(?:まで)?選び、持ち主の(墓地|手札|マナゾーン)に(?:置|加え)(?:く|る|いてもよい|てもよい)$/) : null;
+    if (oppPick && /^(?:その後、?)?相手は(?:自身の)?山札をシャッフルする$/.test(sentences[i + 2] ?? '')) {
+      i += 2;
+      const pickTo = oppPick[2] === '墓地' ? 'graveyard' : oppPick[2] === '手札' ? 'hand' : 'mana';
+      pushGroup(groups, false, [{ type: 'lookAtTop', count: 99, pickCount: n(oppPick[1]), pickTo, restTo: 'shuffle', deckOf: 'opponent' }], chain);
       continue;
     }
     const lookS = stripOptional(s);
@@ -1796,6 +1831,11 @@ function parsePickWhat(w: string, filter: CardFilter): boolean {
     // エレメント：呪文以外のカード（クリーチャー・フィールド・タマシードなど）
     if (wm[2] === 'エレメント') filter.not = { cardType: 'spell' };
     if (wm[2] === '呪文') filter.cardType = 'spell';
+    return true;
+  }
+  // クロスギア・ドラグハート：カードの種類
+  if (w === 'クロスギア' || w === 'ドラグハート') {
+    filter.typeLabelIncludes = w;
     return true;
   }
   // 名詞のない「ドラゴン」「ドラゴンまたはファイアー・バード」：その種族のカード
@@ -2308,8 +2348,26 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
   let pendingFrame: { condition: Condition; line: string } | null = null;
   // バズレンダ：「バズレンダ [cc02]」の行と、[OL] で始まる能力の行を組にして読む
   let buzz: { cost: number; key: string } | null = null;
+  // 「（このクリーチャー／これをクロスしたクリーチャー）で攻撃するかわりに、タップして次の能力を使ってもよい」：次の行がその能力
+  let pendingTap: { viaEquip: boolean; key: string } | null = null;
   for (const { line: rawLine, options } of splitAbilityLines(text)) {
     const nfkc = rawLine.normalize('NFKC').trim();
+    if (pendingTap) {
+      const tap = pendingTap;
+      pendingTap = null;
+      const key = [rawLine, ...options.map((o) => `▶${o}`)].join('\n');
+      const effects = parseOverloadBody(nfkc.replace(/^(?:\{[a-zA-Z]+\}|[a-zA-Z](?![a-zA-Z]))\s*/, ''), options);
+      if (effects) {
+        result.abilities.push({ when: 'onTapAbility', effects, ...(tap.viaEquip ? { viaEquip: true } : {}) });
+        result.parsedLines.push(tap.key, key);
+      } else result.manualLines.push(tap.key, key);
+      continue;
+    }
+    const tapM = kind === 'creature' && !options.length ? nfkc.replace(/\s+/g, '').match(/^(この|これをクロスした|これを装備した)クリーチャーで攻撃するかわりに、?タップして次の(?:[a-zA-Z]|\{[a-zA-Z]+\})?能力を使ってもよい。?$/) : null;
+    if (tapM) {
+      pendingTap = { viaEquip: tapM[1] !== 'この', key: rawLine };
+      continue;
+    }
     const buzzM = kind === 'creature' && !options.length ? nfkc.match(/^バズレンダ\s*\[cc0*(\d+)\]/) : null;
     if (buzzM) {
       if (buzz) result.manualLines.push(buzz.key);
@@ -2467,8 +2525,9 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
     if (soul && !parseLine(line, options, kind, soul)) parseFromReminder(line, options, kind, soul);
     (ok ? result.parsedLines : result.manualLines).push([line, ...options.map((o) => `▶${o}`)].join('\n'));
   }
-  // [OL] の行がなかったバズレンダは手動
+  // [OL] の行がなかったバズレンダ、次の行がなかった「タップして次の能力を使う」は手動
   if (buzz) result.manualLines.push(buzz.key);
+  if (pendingTap) result.manualLines.push(pendingTap.key);
   if (soul) result.soul = { keywords: soul.keywords, abilities: soul.abilities, statics: soul.statics, replacements: soul.replacements };
   return result;
 }
@@ -2484,10 +2543,11 @@ function parseOverloadBody(body: string, options: string[]): EffectDef[] | null 
     mergeGrammar(tmp, g);
   }
   const ab = tmp.abilities;
-  if (ab.length !== 1 || ab[0].when !== 'onSummon' || ab[0].condition || Object.keys(tmp.keywords).length || tmp.statics.length || tmp.replacements.length) return null;
+  if (ab.length !== 1 || ab[0].when !== 'onSummon' || Object.keys(tmp.keywords).length || tmp.statics.length || tmp.replacements.length) return null;
   if (JSON.stringify(ab[0].effects).includes('"type":"manual"')) return null;
-  // 「〜してもよい」の能力は、1回ごとに使うかどうかを聞く
-  return ab[0].optional ? [{ type: 'optional', effects: ab[0].effects }] : ab[0].effects;
+  // 「〜してもよい」の能力は、1回ごとに使うかどうかを聞く。「〜あれば、」の条件は使う時に調べる
+  const effects: EffectDef[] = ab[0].optional ? [{ type: 'optional', effects: ab[0].effects }] : ab[0].effects;
+  return ab[0].condition ? [{ type: 'conditional', condition: ab[0].condition, then: effects }] : effects;
 }
 
 /** 語の組み立て（grammar.ts）で1行を読む。選択肢（▶）のある行は読まない */
@@ -2787,6 +2847,16 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     out.abilities.push(...tmp.abilities);
     out.statics.push(...tmp.statics);
     return !tmp.replacements.length;
+  }
+  // コマンド・デバイス：「これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時、〜」：クロスギアから見た他のクリーチャーの攻撃
+  const kinAtk = t.match(/^これを(?:クロス|装備)したクリーチャーと同じ種族のクリーチャーが攻撃する時、(.+)$/);
+  if (kinAtk && kind === 'creature') {
+    const tmp: ParsedAbilities = { keywords: {}, abilities: [], statics: [], replacements: [], manualLines: [], parsedLines: [] };
+    if (!parseLine(`このクリーチャーが攻撃する時、${kinAtk[1]}`, options, kind, tmp)) return false;
+    const ab = tmp.abilities;
+    if (ab.length !== 1 || ab[0].when !== 'onAttack' || JSON.stringify(ab[0].effects).includes('"type":"manual"') || tmp.statics.length || tmp.replacements.length) return false;
+    out.abilities.push({ ...ab[0], when: 'onOtherAttack', who: 'any', filter: { cardType: 'creature', sameRaceAsEquipped: true } });
+    return true;
   }
   // 「これを装備したクリーチャーに〜／が〜時、〜」（ドラグハート・ウエポン）：「このクリーチャー」の文として読み、装備先にかかる形にする
   const eq = t.match(/^これを(?:装備|クロス)したクリーチャー(?!と同じ種族)(.+)$/);

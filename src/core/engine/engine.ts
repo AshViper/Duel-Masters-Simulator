@@ -28,6 +28,8 @@ import {
   attackTargets,
   blockersFor,
   cannotLeaveNow,
+  canTapAbility,
+  gearsOn,
   cannotLose,
   forcedAttackers,
   breakerCount,
@@ -211,8 +213,7 @@ export class Ctx {
           this.emit({ type: 'PHASE_CHANGED', phase: 'main' });
         }
         for (const m of pay) s.cards[m].tapped = true;
-        s.cards[a.iid].equippedTo = a.target;
-        this.log(`${this.name(a.iid)} を ${this.name(a.target)} にクロスした（${pay.length}マナ）`, a.player);
+        this.crossGear(a.iid, a.target, a.player, `（${pay.length}マナ）`);
         return this.run();
       }
       case 'HYPERIZE': {
@@ -281,6 +282,18 @@ export class Ctx {
         return this.playCard(a.player, a.iid, a.evolveOn, a.manaIids, a.side ?? 'main', a.sacrifice ?? [], a.evolveFrom);
       case 'ATTACK':
         return this.attack(a.player, a.attacker, a.target);
+      case 'TAP_ABILITY': {
+        if (!['charge', 'main', 'attack'].includes(s.phase) || !canTapAbility(s, this.reg, a.player, a.iid)) throw new IllegalAction('この能力は使えません');
+        if (s.phase !== 'attack') {
+          s.phase = 'attack';
+          this.emit({ type: 'PHASE_CHANGED', phase: 'attack' });
+        }
+        s.cards[a.iid].tapped = true;
+        this.emit({ type: 'CREATURE_TAPPED', iid: a.iid });
+        this.log(`${this.name(a.iid)} は攻撃するかわりにタップして能力を使う`, a.player);
+        this.triggerFrom(a.iid, 'onTapAbility');
+        return this.run();
+      }
     }
   }
 
@@ -1692,6 +1705,13 @@ export class Ctx {
     }
   }
 
+  /** クロスギアをクリーチャーにクロスする（付け替えもこれ）。「このクリーチャーにクロスギアをクロスする時」を誘発させる */
+  private crossGear(gear: string, host: string, player: PlayerId, note = ''): void {
+    this.s.cards[gear].equippedTo = host;
+    this.log(`${this.name(gear)} を ${this.name(host)} にクロスした${note}`, player);
+    this.triggerFrom(host, 'onCrossed');
+  }
+
   /** 「可能なら毎ターン攻撃する」クリーチャーが攻撃できるうちは、攻撃を終われない */
   private checkForcedAttack(player: PlayerId): void {
     const forced = forcedAttackers(this.s, this.reg, player);
@@ -2186,6 +2206,36 @@ export class Ctx {
         else for (const iid of rest) this.moveCard(iid, e.restTo === 'graveyard' ? 'graveyard' : 'deck', { toTop: false });
         if (rest.length && e.restTo !== 'shuffle') this.log(`残り${rest.length}枚を${e.restTo === 'graveyard' ? '墓地' : '山札の下'}へ`, controller);
         this.insertFront(...tasks);
+        return false;
+      }
+      case 'attachGear': {
+        // クロス先を1つずつ選ぶ（選んだクロスギアの残りは iids）
+        if (e.iids) {
+          const [gear, ...rest] = e.iids.filter((g) => s.cards[g]?.zone === 'battle');
+          if (!gear) return false;
+          const hosts = battleCards(s, this.reg, controller);
+          if (!hosts.length) return false;
+          const r = this.takeResponse();
+          if (!r) {
+            s.pending = { kind: 'selectCards', player: controller, source, prompt: `${this.name(gear)} をクロスするクリーチャーを選んでください`, candidates: hosts, min: 1, max: 1, harmful: false };
+            return true;
+          }
+          const host = r.selected?.[0];
+          if (host && hosts.includes(host)) this.crossGear(gear, host, controller);
+          if (rest.length) this.insertFront(...this.effectTasks(controller, source, [{ ...e, iids: rest }]));
+          return false;
+        }
+        const picked: string[] = [];
+        const waiting = this.withTargets(controller, source, e.target, 'クロスする', false, (iid) => {
+          if (s.cards[iid]?.zone === 'battle' && isCrossGear(this.reg[s.cards[iid].cardId])) picked.push(iid);
+        });
+        if (waiting) return true;
+        if (e.to === 'self') {
+          if (s.cards[source]?.zone !== 'battle') return false;
+          for (const g of picked) this.crossGear(g, source, controller);
+          return false;
+        }
+        if (picked.length) this.insertFront(...this.effectTasks(controller, source, [{ ...e, iids: picked }]));
         return false;
       }
       case 'buzzRenda': {
@@ -2849,6 +2899,13 @@ export class Ctx {
     const s = this.s;
     const info = MOVE_DEST[e.to];
     return this.withTargets(controller, source, e.target, info.verb, info.harmful(e.target.zone), (iid) => {
+      // 「そのクリーチャーとそれにクロスされているクロスギアをすべて」：クロスギアも同じところへ
+      if (e.withGears && s.cards[iid]?.zone === 'battle') {
+        const gearTasks = gearsOn(s, this.reg, iid)
+          .map((g) => this.moveTo(g, e.to as ZoneName, controller))
+          .filter((t): t is Task => !!t);
+        this.insertFront(...gearTasks);
+      }
       switch (e.to) {
         case 'battle': {
           let t = this.putIntoBattle(iid, controller);
@@ -3012,8 +3069,10 @@ export class Ctx {
 
   private lookAtTop(controller: PlayerId, source: string, e: Extract<EffectDef, { type: 'lookAtTop' }>): boolean {
     const s = this.s;
-    const deck = s.players[controller].zones.deck;
-    const top = e.from ? e.from.filter((iid) => s.cards[iid]?.zone === 'deck' && s.cards[iid].owner === controller) : deck.slice(-e.count).reverse();
+    // 「相手の山札を見る」：見る山札の持ち主
+    const deckOwner = e.deckOf === 'opponent' ? other(controller) : controller;
+    const deck = s.players[deckOwner].zones.deck;
+    const top = e.from ? e.from.filter((iid) => s.cards[iid]?.zone === 'deck' && s.cards[iid].owner === deckOwner) : deck.slice(-e.count).reverse();
     if (top.length === 0) return false;
     const candidates = top.filter((iid) => matchFilter(s, this.reg, iid, e.pickFilter, source));
     let picked: string[] = [];
@@ -3079,7 +3138,7 @@ export class Ctx {
       this.insertFront(...followUps, ...this.effectTasks(controller, source, [{ type: 'lookAtTop', count: rest.length, ...next, restTo: e.restTo, from: rest, ...(more.length ? { more } : {}) }]));
       return false;
     }
-    if (e.restTo === 'shuffle') this.shuffle(controller);
+    if (e.restTo === 'shuffle') this.shuffle(deckOwner);
     else if (e.restTo === 'top') {
       for (const iid of rest) s.cards[iid].faceUp = false;
     } else {

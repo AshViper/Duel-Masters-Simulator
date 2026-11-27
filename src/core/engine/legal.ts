@@ -1,5 +1,5 @@
 import type { CardRegistry } from '../cards/registry';
-import { attackTargets, canPlay, forcedAttackers, canPlayAlt, choosePayment, def, defaultEvolveSources, multiEvolveSpec, evolutionBases, fushigiCandidates, isIdle, minimalSacrifice } from './queries';
+import { attackTargets, canPlay, canTapAbility, forcedAttackers, canPlayAlt, choosePayment, def, defaultEvolveSources, multiEvolveSpec, evolutionBases, fushigiCandidates, isIdle, minimalSacrifice } from './queries';
 import type { Action, GameState, PlayerId } from './types';
 
 /**
@@ -50,6 +50,7 @@ export function getLegalActions(state: GameState, reg: CardRegistry, player: Pla
   if (state.phase === 'charge' || state.phase === 'main' || state.phase === 'attack') {
     for (const iid of P.zones.battle) {
       for (const target of attackTargets(state, reg, player, iid)) out.push({ type: 'ATTACK', player, attacker: iid, target });
+      if (canTapAbility(state, reg, player, iid)) out.push({ type: 'TAP_ABILITY', player, iid });
     }
   }
   // 「可能なら毎ターン攻撃する」クリーチャーが攻撃できるうちは、攻撃フェイズを終われない

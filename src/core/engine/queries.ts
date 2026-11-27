@@ -223,6 +223,10 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
     const races = def(state, reg, host).races;
     if (!d.races.some((r) => races.includes(r))) return false;
   }
+  if (f.sameNameAsEquipped) {
+    const host = source ? state.cards[source]?.equippedTo : undefined;
+    if (!host || !state.cards[host] || def(state, reg, host).name !== d.name) return false;
+  }
   if (f.costIsChosenNumber && d.cost !== state.chosenNumber) return false;
   if (f.cardType && (f.cardType === 'creature' ? !isCreatureType(d.type) : d.type !== f.cardType)) return false;
   if (f.civilization && !d.civilizations.includes(f.civilization)) return false;
@@ -270,6 +274,13 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
     if (f.minPower !== undefined && p < f.minPower) return false;
   }
   return true;
+}
+
+/** 「攻撃するかわりに、タップして次の能力を使ってもよい」を、いま使えるか（攻撃できる状態で、能力を持つかクロスしたギアが持つ） */
+export function canTapAbility(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): boolean {
+  if (!canAttackWith(state, reg, player, iid)) return false;
+  if ((def(state, reg, iid).abilities ?? []).some((a) => a.when === 'onTapAbility' && !a.viaEquip)) return true;
+  return state.players[player].zones.battle.some((b) => state.cards[b].equippedTo === iid && (def(state, reg, b).abilities ?? []).some((a) => a.when === 'onTapAbility' && a.viaEquip));
 }
 
 /** このクリーチャーにクロスされているクロスギア */

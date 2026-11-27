@@ -110,6 +110,8 @@ export interface CardFilter {
   crossed?: boolean;
   /** 効果の発生源（クロスギア）をクロスしたクリーチャーと同じ種族を持つ */
   sameRaceAsEquipped?: boolean;
+  /** 効果の発生源（クロスギア）をクロスしたクリーチャーと同じ名前 */
+  sameNameAsEquipped?: boolean;
 }
 
 /** 効果の対象指定 */
@@ -252,7 +254,13 @@ export type EffectDef =
    * 手札に戻す・マナ送り・墓地送り・シールド化・山札の上/下・バトルゾーンに出す はすべてこれで表す。
    * tapped: タップして置く。faceUp: 表向きで置く（シールドゾーン）。grant: バトルゾーンに出したクリーチャーに与える能力
    */
-  | { type: 'move'; target: TargetSpec; to: MoveDest; tapped?: boolean; faceUp?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean } }
+  /** withGears: そのクリーチャーにクロスされているクロスギアも同じところへ（「そのクリーチャーとそれにクロスされているクロスギアをすべて」） */
+  | { type: 'move'; target: TargetSpec; to: MoveDest; tapped?: boolean; faceUp?: boolean; grant?: { keywords: Keywords; untilNextTurn?: boolean }; withGears?: boolean }
+  /**
+   * 選んだクロスギアを、コストを支払わずにクロスする。to: self はこのクリーチャーに、choose は自分のクリーチャーを1つずつ選んで。
+   * iids: エンジン内部用（クロス先を聞いているクロスギア）
+   */
+  | { type: 'attachGear'; target: TargetSpec; to: 'self' | 'choose'; iids?: string[] }
   | { type: 'tap'; target: TargetSpec }
   | { type: 'untap'; target: TargetSpec }
   /** @deprecated 旧形式（保存済みのデータ用）。エンジンが move に読み替える */
@@ -285,6 +293,8 @@ export type EffectDef =
       from?: string[];
       /** top: 山札の上に残す */
       restTo: 'deckBottom' | 'graveyard' | 'mana' | 'shuffle' | 'top';
+      /** 相手の山札を見る（「相手の山札を見る。その中から1枚選び、持ち主の墓地に置いてもよい」） */
+      deckOf?: 'opponent';
       /** 条件に合うものをすべて選ぶ（選択なし） */
       pickAll?: boolean;
       /** 選んだカードのコストの合計の上限（「コストの合計が6以下になるように好きな数選び」） */
@@ -487,6 +497,10 @@ export const TRIGGER_EVENTS = [
   'onAwaken',
   /** このクリーチャーが相手プレイヤーを攻撃してブロックされなかった時 */
   'onUnblocked',
+  /** このクリーチャーにクロスギアをクロスした時 */
+  'onCrossed',
+  /** 「（このクリーチャーで）攻撃するかわりに、タップして次の能力を使ってもよい」の能力（TAP_ABILITY で使う） */
+  'onTapAbility',
   /** このクリーチャーの各ブレイクの前に（攻撃によるブレイクを1つずつに分け、その前に誘発する） */
   'onBeforeBreak',
   /** このクリーチャーの「EXライフ」シールドが離れた時 */

@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/types.ts（1000行）
+# src/core/cards/types.ts（1014行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -21,30 +21,30 @@ generated: 2026-11-27
 - L38 **export** type `ZoneName`
 - L40 **export** const `ZONE_LABEL`
 - L53 **export** interface `CardFilter`
-- L116 **export** interface `TargetSpec`
-- L154 **export** interface `Quantity`
-- L165 **export** type `Condition`
-- L230 **export** type `MoveDest`
-- L233 **export** type `EffectDef`
-- L430 **export** const `TRIGGER_EVENTS`
-- L497 **export** type `TriggerEvent`
-- L499 **export** interface `TriggeredAbility`
-- L534 **export** interface `Applies`
-- L545 **export** type `StaticAbility`
-- L602 **export** interface `ReplacementAbility`
-- L630 **export** interface `Keywords`
-- L764 **export** interface `ForbiddenSide`
-- L771 **export** interface `TwinSide`
-- L781 **export** interface `AttackSwap`
-- L794 **export** interface `AltPlay`
-- L837 **export** interface `ZoneGate`
-- L849 **export** interface `HandTrigger`
-- L877 **export** interface `EvolveSpec`
-- L894 **export** interface `CardDefinition`
-- L964 **export** interface `PsychicSide`
-- L970 **export** fn `isCreatureType`
-- L975 **export** fn `isNonCreaturePermanent`
-- L980 **export** fn `manaCivilizations`
-- L985 **export** interface `PlayFace`
-- L994 **export** fn `playFace`
+- L118 **export** interface `TargetSpec`
+- L156 **export** interface `Quantity`
+- L167 **export** type `Condition`
+- L232 **export** type `MoveDest`
+- L235 **export** type `EffectDef`
+- L440 **export** const `TRIGGER_EVENTS`
+- L511 **export** type `TriggerEvent`
+- L513 **export** interface `TriggeredAbility`
+- L548 **export** interface `Applies`
+- L559 **export** type `StaticAbility`
+- L616 **export** interface `ReplacementAbility`
+- L644 **export** interface `Keywords`
+- L778 **export** interface `ForbiddenSide`
+- L785 **export** interface `TwinSide`
+- L795 **export** interface `AttackSwap`
+- L808 **export** interface `AltPlay`
+- L851 **export** interface `ZoneGate`
+- L863 **export** interface `HandTrigger`
+- L891 **export** interface `EvolveSpec`
+- L908 **export** interface `CardDefinition`
+- L978 **export** interface `PsychicSide`
+- L984 **export** fn `isCreatureType`
+- L989 **export** fn `isNonCreaturePermanent`
+- L994 **export** fn `manaCivilizations`
+- L999 **export** interface `PlayFace`
+- L1008 **export** fn `playFace`
 

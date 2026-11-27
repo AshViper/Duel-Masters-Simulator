@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type CSSProperties } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isCreatureType, isNonCreaturePermanent, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
-import { altCost, battleCards, canCross, isCrossGear, isGrCard, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canSummonFromZone, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
+import { altCost, battleCards, canCross, canTapAbility, isCrossGear, isGrCard, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canSummonFromZone, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
@@ -774,6 +774,14 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
     for (const c of targets) {
       rule.push({ label: `${cardDef(g, registry, c).name} にクロスする（コスト${effectiveCost(g, registry, owner, iid)}）`, run: () => act({ type: 'CROSS', player: owner, iid, target: c }), disabled: !canCross(g, registry, owner, iid, c) });
     }
+  }
+  // 「攻撃するかわりに、タップして次の能力を使ってもよい」（このクリーチャーの能力か、クロスしたクロスギアの能力）
+  const hasTapAbility =
+    (d.abilities ?? []).some((a) => a.when === 'onTapAbility' && !a.viaEquip) ||
+    g.players[owner].zones.battle.some((b) => g.cards[b].equippedTo === iid && (cardDef(g, registry, b).abilities ?? []).some((a) => a.when === 'onTapAbility' && a.viaEquip));
+  if (inst.zone === 'battle' && hasTapAbility) {
+    const usable = canControl(owner) && isIdle(g) && g.activePlayer === owner && ['charge', 'main', 'attack'].includes(g.phase) && canTapAbility(g, registry, owner, iid);
+    rule.push({ label: '攻撃するかわりにタップして能力を使う', run: () => act({ type: 'TAP_ABILITY', player: owner, iid }), disabled: !usable });
   }
   if (inst.zone === 'battle' && d.hyper && !inst.hyper) {
     rule.push({ label: 'ハイパー化する', run: () => act({ type: 'HYPERIZE', player: owner, iid }), disabled: !canControl(owner) || !hyperizeCandidates(g, registry, owner, iid) });

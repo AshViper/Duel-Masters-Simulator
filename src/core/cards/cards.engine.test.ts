@@ -1464,6 +1464,15 @@ const C = {
   killCrossed: spell('b-84', ['クロスギアをクロスしているクリーチャーをすべて破壊する。']),
   hitCrossed: mk('b-85', ['このクリーチャーは、クロスギアをクロスされたタップされていないクリーチャーを攻撃できる。']),
   wBreaker: mk('b-86', ['W・ブレイカー'], { power: '6000' }),
+  samurai: mk('b-87', ['侍流ジェネレート（このクリーチャーが出た時、クロスギアを１つ、自分の手札からコストを支払わずにジェネレートしてもよい）']),
+  crossAll: mk('b-88', ['このクリーチャーが出た時、自分のクロスギアを好きな数、コストを支払わずに自分のクリーチャーにクロスしてもよい。']),
+  orte: mk('b-89', ['このクリーチャーをバトルゾーンに出した時、クロスギアを１枚、自分のマナゾーンまたは墓地からバトルゾーンに出してもよい。そのクロスギアをこのクリーチャーに、コストを支払わずにクロスする。']),
+  shaman: mk('b-90', ['このクリーチャーにクロスギアをクロスする時、自分の山札の上から１枚目を、タップして自分のマナゾーンに置く。']),
+  tapDraw: mk('b-91', ['このクリーチャーで攻撃するかわりに、タップして次の能力を使ってもよい。', 'カードを１枚引く。']),
+  gearTap: mk('b-92', ['クロスギア', 'これをクロスしたクリーチャーで攻撃するかわりに、タップして次の能力を使ってもよい。', 'カードを１枚引く。'], { type: 'クロスギア', power: '', cost: '1' }),
+  gearsToMana: spell('b-93', ['バトルゾーンにある相手のクリーチャーを１体選び、そのクリーチャーとそれにクロスされているクロスギアをすべて持ち主のマナゾーンに置く。']),
+  oppSearch: spell('b-94', ['相手の山札を見る。その中から１枚選び、持ち主の墓地に置いてもよい。その後、相手は山札をシャッフルする。']),
+  kinDraw: mk('b-95', ['クロスギア', 'これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時、カードを１枚引いてもよい。'], { type: 'クロスギア', power: '' }),
   buzz: mk('b-74', ['バズレンダ [cc02]（このクリーチャーのコストを支払う時、追加で[cc02]を好きな回数支払ってもよい。このクリーチャーがバトルゾーンに出た時、その[OL]能力を１回と、追加で[cc02]支払った回数、使う）\n\n[OL]カードを１枚引く。'], { cost: '3' }),
   bounceAll: spell('b-65', ['相手のクリーチャーをすべて持ち主の手札に戻す。']),
   mustAtk: mk('b-66', ['このクリーチャーは、可能なら毎ターン攻撃する。']),
@@ -1579,6 +1588,102 @@ describe('クロスギア', () => {
     expect(attackTargets(s, reg, 0, hitter)).not.toContainEqual({ kind: 'creature', iid: kin });
     s = play(s, C.killCrossed.id).s;
     expect([s.cards[host].zone, s.cards[kin].zone]).toEqual(['graveyard', 'battle']);
+  });
+});
+
+describe('クロスギア（出す・クロスする・タップして使う能力）', () => {
+  /** 選択待ちに答える：確認は「はい」、カードの選択は pick の中から（なければ最初の候補） */
+  const resolve = (s: GameState, pick: string[] = []): GameState => {
+    let guard = 0;
+    while (s.pending && guard++ < 20) {
+      const p = s.pending;
+      if (p.kind === 'confirm') s = act(s, { type: 'RESPOND', player: p.player, accept: true });
+      else if (p.kind === 'selectCards') {
+        const want = p.candidates.filter((c) => pick.includes(c)).slice(0, p.max);
+        s = act(s, { type: 'RESPOND', player: p.player, selected: want.length >= p.min && want.length ? want : p.candidates.slice(0, Math.max(p.min, 1)) });
+      } else s = act(s, { type: 'RESPOND', player: p.player, selected: ['0'] });
+    }
+    return s;
+  };
+  it('侍流ジェネレート：手札のクロスギアをコストを支払わずに出す', () => {
+    let s = newGame();
+    const gear = put(s, 0, C.gearSpeed.id, 'hand');
+    s = resolve(play(s, C.samurai.id).s, [gear]);
+    expect(s.cards[gear].zone).toBe('battle');
+  });
+  it('出た時、自分のクロスギアを好きな数、自分のクリーチャーに選んでクロスする', () => {
+    let s = newGame();
+    const g1 = put(s, 0, C.gearSpeed.id, 'battle');
+    const g2 = put(s, 0, C.gearRace.id, 'battle');
+    const host = put(s, 0, C.vanilla.id, 'battle');
+    s = resolve(play(s, C.crossAll.id).s, [g1, g2, host]);
+    expect([s.cards[g1].equippedTo, s.cards[g2].equippedTo]).toEqual([host, host]);
+  });
+  it('マナゾーンのクロスギアを出し、このクリーチャーにクロスする', () => {
+    let s = newGame();
+    const gear = put(s, 0, C.gearSpeed.id, 'mana');
+    const r = play(s, C.orte.id);
+    s = resolve(r.s, [gear]);
+    expect(s.cards[gear]).toMatchObject({ zone: 'battle', equippedTo: r.iid });
+  });
+  it('「このクリーチャーにクロスギアをクロスする時」：クロスすると誘発する', () => {
+    let s = newGame();
+    const host = put(s, 0, C.shaman.id, 'battle');
+    const gear = put(s, 0, C.gearTap.id, 'battle');
+    mana(s, 1);
+    while (s.phase !== 'main') s = act(s, { type: 'NEXT_PHASE', player: 0 });
+    const before = s.players[0].zones.mana.length;
+    s = resolve(act(s, { type: 'CROSS', player: 0, iid: gear, target: host }));
+    expect(s.cards[gear].equippedTo).toBe(host);
+    expect(s.players[0].zones.mana.length).toBe(before + 1);
+  });
+  it('攻撃するかわりにタップして能力を使う（このクリーチャーの能力・クロスしたクロスギアの能力）', () => {
+    let s = toAttack(newGame());
+    const a = put(s, 0, C.tapDraw.id, 'battle');
+    const plain = put(s, 0, C.vanilla.id, 'battle');
+    const legal = getLegalActions(s, reg, 0).filter((x) => x.type === 'TAP_ABILITY');
+    expect(legal).toEqual([{ type: 'TAP_ABILITY', player: 0, iid: a }]);
+    const hand = s.players[0].zones.hand.length;
+    s = resolve(act(s, { type: 'TAP_ABILITY', player: 0, iid: a }));
+    expect(s.cards[a].tapped).toBe(true);
+    expect(s.players[0].zones.hand.length).toBe(hand + 1);
+    expect(() => act(s, { type: 'TAP_ABILITY', player: 0, iid: plain })).toThrow();
+    // クロスしたクロスギアの能力
+    const gear = put(s, 0, C.gearTap.id, 'battle');
+    s.cards[gear].equippedTo = plain;
+    s = resolve(act(s, { type: 'TAP_ABILITY', player: 0, iid: plain }));
+    expect(s.players[0].zones.hand.length).toBe(hand + 2);
+  });
+  it('クリーチャーとそれにクロスされているクロスギアをマナゾーンへ', () => {
+    let s = newGame();
+    const t = put(s, 1, C.vanilla.id, 'battle');
+    const gear = put(s, 1, C.gearSpeed.id, 'battle');
+    s.cards[gear].equippedTo = t;
+    s = resolve(play(s, C.gearsToMana.id).s, [t]);
+    expect([s.cards[t].zone, s.cards[gear].zone]).toEqual(['mana', 'mana']);
+  });
+  it('相手の山札を見て1枚選び、相手の墓地に置く', () => {
+    let s = newGame();
+    const deck = s.players[1].zones.deck.length;
+    s = play(s, C.oppSearch.id).s;
+    expect(s.pending).toMatchObject({ kind: 'selectCards', player: 0 });
+    const pick = s.pending?.kind === 'selectCards' ? s.pending.candidates[0] : '';
+    expect(s.cards[pick].owner).toBe(1);
+    s = act(s, { type: 'RESPOND', player: 0, selected: [pick] });
+    expect(s.cards[pick].zone).toBe('graveyard');
+    expect(s.players[1].zones.deck.length).toBe(deck - 1);
+  });
+  it('「これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時」', () => {
+    let s = toAttack(newGame());
+    const gear = put(s, 0, C.kinDraw.id, 'battle');
+    const host = put(s, 0, C.vanilla.id, 'battle');
+    const kin = put(s, 0, C.small.id, 'battle');
+    s.cards[gear].equippedTo = host;
+    const hand = s.players[0].zones.hand.length;
+    s = act(s, { type: 'ATTACK', player: 0, attacker: kin, target: { kind: 'player' } });
+    expect(s.pending).toMatchObject({ kind: 'confirm', player: 0 });
+    s = act(s, { type: 'RESPOND', player: 0, accept: true });
+    expect(s.players[0].zones.hand.length).toBe(hand + 1);
   });
 });
 
