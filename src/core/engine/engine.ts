@@ -3097,19 +3097,20 @@ export class Ctx {
       }
       case 'gachinko': {
         // 互いに山札の上を公開してコストを比べ、公開したカードは山札の下へ
-        const reveal = (p: PlayerId) => {
+        const reveal = (p: PlayerId): [string | null, number] => {
           const top = this.topOfDeck(p);
-          if (!top) return -1;
+          if (!top) return [null, -1];
           const td = def(s, this.reg, top);
           const cost = e.power ? (isCreatureType(td.type) ? (td.power ?? 0) : 0) : td.cost;
           this.log(`${e.power ? 'パワー・' : ''}ガチンコ・ジャッジ：${s.players[p].name} は ${this.name(top)}（${e.power ? 'パワー' : 'コスト'}${cost}）を公開`, controller);
           this.moveCard(top, 'deck', { toTop: false });
-          return cost;
+          return [top, cost];
         };
-        const mine = reveal(controller);
-        const theirs = reveal(opp);
+        const [myCard, mine] = reveal(controller);
+        const [theirCard, theirs] = reveal(opp);
         const win = mine >= 0 && mine >= theirs;
         this.log(`ガチンコ・ジャッジに${win ? '勝った' : '負けた'}`, controller);
+        this.emit({ type: 'GACHINKO_JUDGE', player: controller, power: e.power, mine: myCard, theirs: theirCard, myValue: mine, theirValue: theirs, win });
         if (win) this.insertFront(...this.effectTasks(controller, source, e.then));
         else if (e.lose) this.insertFront(...this.effectTasks(controller, source, e.lose));
         return false;

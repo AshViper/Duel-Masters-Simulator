@@ -650,6 +650,23 @@
 .fx-spot-label { padding: 4px 18px; border-radius: 6px; font-size: 20px; font-weight: 800; letter-spacing: 0.18em; color: var(--gold-hi); background: rgba(8, 13, 23, 0.85); border: 1px solid var(--gold); text-shadow: 0 0 10px rgba(244, 211, 94, 0.6); }
 .fx-spot.theirs .fx-spot-label { color: #ffb3aa; border-color: var(--red); text-shadow: 0 0 10px rgba(255, 90, 78, 0.6); }
 
+/* ガチンコ・ジャッジ：めくった2枚が左右から裏返って並び、少し置いて勝った方が光る */
+.fx-judge { position: absolute; left: calc((100% - var(--panel-w)) / 2); top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 26px 18px; border-radius: 14px; background: radial-gradient(ellipse at center, rgba(8, 13, 23, 0.9), rgba(8, 13, 23, 0.55) 70%, transparent); animation: fxJudge 2.4s ease-out forwards; }
+.fx-judge-title { padding: 4px 18px; border-radius: 6px; font-size: 20px; font-weight: 800; letter-spacing: 0.16em; color: #ffd08a; background: rgba(8, 13, 23, 0.85); border: 1px solid #ff9f43; text-shadow: 0 0 10px rgba(255, 159, 67, 0.7); animation: fxJudgeTitle 0.5s var(--ease-out-expo); }
+.fx-judge-row { position: relative; display: flex; gap: 64px; align-items: flex-start; }
+.fx-judge-side { display: flex; flex-direction: column; align-items: center; gap: 6px; opacity: 0; animation: fxJudgeIn 0.55s calc(0.15s + var(--i) * 0.18s) var(--ease-out-expo) forwards; }
+.fx-judge-side .card { --w: clamp(110px, 17vh, 170px); transition: filter 0.3s; }
+.fx-judge-side:nth-child(1) { --from: -60px; }
+.fx-judge-side:nth-child(2) { --from: 60px; }
+.fx-judge-who { font-size: 13px; font-weight: 700; color: var(--text-secondary); }
+.fx-judge-value { padding: 2px 12px; border-radius: 999px; font-size: 16px; font-weight: 800; color: #fff; background: rgba(8, 13, 23, 0.9); border: 1px solid var(--border-main); }
+.fx-judge-mark { font-size: 18px; font-weight: 900; letter-spacing: 0.2em; opacity: 0; animation: fxJudgeMark 0.4s 0.95s ease-out forwards; }
+.fx-judge-side.won .fx-judge-mark { color: var(--gold-hi); text-shadow: 0 0 12px rgba(244, 211, 94, 0.8); }
+.fx-judge-side.lost .fx-judge-mark { color: #8a94a6; }
+.fx-judge-side.won .card { animation: fxJudgeWin 0.8s 0.95s ease-out forwards; }
+.fx-judge-side.lost .card { animation: fxJudgeLose 0.5s 0.95s ease-out forwards; }
+.fx-judge-vs { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 26px; font-weight: 900; font-style: italic; color: #ff9f43; text-shadow: 0 0 14px rgba(255, 159, 67, 0.8); opacity: 0; animation: fxJudgeMark 0.3s 0.6s ease-out forwards; }
+
 .fx-feed { position: absolute; right: calc(var(--panel-w) + 12px); bottom: calc(50% + 40px); width: min(300px, 26vw); margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
 .fx-item { --tone: var(--cyan); display: flex; align-items: center; gap: 9px; padding: 6px 10px 6px 6px; border-radius: 8px; background: linear-gradient(90deg, rgba(10, 18, 31, 0.94), rgba(21, 31, 48, 0.9)); border: 1px solid var(--border-main); border-left: 4px solid var(--cyan); box-shadow: var(--shadow-panel); animation: fxFeedIn 0.35s var(--ease-out-expo), fxFeedOut 0.4s 2.4s ease-in forwards; }
 .fx-item.theirs, .fx-item.p1 { border-left-color: var(--red); }
@@ -663,7 +680,7 @@
 .fx-item.tone-charge { --tone: var(--green); }
 .fx-item.tone-attack, .fx-item.tone-break, .fx-item.tone-destroy { --tone: var(--red); }
 .fx-item.tone-block { --tone: var(--cyan); }
-.fx-item.tone-battle { --tone: #ff9f43; }
+.fx-item.tone-battle, .fx-item.tone-gachinko { --tone: #ff9f43; }
 .fx-item.tone-leave, .fx-item.tone-draw { --tone: #8fb8ff; }
 .fx-item.tone-trigger { --tone: var(--gold-hi); background: linear-gradient(90deg, rgba(70, 52, 10, 0.95), rgba(21, 31, 48, 0.92)); }
 .fx-item.tone-break b, .fx-item.tone-trigger b { font-size: 15.5px; }
@@ -691,6 +708,12 @@
 @keyframes fxLeave { 0% { filter: brightness(1.6); } 100% { opacity: 0; filter: brightness(2) blur(2px); transform: scale(0.6) translateY(-50px); } }
 @keyframes fxLabel { 0% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); } 20% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes fxSpot { 0% { opacity: 0; transform: translate(-50%, -40%) scale(0.6) rotateY(80deg); } 18% { opacity: 1; transform: translate(-50%, -50%) scale(1.05) rotateY(0); } 28% { transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; transform: translate(-50%, -50%); } 100% { opacity: 0; transform: translate(-50%, -55%) scale(0.92); } }
+@keyframes fxJudge { 0% { opacity: 0; } 8% { opacity: 1; } 88% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes fxJudgeTitle { from { opacity: 0; transform: scale(1.5); } to { opacity: 1; transform: none; } }
+@keyframes fxJudgeIn { from { opacity: 0; transform: translateX(var(--from)) rotateY(90deg); } to { opacity: 1; transform: none; } }
+@keyframes fxJudgeMark { from { opacity: 0; transform: scale(1.8); } to { opacity: 1; transform: none; } }
+@keyframes fxJudgeWin { 0% { filter: none; transform: none; } 40% { filter: brightness(1.7) drop-shadow(0 0 26px var(--gold-hi)); transform: scale(1.08); } 100% { filter: brightness(1.15) drop-shadow(0 0 16px var(--gold-hi)); transform: scale(1.04); } }
+@keyframes fxJudgeLose { to { filter: grayscale(0.85) brightness(0.55); transform: scale(0.95); } }
 @keyframes fxFeedIn { from { opacity: 0; transform: translateX(40px) scale(0.96); } to { opacity: 1; transform: none; } }
 @keyframes fxFeedOut { to { opacity: 0; transform: translateX(24px); } }
 @keyframes fxEnter { 0% { filter: brightness(2.4); transform: scale(1.25) translateY(-8px); } 35% { filter: brightness(1.5) drop-shadow(0 0 22px var(--gold-hi)); transform: scale(1.06); } 100% { filter: none; transform: none; } }

@@ -14,7 +14,16 @@ import { LookOwnerContext } from '../cardLooks';
  * を出す。CPU・オンラインの相手の行動も同じ仕組みで見える。盤面全体は描き直さない。
  */
 
-type FxTone = 'summon' | 'spell' | 'charge' | 'attack' | 'block' | 'battle' | 'break' | 'destroy' | 'leave' | 'draw' | 'trigger';
+type FxTone = 'summon' | 'spell' | 'charge' | 'attack' | 'block' | 'battle' | 'break' | 'destroy' | 'leave' | 'draw' | 'trigger' | 'gachinko';
+
+/** ガチンコ・ジャッジ：めくった2枚を並べて、数値と勝ち負けを見せる */
+interface Judge {
+  id: number;
+  label: string;
+  win: boolean;
+  sides: { player: PlayerId; card?: CardDefinition; value: string; won: boolean }[];
+}
+const JUDGE_MS = 2400;
 
 interface FeedItem {
   id: number;
@@ -86,6 +95,8 @@ export function ActionFx({ g, me, solo }: { g: GameState; me: PlayerId; solo: bo
   const [ghosts, setGhosts] = useState<Ghost[]>([]);
   const [arrows, setArrows] = useState<Arrow[]>([]);
   const [spot, setSpot] = useState<Spotlight | null>(null);
+  /** ガチンコ・ジャッジは続けて何回もすることがあるので、順番に1つずつ見せる */
+  const [judges, setJudges] = useState<Judge[]>([]);
   const prev = useRef<GameState | null>(null);
   /** 直前の盤面でのバトルゾーンのカードの位置（離れたカードの残像を出す場所） */
   const rects = useRef(new Map<string, { x: number; y: number; w: number }>());
@@ -171,6 +182,26 @@ export function ActionFx({ g, me, solo }: { g: GameState; me: PlayerId; solo: bo
           const at = items.findIndex((x) => x.tone === 'destroy');
           items.splice(at < 0 ? items.length : at, 0, { tone: 'battle', player: g.cards[e.winner]?.owner ?? null, title: 'バトル', text: `${name(e.winner)} の勝ち（${name(e.loser)}）`, card: defOf(e.winner) });
           later.push(() => pulse(cardEl(e.winner), 'fx-win', 1100));
+          break;
+        }
+        case 'GACHINKO_JUDGE': {
+          const opp: PlayerId = e.player === 0 ? 1 : 0;
+          const label = `${e.power ? 'パワー・' : ''}ガチンコ・ジャッジ`;
+          const unit = e.power ? 'パワー' : 'コスト';
+          const val = (v: number) => (v < 0 ? '山札なし' : `${unit}${v}`);
+          items.push({ tone: 'gachinko', player: e.player, title: label, text: `${who(e.player)}の${e.win ? '勝ち' : '負け'}（${val(e.myValue)} 対 ${val(e.theirValue)}）` });
+          setJudges((xs) => [
+            ...xs,
+            {
+              id: ++seq,
+              label,
+              win: e.win,
+              sides: [
+                { player: e.player, card: e.mine ? defOf(e.mine) : undefined, value: val(e.myValue), won: e.win },
+                { player: opp, card: e.theirs ? defOf(e.theirs) : undefined, value: val(e.theirValue), won: !e.win },
+              ],
+            },
+          ]);
           break;
         }
         case 'SHIELD_BROKEN':
@@ -274,7 +305,15 @@ export function ActionFx({ g, me, solo }: { g: GameState; me: PlayerId; solo: bo
     return () => clearTimeout(t);
   }, [spot]);
 
+  useEffect(() => {
+    if (!judges.length) return;
+    const t = setTimeout(() => setJudges((xs) => xs.slice(1)), JUDGE_MS);
+    return () => clearTimeout(t);
+  }, [judges]);
+
   const side = (p: PlayerId | null) => (p === null ? 'sys' : solo ? (p === 0 ? 'p0' : 'p1') : p === me ? 'mine' : 'theirs');
+  const judge = judges[0];
+  const whoLabel = (p: PlayerId) => (solo ? g.players[p].name : p === me ? 'あなた' : g.players[p].name);
 
   return (
     <div className="fx-layer" aria-live="polite">
@@ -308,12 +347,30 @@ export function ActionFx({ g, me, solo }: { g: GameState; me: PlayerId; solo: bo
           <span className="fx-ghost-label">{gh.label}</span>
         </div>
       ))}
-      {spot && (
+      {spot && !judge && (
         <div key={spot.id} className={'fx-spot ' + side(spot.player)}>
           <LookOwnerContext.Provider value={spot.player}>
             <CardView card={spot.card} size="md" />
           </LookOwnerContext.Provider>
           <span className="fx-spot-label">{spot.label}</span>
+        </div>
+      )}
+      {judge && (
+        <div key={judge.id} className="fx-judge" data-testid="gachinko-fx">
+          <span className="fx-judge-title">{judge.label}</span>
+          <div className="fx-judge-row">
+            {judge.sides.map((sd, i) => (
+              <div key={i} className={`fx-judge-side ${side(sd.player)} ${sd.won ? 'won' : 'lost'}`} style={{ ['--i' as string]: i }}>
+                <span className="fx-judge-who">{whoLabel(sd.player)}</span>
+                <LookOwnerContext.Provider value={sd.player}>
+                  <CardView card={sd.card} faceDown={!sd.card} size="md" />
+                </LookOwnerContext.Provider>
+                <span className="fx-judge-value">{sd.value}</span>
+                <span className="fx-judge-mark">{sd.won ? 'WIN' : 'LOSE'}</span>
+              </div>
+            ))}
+            <span className="fx-judge-vs">VS</span>
+          </div>
         </div>
       )}
       <ol className="fx-feed" data-testid="action-feed">

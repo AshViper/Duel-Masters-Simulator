@@ -288,6 +288,8 @@ describe('エンジンで動く', () => {
     mana(s, 1);
     s = act(s, { type: 'PLAY_CARD', player: 0, iid: c });
     expect(s.cards[c].zone).toBe('graveyard');
+    // 画面の演出用に、めくった2枚と勝ち負けをイベントで知らせる
+    expect(s.lastEvents.find((e) => e.type === 'GACHINKO_JUDGE')).toMatchObject({ player: 0, power: true, myValue: 0, theirValue: 5000, win: false });
   });
 
   it('鬼タイム：シールドの合計が6つ以下の時だけパワー+4000と「W・ブレイカー」', () => {

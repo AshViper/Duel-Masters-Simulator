@@ -158,6 +158,8 @@ export type GameEvent =
   /** バトルゾーンのクリーチャーが相手の能力で選ばれた（by: 選んだ能力の持ち主） */
   | { type: 'CARD_TARGETED'; iid: string; by: PlayerId }
   | { type: 'BATTLE_WON'; winner: string; loser: string }
+  /** ガチンコ・ジャッジ（player がした側。mine/theirs: めくったカード、山札が無ければ null。value: 比べたコスト・パワー） */
+  | { type: 'GACHINKO_JUDGE'; player: PlayerId; power?: boolean; mine: string | null; theirs: string | null; myValue: number; theirValue: number; win: boolean }
   | { type: 'SHIELD_BROKEN'; player: PlayerId; iid: string }
   /** クリーチャー iid がシールドをブレイクした（1回のブレイクで1度。player はそのクリーチャーの持ち主） */
   | { type: 'BROKE_SHIELDS'; player: PlayerId; iid: string }
