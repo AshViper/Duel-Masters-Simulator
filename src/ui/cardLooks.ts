@@ -41,6 +41,8 @@ interface LooksState {
   setFoil: (name: string, foil: Foil) => void;
   addUpload: (name: string, file: File) => Promise<void>;
   removeUpload: (name: string, key: string) => Promise<void>;
+  /** バックアップから読み込む。同じ名前は読み込んだ側で上書きし、追加した画像は両方を残す */
+  importLooks: (looks: Record<string, CardLook>) => void;
 }
 
 export const useCardLooks = create<LooksState>((set, get) => {
@@ -64,6 +66,15 @@ export const useCardLooks = create<LooksState>((set, get) => {
       await saveImage(key, file, 'user');
       const uploads = [...(get().looks[name]?.uploads ?? []), key];
       patch(name, { uploads, art: key });
+    },
+    importLooks: (incoming) => {
+      const looks = { ...get().looks };
+      for (const [name, l] of Object.entries(incoming)) {
+        const uploads = [...new Set([...(looks[name]?.uploads ?? []), ...(l.uploads ?? [])])];
+        looks[name] = { ...l, ...(uploads.length ? { uploads } : {}) };
+      }
+      localStorage.setItem(KEY, JSON.stringify(looks));
+      set({ looks });
     },
     removeUpload: async (name, key) => {
       await deleteImages([key]);

@@ -31,6 +31,22 @@ describe('backup', () => {
     expect(r.errors).toHaveLength(3);
   });
 
+  it('カードの見た目の設定を取り出し、使えない欄は落とす（古いファイルにはなくてよい）', () => {
+    const r = parseBackup({
+      format: BACKUP_FORMAT,
+      version: 1,
+      looks: {
+        テスト: { art: 'ui:art:a', foil: 'rainbow', uploads: ['ui:art:a', 3] },
+        別: { foil: 'sparkle' },
+        壊れ: 'x',
+      },
+    });
+    expect(r.looks).toEqual({ テスト: { art: 'ui:art:a', foil: 'rainbow', uploads: ['ui:art:a'] } });
+    expect(r.errors).toEqual(['見た目の設定 2件が不正なため飛ばしました']);
+    expect(parseBackup({ format: BACKUP_FORMAT, version: 1 }).looks).toEqual({});
+    expect(parseBackup({ format: BACKUP_FORMAT, version: 1 }).errors).toEqual([]);
+  });
+
   it('新しい版の形式は読み込まない', () => {
     const r = parseBackup({ format: BACKUP_FORMAT, version: 99, cards: [card] });
     expect(r.cards).toEqual([]);

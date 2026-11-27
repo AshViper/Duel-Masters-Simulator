@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { OFFICIAL_PREFIX } from '../../core/cards/officialConvert';
 import { buildBackup, isBackupFile, parseBackup, restoreBackup } from '../../db/backup';
+import { useCardLooks } from '../cardLooks';
 import { imageCacheStats } from '../../db/imageCache';
 import { deleteAllOfficialCards } from '../../store/officialCards';
 import { parseCardJson, searchCards, type CardQuery } from '../../core/cards/registry';
@@ -37,14 +38,14 @@ export function LibraryScreen() {
   const onExport = async () => {
     setBusy(true);
     try {
-      const b = await buildBackup();
+      const b = await buildBackup(useCardLooks.getState().looks);
       const url = URL.createObjectURL(new Blob([JSON.stringify(b)], { type: 'application/json' }));
       const a = document.createElement('a');
       a.href = url;
       a.download = `card-duel-backup-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setMsg(`カード${b.cards.length}枚・デッキ${b.decks.length}個・画像${b.images.length}枚を書き出しました`);
+      setMsg(`カード${b.cards.length}枚・デッキ${b.decks.length}個・画像${b.images.length}枚・見た目の設定${Object.keys(b.looks ?? {}).length}件を書き出しました`);
     } catch (e) {
       setMsg(`書き出しに失敗しました: ${(e as Error).message}`);
     } finally {
@@ -55,13 +56,16 @@ export function LibraryScreen() {
   const onBackupFile = async (f: File) => {
     setBusy(true);
     try {
-      const { cards: c, decks: d, images, errors } = parseBackup(JSON.parse(await f.text()));
-      if (c.length + d.length + images.length === 0) throw new Error(errors[0] ?? '読み込めるデータがありません');
+      const { cards: c, decks: d, images, looks, errors } = parseBackup(JSON.parse(await f.text()));
+      const nLooks = Object.keys(looks).length;
+      if (c.length + d.length + images.length + nLooks === 0) throw new Error(errors[0] ?? '読み込めるデータがありません');
       if (d.some((x) => decks.some((y) => y.id === x.id)) && !confirm('同じデッキがすでにあります。ファイルの内容で上書きしますか？')) return;
       await restoreBackup({ cards: c, decks: d, images });
+      // 画像を先に書いてから見た目を読み込む（選んだ画像が見つからない時間を作らない）
+      if (nLooks) useCardLooks.getState().importLooks(looks);
       await init();
       setCache(await imageCacheStats());
-      setMsg(`カード${c.length}枚・デッキ${d.length}個・画像${images.length}枚を読み込みました` + (errors.length ? `／${errors.slice(0, 3).join('、')}` : ''));
+      setMsg(`カード${c.length}枚・デッキ${d.length}個・画像${images.length}枚・見た目の設定${nLooks}件を読み込みました` + (errors.length ? `／${errors.slice(0, 3).join('、')}` : ''));
     } catch (e) {
       setMsg(`読み込みに失敗しました: ${(e as Error).message}`);
     } finally {

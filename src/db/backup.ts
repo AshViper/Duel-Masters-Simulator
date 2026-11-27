@@ -26,6 +26,41 @@ export interface BackupFile {
   cards: CardDefinition[];
   decks: Deck[];
   images: BackupImage[];
+  /** カード名ごとの見た目（ui/cardLooks.ts の CardLook）。古いファイルにはない */
+  looks?: Record<string, BackupLook>;
+}
+
+/** カードの見た目（ui/cardLooks.ts の CardLook と同じ形。db から ui を読まないようにここでも定義する） */
+export interface BackupLook {
+  art?: string;
+  foil?: 'none' | 'shine' | 'rainbow' | 'gold';
+  uploads?: string[];
+}
+
+const FOILS = new Set(['none', 'shine', 'rainbow', 'gold']);
+
+/** 見た目の項目を確かめ、使える欄だけ残す（どの欄もなければ飛ばす） */
+function parseLooks(raw: unknown): { looks: Record<string, BackupLook>; bad: number } {
+  const looks: Record<string, BackupLook> = {};
+  let bad = 0;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { looks, bad: raw === undefined ? 0 : 1 };
+  for (const [name, v] of Object.entries(raw as Record<string, unknown>)) {
+    const o = v as Record<string, unknown> | null;
+    if (!o || typeof o !== 'object') {
+      bad++;
+      continue;
+    }
+    const look: BackupLook = {};
+    if (typeof o.art === 'string' && o.art) look.art = o.art;
+    if (typeof o.foil === 'string' && FOILS.has(o.foil)) look.foil = o.foil as BackupLook['foil'];
+    if (Array.isArray(o.uploads)) {
+      const ups = o.uploads.filter((k): k is string => typeof k === 'string' && !!k);
+      if (ups.length) look.uploads = ups;
+    }
+    if (Object.keys(look).length) looks[name] = look;
+    else bad++;
+  }
+  return { looks, bad };
 }
 
 export function isBackupFile(raw: unknown): boolean {
@@ -65,11 +100,11 @@ function isImage(o: unknown): o is BackupImage {
 }
 
 /** 読み込んだ JSON を検証する。不正な項目は飛ばしてエラーに数える */
-export function parseBackup(raw: unknown): { cards: CardDefinition[]; decks: Deck[]; images: BackupImage[]; errors: string[] } {
+export function parseBackup(raw: unknown): { cards: CardDefinition[]; decks: Deck[]; images: BackupImage[]; looks: Record<string, BackupLook>; errors: string[] } {
   const o = raw as Partial<BackupFile>;
-  if (!isBackupFile(raw)) return { cards: [], decks: [], images: [], errors: ['バックアップファイルではありません'] };
+  if (!isBackupFile(raw)) return { cards: [], decks: [], images: [], looks: {}, errors: ['バックアップファイルではありません'] };
   if (typeof o.version !== 'number' || o.version > BACKUP_VERSION)
-    return { cards: [], decks: [], images: [], errors: ['このアプリより新しい形式のファイルです。アプリを更新してください'] };
+    return { cards: [], decks: [], images: [], looks: {}, errors: ['このアプリより新しい形式のファイルです。アプリを更新してください'] };
   const { cards, errors } = parseCardJson(Array.isArray(o.cards) ? o.cards : []);
   const deckList = Array.isArray(o.decks) ? o.decks : [];
   const decks = deckList.filter(isDeck);
@@ -77,17 +112,19 @@ export function parseBackup(raw: unknown): { cards: CardDefinition[]; decks: Dec
   const imageList = Array.isArray(o.images) ? o.images : [];
   const images = imageList.filter(isImage);
   if (images.length < imageList.length) errors.push(`画像 ${imageList.length - images.length}件が不正なため飛ばしました`);
-  return { cards, decks, images, errors };
+  const { looks, bad } = parseLooks(o.looks);
+  if (bad) errors.push(`見た目の設定 ${bad}件が不正なため飛ばしました`);
+  return { cards, decks, images, looks, errors };
 }
 
-/** ブラウザ内のカード・画像・デッキをまとめる */
-export async function buildBackup(): Promise<BackupFile> {
+/** ブラウザ内のカード・画像・デッキをまとめる。looks はカードの見た目の設定（localStorage にあるので呼び出し側が渡す） */
+export async function buildBackup(looks: Record<string, BackupLook> = {}): Promise<BackupFile> {
   const [cards, decks, rows] = await Promise.all([db.customCards.toArray(), db.decks.toArray(), db.images.toArray()]);
   const images: BackupImage[] = [];
   for (const r of rows) {
     images.push({ key: r.key, type: r.blob.type || 'application/octet-stream', source: r.source, data: bytesToBase64(new Uint8Array(await r.blob.arrayBuffer())) });
   }
-  return { format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: Date.now(), cards, decks, images };
+  return { format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: Date.now(), cards, decks, images, looks };
 }
 
 /** バックアップを書き込む。同じ ID のカード・デッキ・画像は上書きする */

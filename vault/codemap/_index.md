@@ -57,8 +57,8 @@ generated: 2026-11-27
 | `src/core/print/proxyPdf.ts` | 184 | プロキシカード印刷用の A4 レイアウトと、最小限の PDF 書き出し（外部ライブラリなし）。 |  |
 | `src/core/testing/abilitySamples.ts` | 86 | 能力テキストの例文集（ユーザーが挙げた実際のカードの文）。 |  |
 | `src/core/testing/fixtureCards.ts` | 243 | テスト専用のカード（アプリには含めない）。 |  |
-| `src/db/backup.test.ts` | 40 | backup |  |
-| `src/db/backup.ts` | 101 | カード・画像・デッキを1つの JSON ファイルに書き出し、別のブラウザ（GitHub Pages 版など）で読み込む。 |  |
+| `src/db/backup.test.ts` | 56 | backup |  |
+| `src/db/backup.ts` | 138 | カード・画像・デッキを1つの JSON ファイルに書き出し、別のブラウザ（GitHub Pages 版など）で読み込む。 |  |
 | `src/db/db.ts` | 67 | SettingRow, MatchRecord, SavedGame, ImageRow, AppDB, db |  |
 | `src/db/imageCache.ts` | 125 | IndexedDB に保存した画像を object URL にして表示する。 |  |
 | `src/main.tsx` | 14 |  |  |
@@ -75,7 +75,7 @@ generated: 2026-11-27
 | `src/store/onlineStore.ts` | 291 | OnlineRole, OnlineStatus, useOnline | [[codemap/src-store-onlineStore\|地図]] |
 | `src/ui/App.tsx` | 76 | App |  |
 | `src/ui/battleBackground.ts` | 56 | 対戦画面の背景画像（ユーザーが選んだ画像）。IndexedDB の images テーブルに Blob で保存する。 |  |
-| `src/ui/cardLooks.ts` | 80 | カードの見た目の好み（カード名ごと）：どのイラストで表示するか、キラ加工をかけるか。 |  |
+| `src/ui/cardLooks.ts` | 91 | カードの見た目の好み（カード名ごと）：どのイラストで表示するか、キラ加工をかけるか。 |  |
 | `src/ui/components/AppShell.tsx` | 48 | アプリ全体の枠組み（design/app-ui.md）：左ナビ 64px ＋ 上部バー 48px ＋ メイン。対戦画面だけは枠なしの全画面。 |  |
 | `src/ui/components/BridgeImport.tsx` | 55 | ブックマークレット（またはユーザースクリプトの「DMシミュへ保存」）を押したページ（公式の検索結果・カード詳細）に出ていたカードを、自動で保存する。 |  |
 | `src/ui/components/CardDetail.tsx` | 180 | manualLines, Modal, CardDetail, CardInfoPanel |  |
@@ -93,7 +93,7 @@ generated: 2026-11-27
 | `src/ui/screens/BattleSetup.tsx` | 103 | BattleSetupScreen |  |
 | `src/ui/screens/DeckBuilder.tsx` | 374 | DeckBuilderScreen | [[codemap/src-ui-screens-DeckBuilder\|地図]] |
 | `src/ui/screens/Home.tsx` | 245 | HomeScreen, DeckListScreen |  |
-| `src/ui/screens/Library.tsx` | 159 | LibraryScreen |  |
+| `src/ui/screens/Library.tsx` | 163 | LibraryScreen |  |
 | `src/ui/screens/Menus.tsx` | 260 | SettingsScreen, HistoryScreen | [[codemap/src-ui-screens-Menus\|地図]] |
 | `src/ui/screens/OfficialSearch.tsx` | 294 | OfficialSearchScreen | [[codemap/src-ui-screens-OfficialSearch\|地図]] |
 | `src/ui/screens/Online.tsx` | 133 | OnlineScreen |  |
