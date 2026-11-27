@@ -313,6 +313,7 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   // NEO進化・G-NEO進化で重ねたクリーチャーも進化クリーチャー
   if (f.evolution && d.type !== 'evolution' && !(inst.zone === 'battle' && inst.under.length > 0)) return false;
   if (f.nameIncludes && !d.name.replace(/\s/g, '').includes(f.nameIncludes.replace(/\s/g, ''))) return false;
+  if (f.nameEquals !== undefined && d.name.replace(/\s/g, '') !== f.nameEquals.replace(/\s/g, '')) return false;
   // 「このクリーチャーよりパワーが小さい」：効果の発生源と比べる
   if (f.relativeToSource && source && state.cards[source]) {
     const val = (x: string) => (f.relativeToSource!.stat === 'cost' ? def(state, reg, x).cost : state.cards[x].zone === 'battle' && !noPower ? power(state, reg, x) : (def(state, reg, x).power ?? 0));
@@ -375,6 +376,8 @@ export function matchFace(face: PlayFace, d: CardDefinition, f: CardFilter | und
   if (f.twinpact && !d.twin) return false;
   if (f.multicolor && face.civilizations.length < 2) return false;
   if (f.nameIncludes && !face.name.replace(/\s/g, '').includes(f.nameIncludes.replace(/\s/g, ''))) return false;
+  if (f.nameEquals !== undefined && face.name.replace(/\s/g, '') !== f.nameEquals.replace(/\s/g, '')) return false;
+  if (f.typeLabelIncludes && (face.side === 'twin' || !(d.typeLabel ?? '').includes(f.typeLabelIncludes))) return false;
   if (f.maxCost !== undefined && face.cost > f.maxCost) return false;
   if (f.minCost !== undefined && face.cost < f.minCost) return false;
   return true;
@@ -702,7 +705,7 @@ export function canCross(state: GameState, reg: CardRegistry, player: PlayerId, 
   const g = state.cards[gear];
   if (!g || g.owner !== player || g.zone !== 'battle' || !isCrossGear(reg[g.cardId])) return false;
   if (g.equippedTo === target || !battleCards(state, reg, player).includes(target)) return false;
-  return choosePayment(state, reg, player, gear) !== null;
+  return freeCross(state, reg, gear, target) || choosePayment(state, reg, player, gear) !== null;
 }
 
 /** 「このクリーチャーは離れない」「破壊以外の方法で離れない」：いまバトルゾーンを離れられないか */
@@ -746,6 +749,32 @@ export function entryBlocked(state: GameState, reg: CardRegistry, player: Player
   return null;
 }
 
+/** 「相手はコスト5以下の、クリーチャーではないカードを使えない」：このカード（の、その面）を使えないなら理由を返す。コストを支払わずに使う時も見る */
+export function useBlocked(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): string | null {
+  const d = def(state, reg, iid);
+  const face = playFace(d, side);
+  for (const a of activeStatics(state, reg)) {
+    const s = a.static;
+    if (s.type !== 'cannotUse') continue;
+    if (s.nonCreature && isCreatureType(face.type)) continue;
+    // 呪文を唱えられなくする効果を無視するカード（卍 新世壊 卍など）
+    if (face.type === 'spell' && (d.keywords?.ignoreCastLocksSelf || activeStatics(state, reg).some((x) => x.static.type === 'ignoreCastLocks' && x.controller === player && matchFace(face, d, x.static.filter)))) continue;
+    const hit = s.who === 'both' || (s.who === 'self') === (a.controller === player);
+    if (hit && matchFace(face, d, s.filter)) return `${def(state, reg, a.source).name} の効果で、${face.name} は使えません`;
+  }
+  return null;
+}
+
+/** クロスギア gear を target にコストを支払わずにクロスできるか（「このクロスギアをコストを支払わずにサムライ・クリーチャーにクロスしてもよい」） */
+export function freeCross(state: GameState, reg: CardRegistry, gear: string, target: string): boolean {
+  return activeStatics(state, reg).some((a) => a.source === gear && a.static.type === 'freeCross' && matchFilter(state, reg, target, a.static.filter, gear));
+}
+
+/** クロスするのに支払うコスト */
+export function crossCost(state: GameState, reg: CardRegistry, player: PlayerId, gear: string, target: string): number {
+  return freeCross(state, reg, gear, target) ? 0 : effectiveCost(state, reg, player, gear);
+}
+
 export function playRestriction(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): string | null {
   const d = def(state, reg, iid);
   const face = playFace(d, side);
@@ -759,10 +788,13 @@ export function playRestriction(state: GameState, reg: CardRegistry, player: Pla
     const blocked = entryBlocked(state, reg, player, iid);
     if (blocked) return blocked;
   }
+  const used = useBlocked(state, reg, player, iid, side);
+  if (used) return used;
   for (const a of activeStatics(state, reg)) {
     const s = a.static;
     if (s.type !== 'cannotSummon' && s.type !== 'cannotCast') continue;
-    if ((s.type === 'cannotSummon') !== isCreatureType(face.type)) continue;
+    // 「呪文を唱えられない」は呪文だけ、「召喚できない」はクリーチャーだけ（タマシード・フィールドなどには効かない）
+    if (s.type === 'cannotSummon' ? !isCreatureType(face.type) : face.type !== 'spell') continue;
     // 卍 新世壊 卍：「自分の魔導具呪文を唱えられなくする能力を無視する」
     if (s.type === 'cannotCast' && (d.keywords?.ignoreCastLocksSelf || activeStatics(state, reg).some((x) => x.static.type === 'ignoreCastLocks' && x.controller === player && matchFace(face, d, x.static.filter)))) continue;
     const hit = s.who === 'both' || (s.who === 'self') === (a.controller === player);
@@ -989,7 +1021,7 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
     }
     case 'gearAttached': {
       const host = source ? state.cards[source]?.equippedTo : undefined;
-      return !!host && state.cards[host]?.zone === 'battle';
+      return !!host && state.cards[host]?.zone === 'battle' && (!c.hostFilter || matchFilter(state, reg, host, c.hostFilter, source, true));
     }
     case 'selfTapped':
       return !!source && state.cards[source]?.zone === 'battle' && state.cards[source].tapped;

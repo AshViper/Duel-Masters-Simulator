@@ -133,6 +133,8 @@ export interface CardFilter {
   enteredFrom?: ZoneName;
   /** コストが、直前に選んだ（動かした）カードの枚数以下（「こうして山札の下に置かれたカードの枚数以下のコストを持つ」） */
   maxCostChosenCount?: boolean;
+  /** 名前がこの文字列と同じ（「《ボルメテウス・武者・ドラゴン》に」。名前に含むだけのカードは合わない） */
+  nameEquals?: string;
 }
 
 /** 効果の対象指定 */
@@ -232,7 +234,8 @@ export type Condition =
   /** このクリーチャーにクロスギアがクロスされている（any: 自分のクリーチャーのどれかにクロスされている。min: クロスされている数） */
   | { type: 'crossed'; any?: boolean; min?: number }
   /** このカード（クロスギア）がクリーチャーにクロスされている（「このカードがどのクリーチャーにもクロスされていない時」は not で包む） */
-  | { type: 'gearAttached' }
+  /** hostFilter: クロスしているクリーチャーがこの条件に合う時だけ（「このカードがドラゴンまたはサムライにクロスされている時」） */
+  | { type: 'gearAttached'; hostFilter?: CardFilter }
   /**
    * クリーチャーの出方：self ならこのクリーチャー、そうでなければ誘発の原因になったクリーチャー（iid はエンジンが誘発の時に入れる）。
    * summoned: 召喚で出た／from: そのゾーンから出た（notFrom: そのゾーン以外から出た）
@@ -415,7 +418,8 @@ export type EffectDef =
   /** 手札・墓地にあるこのカードの「ゾーンからの誘発」（zoneGates の gate 番目）を処理する */
   | { type: 'zoneGate'; gate: number }
   /** 「ゲーム中で一度」の能力を使ったことを記録する */
-  | { type: 'useOnce' }
+  /** name: その名前の能力を、このプレイヤーがゲーム中に使ったことを記録する（「終極宣言」。カードが違っても合わせて一度） */
+  | { type: 'useOnce'; name?: string }
   /**
    * 効果の発生源（このクリーチャー）自身に対する処理。移動先（MoveDest）なら move と同じ移動をする。
    * 'toHand' / 'toMana' は旧形式（'hand' / 'mana' と同じ）。tapped: タップして置く
@@ -683,6 +687,8 @@ export interface TriggeredAbility {
   castFrom?: ZoneName;
   /** oncePerTurn を、使った時だけ数える（「この能力は各ターン1度しか使えない」：使わなければ、そのターンにもう一度使える） */
   oncePerTurnOnUse?: boolean;
+  /** ゲーム中に一度（プレイヤーごと、この名前の能力すべてで合わせて）。effects の useOnce（name つき）で使ったことを記録する（「終極宣言」） */
+  onceName?: string;
 }
 
 /** 常在効果がかかる範囲 */
@@ -744,7 +750,8 @@ export type StaticAbility = (
   | { type: 'breakerBonus'; amount: number; perCount: Quantity; unit: number }
   /** 条件に合うクリーチャーを、そのゾーンから召喚してもよい（「自分のターンに一度、魔導具クリーチャーを1体、自分の墓地から召喚してもよい」） */
   /** zone: deck は山札の上から1枚目（「自分の山札の上から1枚目をいつでも見てもよい。それがクリーチャーなら、召喚してもよい」） */
-  | { type: 'summonFromZone'; zone: 'graveyard' | 'mana' | 'deck'; filter?: CardFilter; oncePerTurn?: boolean }
+  /** then: この能力で召喚したら、続けて行う効果（「そうしたら、自分の山札の上から1枚目をマナゾーンに置く」。《チアスカーレット アカネ》） */
+  | { type: 'summonFromZone'; zone: 'graveyard' | 'mana' | 'deck'; filter?: CardFilter; oncePerTurn?: boolean; then?: EffectDef[] }
   /** 自分がカードを引く時、山札が0枚なら、かわりに effects を行う（引く1枚ごと。《不死鳥縫合 ブラック・ビッグバン》） */
   | { type: 'emptyDrawInstead'; effects: EffectDef[] }
   /** そのプレイヤーは、自身の山札の横向きのカードを手札に加えた時、ゲームに負ける（《Q.Q.QX.》） */
@@ -766,7 +773,8 @@ export type StaticAbility = (
    * who: そのクリーチャーの持ち主（「相手の〜クリーチャーが出る時、相手はかわりにマナゾーンに置く」）
    */
   /** exceptFromHand: 手札から出る時は置き換えない（「手札以外のどこからでもバトルゾーンに出る時」） */
-  | { type: 'enterInstead'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; to: 'graveyard' | 'mana' | 'hand'; exceptFromHand?: boolean }
+  /** anyCard: クリーチャー以外のカード（タマシード・クロスギア・フィールドなど）にも効く（「相手が自身の手札以外からカードを出す時」） */
+  | { type: 'enterInstead'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; to: 'graveyard' | 'mana' | 'hand'; exceptFromHand?: boolean; anyCard?: boolean }
   /**
    * そのプレイヤーはゲームに負けない（「自分はゲームに負けない」「相手はゲームに勝てない」はどちらも who: self）。
    * deckOutOnly: 山札がなくなった時だけ（「自分の山札にカードがなくなっても、自分はゲームに負けない」）
@@ -782,6 +790,15 @@ export type StaticAbility = (
   | { type: 'noShieldTrigger'; who: 'self' | 'opponent' | 'both' }
   /** そのプレイヤーのバトルゾーンのクリーチャーが元から持つ能力をすべて無視する（「このターン、相手のクリーチャーの能力すべてを無視する」） */
   | { type: 'ignoreAbilities'; who: 'self' | 'opponent' }
+  /**
+   * そのプレイヤーは条件に合うカードを使えない（呪文を唱える・タマシードやクロスギアなどを使う。コストを支払わずに使う時も）。
+   * nonCreature: クリーチャーではないカードだけ（「相手はコスト5以下の、クリーチャーではないカードを使えない」。ツインパクトは使う面で見る）
+   */
+  | { type: 'cannotUse'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; nonCreature?: boolean }
+  /** 自分の他の（filter に合う）クリーチャーが相手のクリーチャーとバトルする時、かわりにこのクリーチャーにバトルさせてもよい（《銀河竜 ゴルファンタジスタ》） */
+  | { type: 'battleSubstitute'; filter?: CardFilter }
+  /** このクロスギアを、条件に合う自分のクリーチャーにコストを支払わずにクロスしてもよい */
+  | { type: 'freeCross'; filter?: CardFilter }
 ) & {
   /** 有効なターン（「自分のターン中」= self）。省略時は常に有効 */
   duringTurn?: 'self' | 'opponent';

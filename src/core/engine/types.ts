@@ -82,6 +82,8 @@ export interface PlayerState {
   nextSummonDiscount?: { amount: number; min: number; grant?: Partial<import('../cards/types').Keywords>; turn: number };
   /** 残りの追加ターン数 */
   extraTurns: number;
+  /** ゲーム中に一度だけ使える能力のうち、もう使ったものの名前（「終極宣言」） */
+  usedOnceNames?: string[];
   /** このターンに引いたカードの枚数 */
   drawnThisTurn?: number;
   /** このターンに唱えた呪文の数 */
@@ -206,7 +208,8 @@ export type Task =
   | { kind: 'shieldTrigger'; player: PlayerId; iid: string }
   /** ブレイクされたシールドのS・トリガーが2枚以上ある時、使う順番をそのプレイヤーが選ぶ（1枚選ぶごとに使うかを聞く） */
   | { kind: 'orderShieldTriggers'; player: PlayerId; iids: string[] }
-  | { kind: 'battle'; attacker: string; defender: string }
+  /** subChecked: 「かわりにこのクリーチャーにバトルさせてもよい」をもう確かめた */
+  | { kind: 'battle'; attacker: string; defender: string; subChecked?: boolean }
   | { kind: 'battleWon'; winner: string; loser: string }
   /** after: 唱えた後、墓地のかわりに置く場所 */
   /** paid: マナゾーンのカードをタップして唱えた */

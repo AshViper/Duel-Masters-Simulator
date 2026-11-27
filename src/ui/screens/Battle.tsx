@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type CSSProperties } from 'react';
 import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isCreatureType, isNonCreaturePermanent, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
-import { activeStatics, altCost, battleCards, canCross, canTapAbility, isCrossGear, isGrCard, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canSummonFromZone, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
+import { activeStatics, altCost, battleCards, canCross, crossCost,canTapAbility, isCrossGear, isGrCard, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canSummonFromZone, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
@@ -782,7 +782,7 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
     const targets = battleCards(g, registry, owner).filter((c) => c !== inst.equippedTo);
     if (!targets.length) rule.push({ label: 'クロスする（クリーチャーがいません）', run: () => undefined, disabled: true });
     for (const c of targets) {
-      rule.push({ label: `${cardDef(g, registry, c).name} にクロスする（コスト${effectiveCost(g, registry, owner, iid)}）`, run: () => act({ type: 'CROSS', player: owner, iid, target: c }), disabled: !canCross(g, registry, owner, iid, c) });
+      rule.push({ label: `${cardDef(g, registry, c).name} にクロスする（コスト${crossCost(g, registry, owner, iid, c)}）`, run: () => act({ type: 'CROSS', player: owner, iid, target: c }), disabled: !canCross(g, registry, owner, iid, c) });
     }
   }
   // 「攻撃するかわりに、タップして次の能力を使ってもよい」（このクリーチャーの能力か、クロスしたクロスギアの能力）

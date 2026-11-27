@@ -181,7 +181,8 @@ export function normalizeText(s: string): string {
     // オーラ：「これをクリーチャーに付けた時」「このオーラが離れた時」
     .replace(/^これをクリーチャーに付けた時(?:また|、または)はこのオーラが(?:バトルゾーンを)?離れた時、/, 'このクリーチャーがクリーチャーに付けられた時またはバトルゾーンを離れた時、')
     .replace(/^これをクリーチャーに付けた時、/, 'このクリーチャーがクリーチャーに付けられた時、')
-    // ジェネレート：クロスギアをバトルゾーンに出すこと
+    // ジェネレート：クロスギアをバトルゾーンに出すこと（「自分の手札にあるクロスギアを1枚、コストを支払わずにジェネレートしてもよい」）
+    .replace(/自分の手札にある(クロスギア)を(\d+)枚、コストを支払わずにジェネレート/g, '$1を$2枚、自分の手札からコストを支払わずにジェネレート')
     .replace(/ジェネレートしてもよい/g, 'バトルゾーンに出してもよい')
     .replace(/ジェネレートする/g, 'バトルゾーンに出す')
     // 「このクリーチャーにクロスギアをクロスする時」＝このクリーチャーにクロスされた時
@@ -695,7 +696,7 @@ function parseMods(mods: string, filter: CardFilter): boolean {
     [/^進化(?=$)/, () => (filter.evolution = true)],
     [/^(?:一番パワーが|パワーが一番)(大きい|小さい)/, (x) => (filter.extremePower = x[1] === '大きい' ? 'highest' : 'lowest')],
     [/^これより(パワー|コスト)が(小さい|大きい)/, (x) => (filter.relativeToSource = { stat: x[1] === 'パワー' ? 'power' : 'cost', cmp: x[2] === '小さい' ? 'less' : 'greater' })],
-    [/^このクリーチャーより(パワー|コスト)が(小さい|大きい)/, (x) => (filter.relativeToSource = { stat: x[1] === 'パワー' ? 'power' : 'cost', cmp: x[2] === '小さい' ? 'less' : 'greater' })],
+    [/^この(?:クリーチャー|呪文)より(パワー|コスト)が(小さい|大きい)/,(x) => (filter.relativeToSource = { stat: x[1] === 'パワー' ? 'power' : 'cost', cmp: x[2] === '小さい' ? 'less' : 'greater' })],
     [/^名前に《([^》]+)》とある/, (x) => (filter.nameIncludes = x[1])],
     [/^コストがマナ枚数より大きい/, () => (filter.costAboveOwnerMana = true)],
     // 直前に選んだ（捨てた・戻した）カードと比べる
@@ -2663,6 +2664,9 @@ function parseStatic(t: string): StaticAbility[] | null {
   // 「各ターンに一度、自分のアーマードを使うコストを1少なくしてもよい。ただし、コストは0以下にはならない」（《アシスター・コッピ》）：その能力ごとに各ターン1度
   m = t.match(/^各ターンに(?:一|1)度、自分の([ァ-ヶー・]+)を使うコストを(\d+)少なくしてもよい(?:。ただし、?コストは0以下に(?:は)?ならない)?$/);
   if (m) return [{ type: 'costMod', amount: -n(m[2]), appliesTo: { owner: 'self', filter: { race: m[1] } }, oncePerTurn: true }];
+  // 「自分のジャイアントを使うコストを1少なくする。ただし、コストは0以下にはならない」（《アシステスト・シネラリア》）：種族を持つカードすべて（クリーチャー以外も）
+  m = t.match(/^自分の([ァ-ヶー・]+)を使うコストを(\d+)少なくする(?:。ただし、?コストは0以下に(?:は)?ならない)?$/);
+  if (m && !/クリーチャー|カード|呪文|クロスギア|タマシード|フィールド/.test(m[1])) return [{ type: 'costMod', amount: -n(m[2]), appliesTo: { owner: 'self', filter: { race: m[1] } } }];
   // 「各ターン、自分の闇のクリーチャー1体目の召喚コストを1少なくしてもよい」「各ターンに1度、自分の、名前に《X》とあるカードの実行コストを1少なくしてもよい」
   m = t.match(/^各ターン(?:に1度)?、(自分|相手)の、?(.+?)(?:1体目|1枚目)?の(?:召喚|実行|使用)コストを(\d+)少なく(?:してもよい|する)(?:。ただし、?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/);
   if (m) {
@@ -3870,7 +3874,7 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     return true;
   }
   // 「バトルゾーンに自分のフィールドがあれば、このクリーチャーを自分の墓地から召喚してもよい」
-  const from = t.match(/^(?:(.+)、)?このクリーチャーを(?:自分の)?(墓地|マナゾーン|超次元ゾーン)から召喚してもよい。?$/);
+  const from = t.match(/^(?:(.+)、)?このクリーチャーを、?(?:自分の)?(墓地|マナゾーン|超次元ゾーン)から召喚してもよい。?$/);
   if (from && kind === 'creature') {
     let condition: Condition | undefined;
     if (from[1]) {
@@ -4094,6 +4098,14 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
   const us = t.match(/^ウルトラ・セイバー[:：]名前に《([^》]+)》とあるクリーチャー。?$/);
   if (us && kind === 'creature') {
     out.replacements.push({ event: 'leaveBattle', subject: 'otherOwn', filter: { nameIncludes: us[1] }, instead: 'destroySelf', optional: true });
+    return true;
+  }
+  // 「ウルトラ・セイバー：ジャイアント」：自分の他のジャイアントが離れる時、かわりにこのクリーチャーを破壊してもよい
+  const usRace = t.match(/^ウルトラ・セイバー[:：]([^《》(（:：、。]+?)。?$/);
+  if (usRace && kind === 'creature') {
+    const filter = parseSwapCondition(usRace[1]);
+    if (!filter) return false;
+    out.replacements.push({ event: 'leaveBattle', subject: 'otherOwn', filter: { ...filter, cardType: 'creature' }, instead: 'destroySelf', optional: true });
     return true;
   }
   const cc2 = t.match(/^(.+?(?:以上あれば|以下なら|以上なら))、このクリーチャーの召喚コストを(\d+)少なくする。?$/);
@@ -4443,6 +4455,13 @@ function sClassZones(line: string, variant: string): { zones: NonNullable<Attack
 
 /** 侵略・革命チェンジの条件「火のコスト3以上の、コマンドまたはドラゴン」を読む */
 function parseSwapCondition(text: string): CardFilter | null {
+  // 「コスト3以上のアーマードまたはコスト3以上のメカ」：それぞれに条件が付いた2つ以上の条件のどれか
+  const parts = text.split('または');
+  if (parts.length >= 2 && parts.every((p) => /^(?:コスト|パワー)\d+以[上下]の./.test(p))) {
+    const anyOf = parts.map((p) => parseSwapCondition(p));
+    if (anyOf.some((f) => !f)) return null;
+    return { anyOf: anyOf as CardFilter[] };
+  }
   // 「コスト7以上の名前に《ボルシャック》とある多色クリーチャー」：名前の条件を外して残りを読む
   const nm = text.match(/名前に《([^》]+)》とある/);
   if (nm) {

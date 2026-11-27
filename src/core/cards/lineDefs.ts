@@ -714,6 +714,91 @@ export const BUILT_IN_LINE_DEFS: LineDefs = {
       }),
     ),
   },
+  // ── SD1 その6 ──
+  '相手のターン中、相手が、自身のマナゾーンのカードの枚数よりコストが大きいクリーチャーを出す時、かわりにマナゾーンに置く。': {
+    note: 'キャディ・ビートル（召喚でも効果でも。コストは出すクリーチャーの持ち主のマナゾーンの枚数と比べる）',
+    statics: [{ type: 'enterInstead', who: 'opponent', filter: { costAboveOwnerMana: true }, to: 'mana', duringTurn: 'opponent' }],
+  },
+  '相手が自身の手札以外からカードを出す時、かわりにマナゾーンに置く。': {
+    note: 'とこしえの超人（クリーチャー以外のカードも）',
+    statics: [{ type: 'enterInstead', who: 'opponent', to: 'mana', exceptFromHand: true, anyCard: true }],
+  },
+  '自分のターン中、ジャイアントを1体、自分のマナゾーンから召喚してもよい。そうしたら、自分の山札の上から1枚目をマナゾーンに置く。': {
+    note: 'チアスカーレット アカネ（回数の制限なし）',
+    statics: [{ type: 'summonFromZone', zone: 'mana', filter: { cardType: 'creature', race: 'ジャイアント' }, duringTurn: 'self', then: [{ type: 'deckTopTo', count: 1, to: 'mana' }] }],
+  },
+  '相手のクリーチャーが出て、その能力がトリガーする時、自分のスノーフェアリーが5つ以上あれば、かわりにその能力はトリガーしない。': {
+    note: '完璧妖精マリニャンX（スノーフェアリーはクリーチャー以外のカードも数える）',
+    statics: [
+      {
+        type: 'suppressEnterTriggers',
+        subjectOnly: true,
+        condition: { type: 'compare', left: { who: 'self', zone: 'battle', withPermanents: true, filter: { race: 'スノーフェアリー' } }, op: '>=', right: 5 },
+      },
+    ],
+  },
+  '相手はコスト5以下の、クリーチャーではないカードを使えない。': {
+    note: '超球の超人（呪文・タマシード・クロスギアなど。ツインパクトは使う面で見る）',
+    statics: [{ type: 'cannotUse', who: 'opponent', filter: { maxCost: 5 }, nonCreature: true }],
+  },
+  '終極宣言：自分のターンのはじめに、自分の手札と同じ枚数のカードを引いてもよい。その後、自分のマナゾーンにあるカードと同じ枚数のカードを、自分の山札の上からマナゾーンに置いてもよい。（「終極宣言」は、ゲーム中に一度だけ使える）': {
+    note: '超重竜 ゴルファンタジスタ（「終極宣言」はプレイヤーごとにゲーム中に一度。使うと答えたら使ったことになる）',
+    abilities: [
+      {
+        when: 'onTurnStart',
+        onceName: '終極宣言',
+        optional: true,
+        effects: [
+          { type: 'useOnce', name: '終極宣言' },
+          { type: 'optional', effects: [{ type: 'repeat', per: { who: 'self', zone: 'hand' }, unit: 1, effects: [{ type: 'draw', count: 1 }] }] },
+          { type: 'optional', effects: [{ type: 'repeat', per: { who: 'self', zone: 'mana' }, unit: 1, effects: [{ type: 'deckTopTo', count: 1, to: 'mana' }] }] },
+        ],
+      },
+    ],
+  },
+  '自分の他のジャイアントが相手のクリーチャーとバトルする時、かわりにこのクリーチャーにバトルさせてもよい。': {
+    note: '銀河竜 ゴルファンタジスタ',
+    statics: [{ type: 'battleSubstitute', filter: { cardType: 'creature', race: 'ジャイアント' } }],
+  },
+  '自分のクロスギアをジェネレートしたりクロスするコストは1少なくなる。ただし、コストは0以下にはならない。': {
+    note: '竜装 ゴウソク・タキオンアーマー',
+    statics: [{ type: 'costMod', amount: -1, appliesTo: { owner: 'self', filter: { typeLabelIncludes: 'クロスギア' } }, minCost: 1 }],
+  },
+  'このカードがドラゴンまたはサムライにクロスされている時、バトルゾーンにある自分のドラゴンとサムライ・クリーチャーのパワーは+2000され、「スピードアタッカー」を得る。': {
+    note: '竜装 ザンゲキ・マッハアーマー',
+    statics: ((): StaticAbility[] => {
+      const condition: Condition = { type: 'gearAttached', hostFilter: { cardType: 'creature', races: ['ドラゴン', 'サムライ'] } };
+      const appliesTo = { owner: 'self' as const, filter: { cardType: 'creature' as const, races: ['ドラゴン', 'サムライ'] } };
+      return [
+        { type: 'powerMod', amount: 2000, appliesTo, condition },
+        { type: 'grantKeyword', keywords: { speedAttacker: true }, appliesTo, condition },
+      ];
+    })(),
+  },
+  'このカードは、コストを支払わずに《ボルメテウス・武者・ドラゴン》にクロスしてもよい。': {
+    note: '竜装 ザンゲキ・マッハアーマー（名前が《ボルメテウス・武者・ドラゴン》のクリーチャーだけ）',
+    statics: [{ type: 'freeCross', filter: { nameEquals: 'ボルメテウス・武者・ドラゴン' } }],
+  },
+  'このクロスギアをコストを支払わずにサムライ・クリーチャーにクロスしてもよい。': {
+    note: '竜牙 リュウジン・ドスファング',
+    statics: [{ type: 'freeCross', filter: { cardType: 'creature', race: 'サムライ' } }],
+  },
+  'このクリーチャーが出た時、自分の火のエレメントの数以下のコストの相手のエレメントを1つ選び、破壊する。その後、自分の光のエレメント1つにつき、カードを1枚引いてもよい。': {
+    note: 'ヴァルキリアス・武者・ムサシ「弐天」（エレメントの数は選ぶ時に数える。引く枚数は0枚から選べる）',
+    abilities: [
+      {
+        when: 'onSummon',
+        effects: [
+          { type: 'destroy', target: { owner: 'opponent', zone: 'battle', count: 1, element: true, filter: { maxCostCount: { who: 'self', zone: 'battle', withPermanents: true, filter: { civilization: 'fire' } } } } },
+          { type: 'repeat', per: { who: 'self', zone: 'battle', withPermanents: true, filter: { civilization: 'light' } }, unit: 1, effects: [{ type: 'draw', count: 1, upTo: true }] },
+        ],
+      },
+    ],
+  },
+  'このクリーチャーが攻撃する時、自分の手札から、自分の手札の枚数以下のコストを持つ進化ではない、サムライまたはアーマードを1枚、コストを支払わずに使ってもよい。': {
+    note: 'ヴァルキリアス・武者・ムサシ「弐天」（クロスギアや呪文でもよい。手札の枚数は使うカードも数える）',
+    abilities: [{ when: 'onAttack', optional: true, effects: [{ type: 'playFromHandFree', filter: { nonEvolution: true, races: ['サムライ', 'アーマード'] }, maxCostHandSize: true }] }],
+  },
 };
 
 /** 利用者が設定画面から取り込んだ定義（アプリに入っている定義より優先する） */

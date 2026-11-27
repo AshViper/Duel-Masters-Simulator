@@ -44,6 +44,8 @@ import {
   countQuantity,
   entryBlocked,
   canCross,
+  freeCross,
+  useBlocked,
   isCrossGear,
   isAura,
   isGrCard,
@@ -250,7 +252,8 @@ export class Ctx {
         return this.respond(a.player, { selected: a.selected, accept: a.accept });
       case 'CROSS': {
         if (!canCross(s, this.reg, a.player, a.iid, a.target)) throw new IllegalAction('クロスできません');
-        const pay = choosePayment(s, this.reg, a.player, a.iid, a.manaIids);
+        // 「このクロスギアをコストを支払わずに〜にクロスしてもよい」
+        const pay = freeCross(s, this.reg, a.iid, a.target) ? [] : choosePayment(s, this.reg, a.player, a.iid, a.manaIids);
         if (!pay) throw new IllegalAction('マナが足りません');
         if (s.phase === 'charge') {
           s.phase = 'main';
@@ -562,7 +565,11 @@ export class Ctx {
     if (!inst || inst.owner !== player || (inst.zone !== 'hand' && !(side === 'main' && canSummonFromZone(s, this.reg, player, iid)))) throw new IllegalAction('手札のカードを選んでください');
     // 「自分のターンに一度、〜を自分の墓地から召喚してもよい」：使ったことを記録する（カード自身の能力で召喚できる時は使わない）
     const ownSf = def(s, this.reg, iid).summonFrom;
-    const zoneSrc = inst.zone !== 'hand' && !(ownSf && (ownSf.zones as string[]).includes(inst.zone)) ? zoneSummonSource(s, this.reg, player, iid) : null;
+    // 「そうしたら、〜」のある能力（《チアスカーレット アカネ》）は、カード自身の能力で召喚できる時もそちらを使う（得なので）
+    const zsAny = inst.zone !== 'hand' ? zoneSummonSource(s, this.reg, player, iid) : null;
+    const zsThen = zsAny ? activeStatics(s, this.reg).find((a) => a.source === zsAny && a.static.type === 'summonFromZone' && a.static.zone === inst.zone && a.static.then?.length) : undefined;
+    const zoneSrc = zsAny && (zsThen || !(ownSf && (ownSf.zones as string[]).includes(inst.zone))) ? zsAny : null;
+    const zoneThen = zoneSrc && zsThen?.static.type === 'summonFromZone' ? zsThen.static.then : undefined;
     if (s.phase !== 'charge' && s.phase !== 'main') throw new IllegalAction('カードはメインステップで使います');
     const d = def(s, this.reg, iid);
     if (side === 'twin' && !d.twin) throw new IllegalAction('ツインパクトではありません');
@@ -638,6 +645,7 @@ export class Ctx {
     this.log(`${face.name} を${verb}（${cost}マナ）`, player);
     this.emit({ type: 'CARD_PLAYED', player, iid });
     s.queue.push(face.type === 'spell' ? { kind: 'castSpell', player, iid, side, paid: cost > 0, from: inst.zone } : { kind: 'enterBattle', player, iid, evolveOn, ...(evolveFrom?.length ? { evolveFrom } : {}), ...(mspec?.deckTop ? { evolveDeck: mspec.deckTop } : {}), paid: cost > 0, ...(isCreatureType(face.type) ? { summoned: true } : {}) });
+    if (zoneSrc && zoneThen) s.queue.push(...this.effectTasks(player, zoneSrc, zoneThen));
     this.run();
   }
 
@@ -702,6 +710,20 @@ export class Ctx {
     if (alt.then) tasks.push(...this.effectTasks(player, iid, alt.then));
     if (front) this.insertFront(...tasks);
     else s.queue.push(...tasks);
+  }
+
+  /** 「自分の他のジャイアントが相手のクリーチャーとバトルする時、かわりにこのクリーチャーにバトルさせてもよい」：かわりにバトルできるクリーチャーと、置き換える側 */
+  private battleSubstitute(attacker: string, defender: string): { source: string; side: 'attacker' | 'defender' } | null {
+    const s = this.s;
+    for (const [side, me, opp] of [['attacker', attacker, defender], ['defender', defender, attacker]] as const) {
+      const owner = s.cards[me].owner;
+      if (s.cards[opp].owner === owner) continue;
+      const a = activeStatics(s, this.reg).find(
+        (x) => x.static.type === 'battleSubstitute' && x.controller === owner && x.source !== me && x.source !== opp && s.cards[x.source]?.zone === 'battle' && matchFilter(s, this.reg, me, x.static.filter, x.source),
+      );
+      if (a) return { source: a.source, side };
+    }
+    return null;
   }
 
   private battleBonus(iid: string, opp: string): number {
@@ -1216,10 +1238,13 @@ export class Ctx {
           }
         }
         // 「〜クリーチャーがバトルゾーンに出る時、かわりに持ち主の墓地（マナゾーン）に置く」（召喚でも効果でも）
-        if (isCreatureType(entering.type)) {
+        // anyCard：「相手が自身の手札以外からカードを出す時」はクリーチャー以外のカードにも
+        {
+          const creature = isCreatureType(entering.type);
           const ins = activeStatics(s, this.reg).find(
             (a) =>
               a.static.type === 'enterInstead' &&
+              (creature || !!a.static.anyCard) &&
               !(a.static.exceptFromHand && fromZone === 'hand') &&
               (a.static.who === 'both' || (a.static.who === 'self') === (a.controller === inst.owner)) &&
               matchFilter(s, this.reg, task.iid, a.static.filter, a.source),
@@ -1525,12 +1550,28 @@ export class Ctx {
       }
 
       case 'battle': {
-        const { attacker, defender } = task;
         const alive = (i: string) => s.cards[i]?.zone === 'battle';
-        if (!alive(attacker) || !alive(defender)) {
+        if (!alive(task.attacker) || !alive(task.defender)) {
           s.combat = null;
           return false;
         }
+        // 「自分の他のジャイアントが相手のクリーチャーとバトルする時、かわりにこのクリーチャーにバトルさせてもよい」
+        if (!task.subChecked) {
+          const sub = this.battleSubstitute(task.attacker, task.defender);
+          if (sub) {
+            const r = this.takeResponse();
+            if (!r) {
+              s.pending = { kind: 'confirm', player: s.cards[sub.source].owner, source: sub.source, prompt: `${this.name(sub.source)}：${this.name(task[sub.side])} のかわりにバトルさせますか？` };
+              return true;
+            }
+            if (r.accept) {
+              this.log(`${this.name(sub.source)} が ${this.name(task[sub.side])} のかわりにバトルする`, s.cards[sub.source].owner);
+              task[sub.side] = sub.source;
+            }
+          }
+          task.subChecked = true;
+        }
+        const { attacker, defender } = task;
         // 「バトル中、パワーを+N」はバトルの時だけ加える
         const pa = power(s, this.reg, attacker) + this.battleBonus(attacker, defender);
         const pd = power(s, this.reg, defender) + this.battleBonus(defender, attacker);
@@ -2742,7 +2783,9 @@ export class Ctx {
         return false;
       }
       case 'useOnce':
-        if (s.cards[source]) s.cards[source].usedOnce = true;
+        // 「終極宣言」：このプレイヤーは、その名前の能力をもう使えない
+        if (e.name) (s.players[controller].usedOnceNames ??= []).push(e.name);
+        else if (s.cards[source]) s.cards[source].usedOnce = true;
         return false;
       case 'zoneGate':
         return this.execZoneGate(controller, source, e.gate);
@@ -3545,6 +3588,12 @@ export class Ctx {
   private useFree(controller: PlayerId, iid: string, after?: 'deckBottom' | 'hand'): void {
     const d = def(this.s, this.reg, iid);
     if (isNonCreaturePermanent(d.type)) {
+      // 「相手はコスト5以下の、クリーチャーではないカードを使えない」
+      const blocked = useBlocked(this.s, this.reg, controller, iid);
+      if (blocked) {
+        this.log(blocked, controller);
+        return;
+      }
       this.log(`${d.name} をコストを支払わずに使う`, controller);
       this.emit({ type: 'CARD_PLAYED', player: controller, iid });
       this.insertFront({ kind: 'enterBattle', player: this.s.cards[iid].owner, iid });
@@ -4152,6 +4201,7 @@ export class Ctx {
       // Dスイッチはゲーム中に一度だけ
       if (ab.dSwitch && inst.dSwitched) return;
       if (ab.oncePerGame && inst.usedOnce) return;
+      if (ab.onceName && s.players[inst.owner].usedOnceNames?.includes(ab.onceName)) return;
       // 「相手のターンにこのクリーチャーが出た時」
       if (ab.duringTurn && (s.activePlayer === inst.owner) !== (ab.duringTurn === 'self')) return;
       // 「各ターンに1度」
