@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CARD_TYPE_LABEL, type CardDefinition } from '../../core/cards/types';
+import { CARD_TYPE_LABEL, CIV_LABEL, type CardDefinition } from '../../core/cards/types';
 import { manualLines } from '../components/CardDetail';
 import { deckCountLabel, isDeckLegal, type Deck } from '../../core/deck/rules';
 import { db, type SavedGame } from '../../db/db';
@@ -153,7 +153,7 @@ function ManualAbilitiesPanel({ cards }: { cards: CardDefinition[] }) {
           title="手動の能力を自動処理にしてもらうための依頼文（能力の文・カードの全文）をコピーします。Claude にそのまま貼り付けて使います"
           onClick={() => void navigator.clipboard?.writeText(manualToText(groups)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}
         >
-          {copied ? 'コピーしました' : 'まとめてコピー'}
+          {copied ? 'コピーしました' : '実装依頼をコピー'}
         </button>
       </h3>
       <ul className="home-manual-list small">
