@@ -272,6 +272,73 @@ export const BUILT_IN_LINE_DEFS: LineDefs = {
     note: '龍素記号ｗD サイクルペディア',
     statics: [{ type: 'graveCastToDeckBottom' }],
   },
+  // ───── SD1 その2 ─────
+  'このクリーチャーがバトルゾーンに出た時、プレイヤーを1人選ぶ。そのプレイヤーは自身の手札をすべて、好きな順序で山札の一番下に置き、その後、その枚数と同じ数、カードを引く。その後、そのプレイヤーは自身のシールドゾーンにあるカードをすべて好きな順序で山札の一番下に置き、その枚数と同じ数のカードを、山札の上から裏向きのまま、それぞれ新しいシールドとしてシールドゾーンに置く。': {
+    note: 'Vチャロン（シールドの束は1枚ずつ数える）',
+    abilities: [{ when: 'onSummon', effects: [{ type: 'refreshHandShields', who: 'choose' }] }],
+  },
+  '相手のターン中にこのクリーチャーが自分の手札から捨てられる時、墓地に置くかわりにバトルゾーンに出してもよい。そうした場合、バトルゾーンにあるクリーチャーを1体選び、持ち主の手札に戻してもよい。': {
+    note: '斬隠蒼頭龍バイケン（自分のカードで捨てても、相手のターンなら出せる）',
+    keywords: { discardToBattle: 'may', discardToBattleThen: [{ type: 'optional', effects: [{ type: 'move', target: { owner: 'any', zone: 'battle', count: 1 }, to: 'hand' }] }] },
+  },
+  '自分のシノビの「ニンジャ・ストライク」能力を使った時、カードを1枚引いてもよい。': {
+    note: '斬隠蒼頭龍バイケン（使うと決めた時に誘発する。このカード自身のニンジャ・ストライクでは、まだ手札にあるので誘発しない）',
+    abilities: [{ when: 'onNinjaStrike', who: 'self', filter: { race: 'シノビ' }, optional: true, effects: [{ type: 'draw', count: 1 }] }],
+  },
+  'このクリーチャーが出た時、自分の山札の上から4枚を見て、その中から《竜皇神 ボルシャック・バクテラス》ではないアーマードを好きな数出す。残りを好きな順序で山札の下に置く。': {
+    note: '竜皇神 ボルシャック・バクテラス',
+    abilities: [
+      {
+        when: 'onSummon',
+        effects: [{ type: 'lookAtTop', count: 4, pickCount: 4, pickFilter: { race: 'アーマード', not: { nameIncludes: '竜皇神 ボルシャック・バクテラス' } }, pickTo: 'battle', restTo: 'deckBottom' }],
+      },
+    ],
+  },
+  '各ターン、はじめて自分のクリーチャーがバトルする時、そのクリーチャーはそのバトルに勝つ。': {
+    note: '輝く革命 ボルシャック・フレア（このクリーチャーが出る前のバトルも数える。両方が勝つなら相打ち）',
+    statics: [{ type: 'winFirstBattle' }],
+  },
+  '各ターン、はじめて相手のクリーチャーが出る時、そのクリーチャーはタップして出る。': {
+    note: '輝く革命 ボルシャック・フレア（このクリーチャーが出る前に出た相手のクリーチャーも数える）',
+    statics: [{ type: 'opponentEntersTapped', firstPerTurn: true }],
+  },
+  'このクリーチャーの召喚コストを1少なくしてもよい。そうしたら、このターンの終わりに、このクリーチャーを破壊する。': {
+    note: '頂上印鑑 パラキン8th（別の使い方として選ぶ）',
+    altPlays: [{ name: '召喚コストを1少なくする（ターンの終わりに破壊）', reduce: 1, endOfTurn: 'destroy' }],
+  },
+  '次の中から2回選ぶ。（同じものを選んでもよい）▶コスト3以下のクリーチャーを1体、自分の手札からバトルゾーンに出す。▶このターン、自分のクリーチャー1体に「スピードアタッカー」を与える。▶自分のクリーチャーを1体選ぶ。このターン、そのクリーチャーの最初の攻撃の終わりに、そのクリーチャーをアンタップする。': {
+    note: '瞬閃と疾駆と双撃の決断（このターンにすでに攻撃したクリーチャーには効かない）',
+    abilities: [
+      {
+        when: 'onCast',
+        effects: [
+          {
+            type: 'chooseOne',
+            times: 2,
+            options: [
+              { label: 'コスト3以下のクリーチャーを1体、自分の手札からバトルゾーンに出す', effects: [{ type: 'move', target: { owner: 'self', zone: 'hand', count: 1, filter: { maxCost: 3, cardType: 'creature' } }, to: 'battle' }] },
+              { label: 'このターン、自分のクリーチャー1体に「スピードアタッカー」を与える', effects: [{ type: 'grantKeyword', target: { owner: 'self', zone: 'battle', count: 1 }, keywords: { speedAttacker: true } }] },
+              {
+                label: '自分のクリーチャーを1体選ぶ。このターン、そのクリーチャーの最初の攻撃の終わりに、そのクリーチャーをアンタップする',
+                effects: [{ type: 'grantKeyword', target: { owner: 'self', zone: 'battle', count: 1 }, keywords: { untapAtFirstAttackEnd: true } }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  'このクリーチャーがバトルゾーンに出た時または攻撃する時、自分の山札の上から3枚を見せる。それがすべてコストが同じクリーチャーであれば、バトルゾーンに出す。それ以外なら、好きな順序で山札の一番下に置く。': {
+    note: 'ガチャンコ ガチロボ（山札が3枚より少なければ、あるだけ見せる）',
+    abilities: (['onSummon', 'onAttack'] as const).map((when) => ({
+      when,
+      effects: [{ type: 'revealTopAll' as const, count: 3, filter: { cardType: 'creature' as const }, sameCost: true, to: 'battle' as const, restTo: 'deckBottom' as const }],
+    })),
+  },
+  '相手の呪文の効果または相手のクリーチャーの能力によって、このクリーチャーが自分の手札から捨てられる時、墓地に置くかわりに自分のバトルゾーンに置いてもよい。': {
+    note: '永遠のリュウセイ・カイザー',
+    keywords: { discardToBattle: 'may', discardToBattleCause: 'opponentEffect' },
+  },
 };
 
 /** 利用者が設定画面から取り込んだ定義（アプリに入っている定義より優先する） */

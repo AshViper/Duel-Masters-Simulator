@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/grammar.ts（1471行）
+# src/core/cards/grammar.ts（1478行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -49,15 +49,15 @@ generated: 2026-11-27
 - L1102 fn `parseDuration`
 - L1113 fn `parseRestrictionSentence`
 - L1126 fn `parseEnterInstead`
-- L1162 fn `parseInsteadBody`
-- L1191 fn `parseReplacementSentence`
-- L1220 fn `parsePer`
-- L1235 fn `parseSelfCost`
-- L1277 fn `parsePlaySelf`
-- L1293 **export** fn `parseByGrammar`
-- L1344 fn `merge`
-- L1354 fn `parseReminderAsAbility`
-- L1370 fn `readAbility`
+- L1169 fn `parseInsteadBody`
+- L1198 fn `parseReplacementSentence`
+- L1227 fn `parsePer`
+- L1242 fn `parseSelfCost`
+- L1284 fn `parsePlaySelf`
+- L1300 **export** fn `parseByGrammar`
+- L1351 fn `merge`
+- L1361 fn `parseReminderAsAbility`
+- L1377 fn `readAbility`
 
 ## メソッド
 

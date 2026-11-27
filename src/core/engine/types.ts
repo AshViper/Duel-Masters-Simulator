@@ -167,7 +167,8 @@ export type GameEvent =
   /** カードがシールドゾーンに置かれた（player: そのシールドゾーンの持ち主） */
   | { type: 'SHIELD_ADDED'; player: PlayerId; iid: string }
   /** 手札を捨てた（効果で手札から墓地へ） */
-  | { type: 'CARD_DISCARDED'; player: PlayerId; iid: string }
+  /** by: 捨てさせた効果を使ったプレイヤーとそのカード（効果で捨てた時） */
+  | { type: 'CARD_DISCARDED'; player: PlayerId; iid: string; by?: { player: PlayerId; source: string } }
   | { type: 'CARD_MOVED'; iid: string; from: ZoneName; to: ZoneName }
   /** カードがシールドゾーンを離れた（player: そのシールドゾーンの持ち主） */
   | { type: 'SHIELD_LEFT'; player: PlayerId; iid: string }

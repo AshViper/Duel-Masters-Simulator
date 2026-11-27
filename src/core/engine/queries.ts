@@ -500,6 +500,26 @@ export function cannotBeAttacked(state: GameState, reg: CardRegistry, iid: strin
   return !!kw.cannotBeAttacked || (!!kw.justDiver && justDiving(state, state.cards[iid]));
 }
 
+/** このカードを使う時に使う「各ターンに一度」のコスト軽減（その能力のカード）。軽減しても変わらない（すでに下限の）カードには使わない */
+export function oncePerTurnCostMods(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main'): string[] {
+  const d = def(state, reg, iid);
+  const face = playFace(d, side);
+  return activeStatics(state, reg)
+    .filter((a) => {
+      const s = a.static;
+      return (
+        s.type === 'costMod' &&
+        !!s.oncePerTurn &&
+        s.amount < 0 &&
+        ownerMatches(s.appliesTo.owner, a.controller, player) &&
+        matchFace(face, d, s.appliesTo.filter) &&
+        face.cost > (s.minCost ?? 1) &&
+        !(state.usedThisTurn ?? []).includes(`cmod:${a.source}`)
+      );
+    })
+    .map((a) => a.source);
+}
+
 /** 常在効果込みのコスト */
 /** neo: NEO進化クリーチャーとして（重ねて）召喚する */
 export function effectiveCost(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, side: 'main' | 'twin' = 'main', sacrifice: string[] = [], neo = false): number {
@@ -517,6 +537,8 @@ function effectiveCostImpl(state: GameState, reg: CardRegistry, player: PlayerId
     if (!matchFace(face, d, s.appliesTo.filter)) continue;
     // 「各ターン、1体目の」：このターン、条件に合うカードをまだ使っていない時だけ
     if (s.firstPerTurn && (state.players[player].playedThisTurn ?? []).some((x) => state.cards[x] && matchFace(playFace(def(state, reg, x)), def(state, reg, x), s.appliesTo.filter))) continue;
+    // 「各ターンに一度」：この能力をこのターンにまだ使っていない時だけ
+    if (s.oncePerTurn && (state.usedThisTurn ?? []).includes(`cmod:${a.source}`)) continue;
     cost += s.amount;
     if (s.minCost !== undefined) floor = Math.min(face.cost, Math.max(floor, s.minCost));
   }

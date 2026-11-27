@@ -1125,11 +1125,18 @@ function parseRestrictionSentence(c: Cur): { applies: StaticAbility & { type: 'g
 /** 「〜クリーチャーがバトルゾーンに出る時、（バトルゾーンに出る）かわりに持ち主の墓地に置かれる」「相手はかわりにそのクリーチャーをマナゾーンに置く」 */
 function parseEnterInstead(c: Cur): StaticAbility | null {
   return c.try(() => {
+    // 「自分のターン中に、」：その間だけ
+    const turn = c.try(() => {
+      const p = c.kind('player', (x) => x.player === 'self' || x.player === 'opponent');
+      return p && c.lit('の', 'ターン', '中') && (c.lit('に', '、') || c.lit('、')) ? PLAYER[p.text] : null;
+    });
     const np = parseNP(c);
     if (!np || np.ref || np.noun !== 'creature' || !c.lit('が', 'バトルゾーン', 'に') || !c.verb('出る', ['plain']) || !c.lit('時', '、')) return null;
     let to: 'graveyard' | 'mana' | null = null;
     const passive = c.try(() => {
-      c.try(() => c.lit('バトルゾーン', 'に') && c.verb('出る', ['plain']));
+      // 「そのクリーチャーはバトルゾーンのかわりに持ち主の墓地に置かれる」（《単騎連射 マグナム》）
+      c.try(() => c.lit('その', 'クリーチャー', 'は'));
+      if (!c.try(() => c.lit('バトルゾーン', 'に') && c.verb('出る', ['plain']))) c.lit('バトルゾーン', 'の');
       if (!c.kind('conj', (t) => t.conj === 'instead')) return null;
       c.lit('、');
       c.lit('持ち主', 'の');
@@ -1154,7 +1161,7 @@ function parseEnterInstead(c: Cur): StaticAbility | null {
     if (!to || !c.done) return null;
     const filter: CardFilter = { ...np.filter, cardType: 'creature' };
     const who = np.owner === 'self' ? 'self' : np.owner === 'opponent' ? 'opponent' : 'both';
-    return { type: 'enterInstead', who, filter, to } as StaticAbility;
+    return { type: 'enterInstead', who, filter, to, ...(turn ? { duringTurn: turn } : {}) } as StaticAbility;
   });
 }
 

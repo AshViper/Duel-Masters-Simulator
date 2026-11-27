@@ -423,6 +423,11 @@ export type EffectDef =
   /** bothIf: この条件を満たしていれば、すべての選択肢を選んでもよい（「〜があれば、両方選んでもよい」） */
   | { type: 'chooseOne'; options: { label: string; effects: EffectDef[] }[]; times?: number; distinct?: boolean; bothIf?: Condition }
   /** 効果の途中の「〜してもよい」：使うかどうかを聞いてから行う（選択肢の中など） */
+  /**
+   * 「そのプレイヤーは自身の手札をすべて山札の一番下に置き、その枚数と同じ数、カードを引く。その後、自身のシールドゾーンにあるカードをすべて山札の一番下に置き、
+   * その枚数と同じ数のカードを山札の上から新しいシールドとして置く」（《Vチャロン》。choose: プレイヤーを1人選ぶ）
+   */
+  | { type: 'refreshHandShields'; who: 'self' | 'opponent' | 'choose' }
   | { type: 'optional'; effects: EffectDef[]; /** 「そうしなければ、〜」：使わなかった時に行う効果 */ otherwise?: EffectDef[] }
   /**
    * このクリーチャーと選んだクリーチャーをバトルさせる。
@@ -613,6 +618,8 @@ export const TRIGGER_EVENTS = [
   'onStacked',
   /** カードが墓地に置かれた時（who で誰の墓地か。どこからでも、1枚ごとに誘発する） */
   'onGravePut',
+  /** 自分の（filter に合う）カードの「ニンジャ・ストライク」能力を使った時（使うと決めた時。そのカードはまだ手札にある） */
+  'onNinjaStrike',
 ] as const;
 export type TriggerEvent = (typeof TRIGGER_EVENTS)[number];
 
@@ -676,7 +683,10 @@ export type StaticAbility = (
    * 手札のカードのコストを増減する。コストは minCost（既定1）未満にならない。
    * firstPerTurn: 各ターン、条件に合うカードを使うまでの1枚目だけ（「各ターン、自分の闇のクリーチャー1体目の」）
    */
-  | { type: 'costMod'; amount: number; appliesTo: Applies; minCost?: number; firstPerTurn?: boolean }
+  /**
+   * oncePerTurn: 各ターンに一度（この能力ごと）。使った（そのカードのコストが少なくなった）時に数える（「各ターンに一度、自分のアーマードを使うコストを1少なくしてもよい」）
+   */
+  | { type: 'costMod'; amount: number; appliesTo: Applies; minCost?: number; firstPerTurn?: boolean; oncePerTurn?: boolean }
   /** 自分のターンに1枚目のカードを引く時、もう1枚余分に引いてもよい */
   | { type: 'extraTurnDraw' }
   /** 誰も、自身のマナゾーンの呪文カードをアンタップできない */
@@ -717,8 +727,10 @@ export type StaticAbility = (
   | { type: 'ignoreCastLocks'; filter?: CardFilter }
   /** 自分の墓地から唱えた呪文は、唱えた後、墓地のかわりに山札の下に置く（《龍素記号ｗD サイクルペディア》） */
   | { type: 'graveCastToDeckBottom' }
-  /** 条件に合う相手のクリーチャーはタップしてバトルゾーンに出る */
-  | { type: 'opponentEntersTapped'; filter?: CardFilter }
+  /** 条件に合う相手のクリーチャーはタップしてバトルゾーンに出る。firstPerTurn: 各ターン、はじめて出る相手のクリーチャーだけ */
+  | { type: 'opponentEntersTapped'; filter?: CardFilter; firstPerTurn?: boolean }
+  /** 各ターン、はじめて自分のクリーチャーがバトルする時、そのクリーチャーはそのバトルに勝つ（《輝く革命 ボルシャック・フレア》） */
+  | { type: 'winFirstBattle' }
   /**
    * 条件に合うクリーチャーがバトルゾーンに出る時、かわりに持ち主の to に置く（召喚でも効果でも）。
    * who: そのクリーチャーの持ち主（「相手の〜クリーチャーが出る時、相手はかわりにマナゾーンに置く」）
@@ -811,6 +823,8 @@ export interface Keywords {
   unblockable?: boolean;
   /** アンタップされているクリーチャーも攻撃できる */
   attackUntapped?: boolean;
+  /** このターン、このクリーチャーの最初の攻撃の終わりに、このクリーチャーをアンタップする（与えられる能力。そのターンにすでに攻撃していれば使わない） */
+  untapAtFirstAttackEnd?: boolean;
   /** ブロックできない */
   cannotBlock?: boolean;
   /** マッハファイター：出たターンでも相手のクリーチャー（アンタップ含む）を攻撃できる */
@@ -934,6 +948,10 @@ export interface Keywords {
   extraBreak?: number;
   /** 相手のターンに手札から捨てられる時、墓地に置くかわりにバトルゾーンに出す（may: 出してもよい） */
   discardToBattle?: 'always' | 'may';
+  /** discardToBattle の条件：opponentEffect は「相手の呪文の効果または相手のクリーチャーの能力によって」捨てられる時（相手のターンでなくてもよい） */
+  discardToBattleCause?: 'opponentEffect';
+  /** discardToBattle で出した後の効果（「そうした場合、〜」。このカードの持ち主が使う） */
+  discardToBattleThen?: EffectDef[];
 }
 
 /** 禁断の鼓動の裏側（禁断クリーチャー） */
