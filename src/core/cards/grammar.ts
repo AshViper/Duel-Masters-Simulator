@@ -1040,12 +1040,15 @@ function parseOneCondition(c: Cur): { cond: Cond; cont: boolean } | null {
       return { cond: { condition: { type: 'playedFreeThisTurn', who: PLAYER[p.text] } as Condition }, cont: v.form === 'te' };
     }) ??
     c.try(() => {
-      // 「そのターン中に他の「X」をまだ使っていなければ」
-      if (!c.lit('その', 'ターン', '中')) return null;
+      // 「そのターン中に他の「X」をまだ使っていなければ」「そのターンに他の「X」を使っていなければ」
+      if (!c.lit('その', 'ターン')) return null;
+      c.lit('中');
       c.lit('に');
       if (!c.lit('他', 'の')) return null;
       const q = c.kind('quote');
-      if (!q || !c.lit('を') || !c.kind('adv', (t) => t.adv === 'yet') || !c.verb('使う', ['te']) || !c.verb('いる', ['nakereba']) || !c.lit('、')) return null;
+      if (!q || !c.lit('を')) return null;
+      c.kind('adv', (t) => t.adv === 'yet');
+      if (!c.verb('使う', ['te']) || !c.verb('いる', ['nakereba']) || !c.lit('、')) return null;
       const key = textOf(q.children);
       return { cond: { condition: { type: 'not', condition: { type: 'usedThisTurn', key } } as Condition, markUsed: key }, cont: false };
     }) ??

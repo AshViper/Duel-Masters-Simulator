@@ -326,8 +326,8 @@ export type EffectDef =
       more?: { pickCount: number; pickFilter?: CardFilter; pickTo: 'hand' | 'battle' | 'mana' | 'shield' | 'graveyard'; mustPick?: boolean; pickTapped?: boolean }[];
       /** エンジン内部用：見ているカード（続けて選ぶ時の残り） */
       from?: string[];
-      /** top: 山札の上に残す */
-      restTo: 'deckBottom' | 'graveyard' | 'mana' | 'shuffle' | 'top';
+      /** top: 山札の上に残す。topOrBottom: 山札の下に置くカードを選び、残りは上に残す */
+      restTo: 'deckBottom' | 'graveyard' | 'mana' | 'shuffle' | 'top' | 'topOrBottom';
       /** 相手の山札を見る（「相手の山札を見る。その中から1枚選び、持ち主の墓地に置いてもよい」） */
       deckOf?: 'opponent';
       /** 条件に合うものをすべて選ぶ（選択なし） */
@@ -357,7 +357,7 @@ export type EffectDef =
    * 手札から条件に合うカードを1枚、コストを支払わずに使ってもよい（maxCostHandSize: コストが手札の枚数以下）。
    * zones: 手札以外からも使える（「自分の手札または墓地から」）。spellAfter: 唱えた呪文を墓地のかわりに置く場所（山札の下・手札）
    */
-  | { type: 'playFromHandFree'; filter?: CardFilter; maxCostHandSize?: boolean; zones?: Array<'hand' | 'graveyard'>; spellAfter?: 'deckBottom' | 'hand' }
+  | { type: 'playFromHandFree'; filter?: CardFilter; maxCostHandSize?: boolean; zones?: Array<'hand' | 'graveyard' | 'mana'>; spellAfter?: 'deckBottom' | 'hand' }
   /** 同じ名前のカードが2枚以上あるものをすべて、バトルゾーンなら破壊し、マナゾーンなら持ち主の墓地に置く */
   | { type: 'destroyDuplicates'; zone: 'battle' | 'mana' }
   /** エンジン内部用：公開したカードを出す／唱える（てもよい）。しなければそのまま */
@@ -466,6 +466,11 @@ export type EffectDef =
    * （「ファイアー・バードが3体出るまで表向きにし、その3体を出す。その後、山札をシャッフルする」）
    */
   | { type: 'revealUntil'; filter: CardFilter; count: number; to: 'hand' | 'battle'; restTo: 'graveyard' | 'shuffle' | 'deckBottom' }
+  /**
+   * 山札の上から count 枚を表向きにし、それがすべて filter に合えば（sameCost: さらに全部同じコストなら）すべて to へ。
+   * そうでなければ全部を restTo へ（「それがすべて同じコストのクリーチャーなら出す。そうでなければ、好きな順序で山札の下に置く」）
+   */
+  | { type: 'revealTopAll'; count: number; filter?: CardFilter; sameCost?: boolean; to: 'hand' | 'battle'; restTo: 'deckBottom' | 'graveyard' | 'top' }
   /** 「次の能力をN回まで使う」：使うかどうかを1回ずつ聞く */
   | { type: 'upToTimes'; times: number; effects: EffectDef[] }
   /**

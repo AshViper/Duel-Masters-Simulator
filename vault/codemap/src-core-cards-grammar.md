@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/grammar.ts（1467行）
+# src/core/cards/grammar.ts（1470行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -44,20 +44,20 @@ generated: 2026-11-27
 - L878 fn `parseTrigger`
 - L974 interface `Cond`
 - L983 fn `parseOneCondition`
-- L1063 fn `parseConditions`
-- L1086 fn `parseRestriction`
-- L1098 fn `parseDuration`
-- L1109 fn `parseRestrictionSentence`
-- L1122 fn `parseEnterInstead`
-- L1158 fn `parseInsteadBody`
-- L1187 fn `parseReplacementSentence`
-- L1216 fn `parsePer`
-- L1231 fn `parseSelfCost`
-- L1273 fn `parsePlaySelf`
-- L1289 **export** fn `parseByGrammar`
-- L1340 fn `merge`
-- L1350 fn `parseReminderAsAbility`
-- L1366 fn `readAbility`
+- L1066 fn `parseConditions`
+- L1089 fn `parseRestriction`
+- L1101 fn `parseDuration`
+- L1112 fn `parseRestrictionSentence`
+- L1125 fn `parseEnterInstead`
+- L1161 fn `parseInsteadBody`
+- L1190 fn `parseReplacementSentence`
+- L1219 fn `parsePer`
+- L1234 fn `parseSelfCost`
+- L1276 fn `parsePlaySelf`
+- L1292 **export** fn `parseByGrammar`
+- L1343 fn `merge`
+- L1353 fn `parseReminderAsAbility`
+- L1369 fn `readAbility`
 
 ## メソッド
 

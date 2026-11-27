@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/types.ts（1128行）
+# src/core/cards/types.ts（1133行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -26,25 +26,25 @@ generated: 2026-11-27
 - L187 **export** type `Condition`
 - L267 **export** type `MoveDest`
 - L270 **export** type `EffectDef`
-- L500 **export** const `TRIGGER_EVENTS`
-- L581 **export** type `TriggerEvent`
-- L583 **export** interface `TriggeredAbility`
-- L618 **export** interface `Applies`
-- L629 **export** type `StaticAbility`
-- L698 **export** interface `ReplacementAbility`
-- L730 **export** interface `Keywords`
-- L888 **export** interface `ForbiddenSide`
-- L895 **export** interface `TwinSide`
-- L905 **export** interface `AttackSwap`
-- L918 **export** interface `AltPlay`
-- L965 **export** interface `ZoneGate`
-- L977 **export** interface `HandTrigger`
-- L1005 **export** interface `EvolveSpec`
-- L1022 **export** interface `CardDefinition`
-- L1092 **export** interface `PsychicSide`
-- L1098 **export** fn `isCreatureType`
-- L1103 **export** fn `isNonCreaturePermanent`
-- L1108 **export** fn `manaCivilizations`
-- L1113 **export** interface `PlayFace`
-- L1122 **export** fn `playFace`
+- L505 **export** const `TRIGGER_EVENTS`
+- L586 **export** type `TriggerEvent`
+- L588 **export** interface `TriggeredAbility`
+- L623 **export** interface `Applies`
+- L634 **export** type `StaticAbility`
+- L703 **export** interface `ReplacementAbility`
+- L735 **export** interface `Keywords`
+- L893 **export** interface `ForbiddenSide`
+- L900 **export** interface `TwinSide`
+- L910 **export** interface `AttackSwap`
+- L923 **export** interface `AltPlay`
+- L970 **export** interface `ZoneGate`
+- L982 **export** interface `HandTrigger`
+- L1010 **export** interface `EvolveSpec`
+- L1027 **export** interface `CardDefinition`
+- L1097 **export** interface `PsychicSide`
+- L1103 **export** fn `isCreatureType`
+- L1108 **export** fn `isNonCreaturePermanent`
+- L1113 **export** fn `manaCivilizations`
+- L1118 **export** interface `PlayFace`
+- L1127 **export** fn `playFace`
 

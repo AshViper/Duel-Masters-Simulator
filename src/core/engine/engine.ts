@@ -2428,6 +2428,33 @@ export class Ctx {
         this.insertFront(...(t ? [t] : []), ...next);
         return false;
       }
+      case 'revealTopAll': {
+        const top = s.players[controller].zones.deck.slice(-e.count).reverse();
+        if (!top.length) return false;
+        this.log(`山札の上から${top.length}枚を表向きにした：${top.map((x) => this.name(x)).join('、')}`, controller);
+        const costs = new Set(top.map((x) => def(s, this.reg, x).cost));
+        const ok = top.every((x) => matchFilter(s, this.reg, x, e.filter, source)) && (!e.sameCost || costs.size === 1);
+        if (ok) {
+          const tasks: Task[] = [];
+          for (const iid of top) {
+            const t = e.to === 'battle' ? this.putIntoBattle(iid, controller) : undefined;
+            if (t) tasks.push(t);
+            else if (e.to === 'hand') {
+              this.moveCard(iid, 'hand');
+              this.log(`${this.name(iid)} を手札に加えた`, controller);
+            }
+          }
+          this.insertFront(...tasks);
+          return false;
+        }
+        // 条件に合わない：すべて残りの行き先へ（順序は表向きにした順）
+        if (e.restTo === 'top') for (const iid of top) s.cards[iid].faceUp = false;
+        else {
+          for (const iid of top) this.moveCard(iid, e.restTo === 'graveyard' ? 'graveyard' : 'deck', { toTop: false });
+          this.log(`${top.length}枚を${e.restTo === 'graveyard' ? '墓地' : '山札の下'}へ`, controller);
+        }
+        return false;
+      }
       case 'revealUntil': {
         // 条件に合うカードが count 枚出るまで、山札の上から表向きにする
         const deck = s.players[controller].zones.deck;
@@ -3518,6 +3545,10 @@ export class Ctx {
     if (e.restTo === 'shuffle') this.shuffle(deckOwner);
     else if (e.restTo === 'top') {
       for (const iid of rest) s.cards[iid].faceUp = false;
+    } else if (e.restTo === 'topOrBottom') {
+      // 「残りを山札の上または下に置く」：残りから山札の下に置くカードを選ぶ（選ばなかったカードは上に残る）
+      for (const iid of rest) s.cards[iid].faceUp = false;
+      if (rest.length) followUps.push(...this.effectTasks(controller, source, [{ type: 'lookAtTop', count: rest.length, pickCount: rest.length, pickTo: 'deckBottom', restTo: 'top', from: rest, ...(e.deckOf ? { deckOf: e.deckOf } : {}) }]));
     } else {
       for (const iid of rest) {
         if (e.restTo === 'deckBottom') this.moveCard(iid, 'deck', { toTop: false });
