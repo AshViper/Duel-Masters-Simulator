@@ -521,6 +521,7 @@
 .inspect-where { font-size: 14px; color: var(--text-secondary); }
 .inspect-where span { color: var(--gold); }
 .inspect-group h4 { margin: 0 0 6px; font-size: 13px; letter-spacing: 0.2em; color: var(--gold); }
+.inspect-raw summary { cursor: pointer; font-size: 12px; color: var(--muted, #999); margin-bottom: 6px; }
 .inspect-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
 .inspect-buttons.manual button { font-size: 14px; padding: 7px 12px; }
 

@@ -630,7 +630,7 @@ describe('サイキック・クリーチャー', () => {
   it('手動で墓地へ移しても、ログには実際の行き先（超次元ゾーン）を書く', () => {
     let s = newGame();
     const b = put(s, 0, C.b.id, 'battle');
-    s = act(s, { type: 'MANUAL_MOVE', player: 0, iid: b, to: 'graveyard' });
+    s = act(s, { type: 'MANUAL_MOVE', player: 0, iid: b, to: 'graveyard', raw: true });
     expect(s.cards[b].zone).toBe('hyperspatial');
     expect(s.log[s.log.length - 1].text).toBe('［手動］セルB ＜1＞ を バトルゾーン → 超次元ゾーン に移動（墓地のかわりに）');
   });

@@ -277,6 +277,8 @@ export interface TurnStatic {
 }
 
 export interface GameState {
+  /** 手動処理の能力の途中で手動移動をした時、再び入力待ちに戻る（ログの「要手動処理」を重ねて出さない） */
+  manualResume?: boolean;
   config: GameConfig;
   rngState: number;
   nextIid: number;
@@ -320,7 +322,8 @@ export type Action =
   | { type: 'ATTACK'; player: PlayerId; attacker: string; target: AttackTarget }
   | { type: 'RESPOND'; player: PlayerId; selected?: string[]; accept?: boolean }
   /** 手動処理：任意のカードを任意のゾーンへ移動 */
-  | { type: 'MANUAL_MOVE'; player: PlayerId; iid: string; to: ZoneName; toTop?: boolean }
+  /** 手動移動。raw なら能力を誘発させずに置き直す（間違いの修正用）。ふだんはルールどおり「出す」「破壊する」「捨てる」などとして扱い、能力が誘発する */
+  | { type: 'MANUAL_MOVE'; player: PlayerId; iid: string; to: ZoneName; toTop?: boolean; raw?: boolean }
   | { type: 'MANUAL_TAP'; player: PlayerId; iid: string; tapped: boolean }
   | { type: 'MANUAL_DRAW'; player: PlayerId; target: PlayerId }
   | { type: 'MANUAL_SHUFFLE'; player: PlayerId; target: PlayerId }

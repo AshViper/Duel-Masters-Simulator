@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
-import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isNonCreaturePermanent, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
+import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isCreatureType, isNonCreaturePermanent, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
 import { altCost, battleCards, canCross, isCrossGear, isGrCard, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canSummonFromZone, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
@@ -705,9 +705,11 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
   const actor: PlayerId = canControl(owner) ? owner : canControl(other(owner)) ? other(owner) : 0;
   const d = cardDef(g, registry, iid);
   const hidden = (inst.zone === 'shield' && !inst.faceUp) || (inst.zone === 'hand' && !canControl(owner)) || inst.zone === 'deck';
-  type Item = { label: string; run: () => void; disabled?: boolean; primary?: boolean };
+  type Item = { label: string; run: () => void; disabled?: boolean; primary?: boolean; title?: string };
   const rule: Item[] = [];
   const manual: Item[] = [];
+  /** 能力を誘発させずに置き直す（間違いの修正用） */
+  const raw: Item[] = [];
   if (inst.zone === 'hand' && canControl(owner)) {
     const chargeOk = g.activePlayer === owner && g.phase === 'charge' && !g.players[owner].chargedThisTurn && isIdle(g);
     rule.push({ label: d.type === 'spell' ? '唱える' : d.type === 'field' ? 'バトルゾーンに出す' : d.type === 'tamaseed' ? '使う' : '召喚する', run: () => play(iid), disabled: !canPlay(g, registry, owner, iid), primary: true });
@@ -756,11 +758,28 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
       manual.push({ label: 'パワー +1000', run: () => act({ type: 'MANUAL_POWER', player: actor, iid, amount: 1000 }) });
       manual.push({ label: 'パワー −1000', run: () => act({ type: 'MANUAL_POWER', player: actor, iid, amount: -1000 }) });
     }
+    // バトルゾーンに出す・破壊する・捨てるなどは、ルールどおりに処理して「出た時」「破壊された時」などを誘発させる
+    const byRule = (z: ZoneName): string | null => {
+      if (inst.zone === 'battle' && z === 'graveyard') return '破壊する';
+      if (inst.zone === 'battle' && z === 'hand') return '手札に戻す';
+      if (inst.zone === 'battle') return `${ZONE_LABEL[z]}に置く${z === 'deck' ? '（上）' : ''}`;
+      if (z === 'battle' && d.type !== 'evolution' && (isCreatureType(d.type) || isNonCreaturePermanent(d.type))) return 'バトルゾーンに出す';
+      if (inst.zone === 'hand' && z === 'graveyard') return '捨てる';
+      return null;
+    };
+    const moveLabel = (z: ZoneName, top = true) => `${ZONE_LABEL[z]}へ${z === 'deck' ? (top ? '（上）' : '（下）') : ''}`;
     for (const z of MOVE_TARGETS) {
       if (z === inst.zone) continue;
-      manual.push({ label: `${ZONE_LABEL[z]}へ${z === 'deck' ? '（上）' : ''}`, run: () => act({ type: 'MANUAL_MOVE', player: actor, iid, to: z }) });
+      const label = byRule(z);
+      if (label) {
+        manual.push({ label, title: '能力が誘発します（出た時・破壊された時など）', run: () => act({ type: 'MANUAL_MOVE', player: actor, iid, to: z }) });
+        raw.push({ label: moveLabel(z), run: () => act({ type: 'MANUAL_MOVE', player: actor, iid, to: z, raw: true }) });
+      } else manual.push({ label: moveLabel(z), run: () => act({ type: 'MANUAL_MOVE', player: actor, iid, to: z }) });
     }
-    manual.push({ label: '山札の下へ', run: () => act({ type: 'MANUAL_MOVE', player: actor, iid, to: 'deck', toTop: false }) });
+    if (inst.zone === 'battle') {
+      manual.push({ label: '山札の下に置く', title: '能力が誘発します（離れた時など）', run: () => act({ type: 'MANUAL_MOVE', player: actor, iid, to: 'deck', toTop: false }) });
+      raw.push({ label: moveLabel('deck', false), run: () => act({ type: 'MANUAL_MOVE', player: actor, iid, to: 'deck', toTop: false, raw: true }) });
+    } else manual.push({ label: moveLabel('deck', false), run: () => act({ type: 'MANUAL_MOVE', player: actor, iid, to: 'deck', toTop: false }) });
   }
   const where = `${g.players[owner].name} の${ZONE_LABEL[inst.zone]}`;
   const stateLine = [
@@ -785,9 +804,17 @@ function Inspector({ g, iid, onClose, act, play, canControl }: {
         <div className="inspect-group">
           <h4>手動操作</h4>
           <div className="inspect-buttons manual">
-            {manual.map((it) => <button key={it.label} disabled={it.disabled} onClick={it.run}>{it.label}</button>)}
+            {manual.map((it) => <button key={it.label} disabled={it.disabled} title={it.title} onClick={it.run}>{it.label}</button>)}
           </div>
         </div>
+      )}
+      {raw.length > 0 && (
+        <details className="inspect-group inspect-raw">
+          <summary>置き直す（能力は誘発しない・間違いの修正用）</summary>
+          <div className="inspect-buttons manual">
+            {raw.map((it) => <button key={it.label} onClick={it.run}>{it.label}</button>)}
+          </div>
+        </details>
       )}
     </div>
   );
@@ -947,7 +974,7 @@ function DecisionPanel({ g, selection, setSelection, act, renderCard, canControl
         <p className="decision-prompt">{p.prompt}</p>
         <blockquote className="decision-text">{p.text}</blockquote>
         <p className="muted small">
-          この能力は自動で処理できません。下の道具や、盤面のカードの右クリック（手動移動・タップ・パワー修正）で処理し、終わったら「処理完了」を押してください。
+          この能力は自動で処理できません。下の道具や、盤面のカードの右クリック（手動操作）で処理し、終わったら「処理完了」を押してください。「バトルゾーンに出す」「破壊する」などは能力が誘発し、この能力の処理が終わってから解決します。
         </p>
         <div className="decision-tools">
           <button onClick={() => act({ type: 'MANUAL_DRAW', player: me, target: me })}>1枚引く</button>

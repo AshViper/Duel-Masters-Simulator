@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/engine/types.ts（334行）
+# src/core/engine/types.ts（337行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -29,5 +29,5 @@ generated: 2026-11-27
 - L249 **export** interface `CombatState`
 - L266 **export** interface `TurnStatic`
 - L279 **export** interface `GameState`
-- L312 **export** type `Action`
+- L314 **export** type `Action`
 

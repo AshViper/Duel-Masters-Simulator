@@ -32,14 +32,14 @@ generated: 2026-11-27
 | `src/core/deck/rules.ts` | 98 | デッキ構成ルール。フォーマットごとに差し替えられる。 |  |
 | `src/core/engine/effects.test.ts` | 398 | 常在効果 / 置換効果 / 誘発タイミング / ツインパクト | [[codemap/src-core-engine-effects.test\|地図]] |
 | `src/core/engine/engine.test.ts` | 333 | ゲーム開始 / ターン進行 / 召喚・呪文 / 攻撃 | [[codemap/src-core-engine-engine.test\|地図]] |
-| `src/core/engine/engine.ts` | 3659 | ゲームエンジン本体。applyAction(state, action) で新しい状態を返す純粋な入口を持ち、 | [[codemap/src-core-engine-engine\|地図]] |
+| `src/core/engine/engine.ts` | 3700 | ゲームエンジン本体。applyAction(state, action) で新しい状態を返す純粋な入口を持ち、 | [[codemap/src-core-engine-engine\|地図]] |
 | `src/core/engine/legal.ts` | 58 | 入力待ちでない時にターンプレイヤーが取れる合法アクションの一覧。 |  |
 | `src/core/engine/order.test.ts` | 148 | 効果の処理順 / 置換効果が2つ以上ある時 |  |
 | `src/core/engine/queries.ts` | 998 | ゲーム状態を読むだけの関数群（状態を変更しない）。UI・AI・エンジンで共用する。 | [[codemap/src-core-engine-queries\|地図]] |
 | `src/core/engine/rng.ts` | 10 | 決定的な乱数（mulberry32）。状態を GameState に保存するので保存・復元・リプレイで再現できる。 |  |
 | `src/core/engine/setup.ts` | 109 | PlayerSetup, NewGameOptions, createGame |  |
-| `src/core/engine/timing.test.ts` | 147 | 総合ルールの処理順 |  |
-| `src/core/engine/types.ts` | 334 | 対戦中のカード個体。同名カードでも iid で個別に識別する。 | [[codemap/src-core-engine-types\|地図]] |
+| `src/core/engine/timing.test.ts` | 191 | 総合ルールの処理順 / 手動操作 |  |
+| `src/core/engine/types.ts` | 337 | 対戦中のカード個体。同名カードでも iid で個別に識別する。 | [[codemap/src-core-engine-types\|地図]] |
 | `src/core/print/proxyPdf.test.ts` | 59 | proxyLayout / buildPdf |  |
 | `src/core/print/proxyPdf.ts` | 184 | プロキシカード印刷用の A4 レイアウトと、最小限の PDF 書き出し（外部ライブラリなし）。 |  |
 | `src/core/testing/abilitySamples.ts` | 67 | 能力テキストの例文集（ユーザーが挙げた実際のカードの文）。 |  |
@@ -74,7 +74,7 @@ generated: 2026-11-27
 | `src/ui/officialApi.ts` | 45 | 公式カード検索の中継（/dm-api/*）を呼ぶ小さなヘルパー |  |
 | `src/ui/officialBridge.ts` | 171 | 中継サーバーのない環境（GitHub Pages 版）で公式カード検索を使うための「ブリッジ」。 |  |
 | `src/ui/proxyPrint.ts` | 201 | デッキからプロキシ印刷用の A4 PDF を作る。 |  |
-| `src/ui/screens/Battle.tsx` | 1047 | BattleScreen | [[codemap/src-ui-screens-Battle\|地図]] |
+| `src/ui/screens/Battle.tsx` | 1074 | BattleScreen | [[codemap/src-ui-screens-Battle\|地図]] |
 | `src/ui/screens/BattleSetup.tsx` | 103 | BattleSetupScreen |  |
 | `src/ui/screens/DeckBuilder.tsx` | 373 | DeckBuilderScreen | [[codemap/src-ui-screens-DeckBuilder\|地図]] |
 | `src/ui/screens/Home.tsx` | 148 | HomeScreen, DeckListScreen |  |
@@ -82,5 +82,5 @@ generated: 2026-11-27
 | `src/ui/screens/Menus.tsx` | 223 | SettingsScreen, HistoryScreen |  |
 | `src/ui/screens/OfficialSearch.tsx` | 294 | OfficialSearchScreen | [[codemap/src-ui-screens-OfficialSearch\|地図]] |
 | `src/ui/screens/Online.tsx` | 133 | OnlineScreen |  |
-| `src/ui/screens/battleDrag.ts` | 92 | ドラッグの落とし先。盤面の要素に data-drop="zone:0:mana" / "card:<iid>" / "plate:1" で付ける |  |
+| `src/ui/screens/battleDrag.ts` | 101 | ドラッグの落とし先。盤面の要素に data-drop="zone:0:mana" / "card:<iid>" / "plate:1" で付ける |  |
 | `src/ui/screens/battleFx.tsx` | 329 | ActionFx | [[codemap/src-ui-screens-battleFx\|地図]] |

@@ -1,4 +1,4 @@
-import { ZONE_LABEL, type ZoneName } from '../../core/cards/types';
+import { isCreatureType, isNonCreaturePermanent, ZONE_LABEL, type ZoneName } from '../../core/cards/types';
 import type { CardRegistry } from '../../core/cards/registry';
 import { attackTargets, canPlay, def, evolutionBases, isIdle } from '../../core/engine/queries';
 import { other, type Action, type GameState, type PlayerId } from '../../core/engine/types';
@@ -83,8 +83,17 @@ export function resolveDrop(g: GameState, reg: CardRegistry, iid: string, t: Dro
       }
     }
   }
+  // 手動移動はルールどおりに処理する（破壊された時・出た時などが誘発する）。ラベルで分かるようにする
+  const d = def(g, reg, iid);
+  const to = zoneT.zone;
+  const ruleLabel =
+    inst.zone === 'battle' && to === 'graveyard' ? '破壊する'
+    : inst.zone === 'battle' && to === 'hand' ? '手札に戻す'
+    : to === 'battle' && d.type !== 'evolution' && (isCreatureType(d.type) || isNonCreaturePermanent(d.type)) ? 'バトルゾーンに出す'
+    : inst.zone === 'hand' && to === 'graveyard' ? '捨てる'
+    : null;
   return {
-    label: `${ZONE_LABEL[zoneT.zone]}へ移動（手動）`,
+    label: ruleLabel ? `${ruleLabel}（手動）` : `${ZONE_LABEL[zoneT.zone]}へ移動（手動）`,
     tone: 'manual',
     run: { type: 'action', action: { type: 'MANUAL_MOVE', player: owner, iid, to: zoneT.zone } },
   };

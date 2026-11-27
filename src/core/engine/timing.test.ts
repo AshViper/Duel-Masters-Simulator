@@ -32,6 +32,7 @@ const C = {
   trigSpellB: cd('r-stb', { type: 'spell', power: undefined, keywords: { shieldTrigger: true }, abilities: [ab('onCast', [log('S・トリガーB')])] }),
   trigCreature: cd('r-stc', { keywords: { shieldTrigger: true }, abilities: [ab('onSummon', [log('S・トリガーで出た時')])] }),
   wbreaker: cd('r-wb', { keywords: { breaker: 2 }, power: 6000 }),
+  manualSpell: cd('r-ms', { type: 'spell', power: undefined, abilities: [ab('onCast', [log('墓地からクリーチャーを出す'), { type: 'draw', count: 1 }])] }),
   invader: cd('r-inv', { type: 'evolution', power: 8000, evolvesFrom: { civilization: 'fire' }, attackSwap: { kind: 'invasion', filter: { civilization: 'fire' } }, abilities: [ab('onSummon', [log('侵略で出た時')])] }),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
@@ -142,5 +143,48 @@ describe('総合ルールの処理順', () => {
       if (first === '1') expect(marks(s)).toEqual(['攻撃する時', '侵略で出た時']);
       else expect(marks(s).sort()).toEqual(['侵略で出た時', '攻撃する時'].sort());
     }
+  });
+
+});
+
+describe('手動操作', () => {
+  it('手動で「バトルゾーンに出す」と「出た時」が誘発する。「置き直す」なら誘発しない', () => {
+    let s = newGame();
+    const a = put(s, 0, C.trigCreature.id, 'hand');
+    s = act(s, { type: 'MANUAL_MOVE', player: 0, iid: a, to: 'battle' });
+    expect(s.cards[a].zone).toBe('battle');
+    expect(s.pending?.kind).toBe('manualStep');
+    s = drain(s);
+    const b = put(s, 0, C.trigCreature.id, 'hand');
+    s = act(s, { type: 'MANUAL_MOVE', player: 0, iid: b, to: 'battle', raw: true });
+    expect(s.cards[b].zone).toBe('battle');
+    expect(s.pending).toBeNull();
+  });
+
+  it('手動で「破壊する」と「破壊された時」が誘発する', () => {
+    let s = newGame();
+    const a = put(s, 1, C.onDie.id, 'battle');
+    s = act(s, { type: 'MANUAL_MOVE', player: 0, iid: a, to: 'graveyard' });
+    expect(s.cards[a].zone).toBe('graveyard');
+    expect(marks(s)).toEqual(['破壊された時']);
+  });
+
+  it('手動処理の能力の途中で出したクリーチャーの「出た時」は、その能力（呪文）を終えてから解決する', () => {
+    let s = newGame();
+    const g = put(s, 0, C.trigCreature.id, 'graveyard');
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: put(s, 0, C.manualSpell.id, 'hand') });
+    expect(s.pending?.kind).toBe('manualStep');
+    s = act(s, { type: 'MANUAL_MOVE', player: 0, iid: g, to: 'battle' });
+    expect(s.cards[g].zone).toBe('battle');
+    // まだ同じ能力の手動処理の途中（「要手動処理」のログは1回だけ）
+    expect(s.pending?.kind).toBe('manualStep');
+    expect(marks(s)).toEqual(['墓地からクリーチャーを出す']);
+    const deck = s.players[0].zones.deck.length;
+    s = act(s, { type: 'RESPOND', player: 0, accept: true });
+    // 呪文の残り（1枚引く）を終えてから「出た時」
+    expect(s.players[0].zones.deck.length).toBe(deck - 1);
+    expect(s.pending?.kind).toBe('manualStep');
+    s = drain(s);
+    expect(marks(s)).toEqual(['墓地からクリーチャーを出す', 'S・トリガーで出た時']);
   });
 });

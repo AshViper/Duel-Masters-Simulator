@@ -224,6 +224,7 @@ export class Ctx {
         this.log(`${s.players[a.player].name} が投了しました`, a.player);
         return this.gameOver(other(a.player), '投了');
       case 'MANUAL_MOVE':
+        if (!a.raw && this.manualMoveByRule(a.player, a.iid, a.to, a.toTop ?? true)) return;
         return this.manual(a.player, () => {
           const from = s.cards[a.iid]?.zone;
           if (!from) throw new IllegalAction('カードがありません');
@@ -275,6 +276,45 @@ export class Ctx {
       case 'ATTACK':
         return this.attack(a.player, a.attacker, a.target);
     }
+  }
+
+  /**
+   * 手動移動をルールどおりの処理として行う（バトルゾーンに出す・破壊する・手札に戻す・捨てるなど）。
+   * 「出た時」「破壊された時」などが誘発し、置換効果も使われる。誘発した能力は、手動で処理中の能力が終わってから解決する。
+   * 能力が関わらない移動（マナ→シールドなど）や、ほかの入力待ちの途中は false を返し、そのまま置き直す。
+   */
+  private manualMoveByRule(player: PlayerId, iid: string, to: ZoneName, toTop: boolean): boolean {
+    const s = this.s;
+    const inst = s.cards[iid];
+    if (!inst) throw new IllegalAction('カードがありません');
+    if (s.pending && s.pending.kind !== 'manualStep') return false;
+    const from = inst.zone;
+    const d = def(s, this.reg, iid);
+    let tasks: Task[] = [];
+    let text = '';
+    if (from === 'battle' && to !== 'battle') {
+      const cause: LeaveCause = to === 'graveyard' ? 'destroy' : 'effect';
+      tasks = [{ kind: 'leave', iid, to, cause, toTop }];
+      text = `${this.name(iid)} を${to === 'graveyard' ? '破壊' : `${ZONE_LABEL[to]}に置く`}`;
+    } else if (to === 'battle' && from !== 'battle') {
+      // 進化クリーチャーは進化元を選べないので、そのまま置き直す
+      if (d.type === 'evolution' || !(isCreatureType(d.type) || isNonCreaturePermanent(d.type))) return false;
+      tasks = [{ kind: 'enterBattle', player: inst.owner, iid }];
+      text = `${this.name(iid)} をバトルゾーンに出す`;
+    } else if (from === 'hand' && to === 'graveyard') {
+      this.moveCard(iid, 'graveyard');
+      this.emit({ type: 'CARD_DISCARDED', player: inst.owner, iid });
+      text = `${d.name} を捨てる`;
+    } else return false;
+    s.log.push({ turn: s.turn, player, text: `［手動］${text}`, manual: true });
+    if (s.pending) {
+      // 手動処理の能力の途中：入力待ちを外して先に処理し、そのあと同じ能力の入力待ちに戻る
+      s.pending = null;
+      s.manualResume = true;
+    }
+    this.insertFront(...tasks);
+    this.run();
+    return true;
   }
 
   private manual(player: PlayerId, fn: () => string): void {
@@ -2122,7 +2162,8 @@ export class Ctx {
         // 自動処理できない能力：判断パネルで手動処理してもらい、「処理完了」まで止める
         const r = this.takeResponse();
         if (!r) {
-          s.log.push({ turn: s.turn, player: controller, text: `［要手動処理］${this.name(source)}：${e.text}`, manual: true });
+          if (!s.manualResume) s.log.push({ turn: s.turn, player: controller, text: `［要手動処理］${this.name(source)}：${e.text}`, manual: true });
+          s.manualResume = false;
           s.pending = { kind: 'manualStep', player: controller, source, prompt: `${this.name(source)} の能力を手動で処理してください`, text: e.text };
           return true;
         }

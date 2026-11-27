@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/ui/screens/Battle.tsx（1047行）
+# src/ui/screens/Battle.tsx（1074行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -11,8 +11,8 @@ generated: 2026-11-27
 - L19 interface `DragState`
 - L39 **export** fn `BattleScreen`
 - L693 fn `Inspector`
-- L812 fn `HoverPreview`
-- L844 fn `DragLayer`
-- L887 fn `DecisionPanel`
-- L1015 fn `ZoneViewer`
+- L839 fn `HoverPreview`
+- L871 fn `DragLayer`
+- L914 fn `DecisionPanel`
+- L1042 fn `ZoneViewer`
 
