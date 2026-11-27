@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/types.ts（1022行）
+# src/core/cards/types.ts（1045行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -24,27 +24,27 @@ generated: 2026-11-27
 - L118 **export** interface `TargetSpec`
 - L156 **export** interface `Quantity`
 - L167 **export** type `Condition`
-- L232 **export** type `MoveDest`
-- L235 **export** type `EffectDef`
-- L446 **export** const `TRIGGER_EVENTS`
-- L517 **export** type `TriggerEvent`
-- L519 **export** interface `TriggeredAbility`
-- L554 **export** interface `Applies`
-- L565 **export** type `StaticAbility`
-- L624 **export** interface `ReplacementAbility`
-- L652 **export** interface `Keywords`
-- L786 **export** interface `ForbiddenSide`
-- L793 **export** interface `TwinSide`
-- L803 **export** interface `AttackSwap`
-- L816 **export** interface `AltPlay`
-- L859 **export** interface `ZoneGate`
-- L871 **export** interface `HandTrigger`
-- L899 **export** interface `EvolveSpec`
-- L916 **export** interface `CardDefinition`
-- L986 **export** interface `PsychicSide`
-- L992 **export** fn `isCreatureType`
-- L997 **export** fn `isNonCreaturePermanent`
-- L1002 **export** fn `manaCivilizations`
-- L1007 **export** interface `PlayFace`
-- L1016 **export** fn `playFace`
+- L241 **export** type `MoveDest`
+- L244 **export** type `EffectDef`
+- L455 **export** const `TRIGGER_EVENTS`
+- L526 **export** type `TriggerEvent`
+- L528 **export** interface `TriggeredAbility`
+- L563 **export** interface `Applies`
+- L574 **export** type `StaticAbility`
+- L635 **export** interface `ReplacementAbility`
+- L663 **export** interface `Keywords`
+- L809 **export** interface `ForbiddenSide`
+- L816 **export** interface `TwinSide`
+- L826 **export** interface `AttackSwap`
+- L839 **export** interface `AltPlay`
+- L882 **export** interface `ZoneGate`
+- L894 **export** interface `HandTrigger`
+- L922 **export** interface `EvolveSpec`
+- L939 **export** interface `CardDefinition`
+- L1009 **export** interface `PsychicSide`
+- L1015 **export** fn `isCreatureType`
+- L1020 **export** fn `isNonCreaturePermanent`
+- L1025 **export** fn `manaCivilizations`
+- L1030 **export** interface `PlayFace`
+- L1039 **export** fn `playFace`
 

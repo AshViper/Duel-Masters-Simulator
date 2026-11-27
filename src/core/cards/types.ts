@@ -207,6 +207,15 @@ export type Condition =
   | { type: 'crossed'; any?: boolean; min?: number }
   /** このカード（クロスギア）がクリーチャーにクロスされている（「このカードがどのクリーチャーにもクロスされていない時」は not で包む） */
   | { type: 'gearAttached' }
+  /**
+   * クリーチャーの出方：self ならこのクリーチャー、そうでなければ誘発の原因になったクリーチャー（iid はエンジンが誘発の時に入れる）。
+   * summoned: 召喚で出た／from: そのゾーンから出た（notFrom: そのゾーン以外から出た）
+   */
+  | { type: 'entry'; self?: boolean; iid?: string; summoned?: boolean; from?: ZoneName[]; notFrom?: ZoneName[] }
+  /** このクリーチャーが攻撃中 */
+  | { type: 'selfAttacking' }
+  /** バトルゾーンにあるカード（両方のプレイヤー）の文明の種類が min 以上（「バトルゾーンに5文明すべてのカードがそろっていれば」） */
+  | { type: 'civsInBattle'; min: number }
   /** このクリーチャーがタップしている */
   | { type: 'selfTapped' }
   /** このターンに、そのプレイヤーのクリーチャーがバトルに勝っていた */
@@ -611,6 +620,8 @@ export type StaticAbility = (
   | { type: 'cannotLose'; who: 'self' | 'opponent' | 'both'; deckOutOnly?: boolean }
   /** 相手の呪文の効果やクリーチャーの能力によって、自分の手札は捨てられない */
   | { type: 'handProtected' }
+  /** 条件に合う自分のカードは、マナゾーンにアンタップして置かれる（「自分のスノーフェアリー・カードをマナゾーンに置いた時、それをアンタップする」） */
+  | { type: 'manaEntersUntapped'; filter?: CardFilter }
   /** 持ち主の zones 以外からはバトルゾーンに出ない（「相手のエレメントは、相手の手札以外から出ない」。who: カードの持ち主） */
   | { type: 'entryOnlyFrom'; who: 'self' | 'opponent' | 'both'; filter?: CardFilter; zones: Array<'hand' | 'deck'> }
 ) & {
@@ -763,7 +774,7 @@ export interface Keywords {
   /** ブロック中だけパワーに加える（パワード・ブロッカー） */
   blockPower?: number;
   /** 条件（種族）に合うクリーチャーとのバトル中だけパワーに加える（「ゼニスとバトル中、パワーを+N」） */
-  battlePowerVs?: { race: string; amount: number };
+  battlePowerVs?: { race: string; races?: string[]; amount: number };
   /** バトルゾーンを離れない（破壊・手札に戻すなど、どの方法でも。パワー0以下でも破壊されない） */
   cannotLeave?: boolean;
   /** 破壊以外の方法でバトルゾーンを離れない */
@@ -780,6 +791,18 @@ export interface Keywords {
   immuneToPowerAtMost?: number;
   /** クロスギアがクロスされた、タップされていないクリーチャーを攻撃できる */
   attackUntappedCrossed?: boolean;
+  /** パワーが0以下の間、破壊されず、すべてのバトルに勝つ */
+  immortalAtZeroPower?: boolean;
+  /** パワーが0以下の間、バトルゾーンを離れない */
+  stayAtZeroPower?: boolean;
+  /** 各ターン、相手のクリーチャーがはじめて攻撃するなら、可能ならこのクリーチャーを攻撃する */
+  attackLureFirst?: boolean;
+  /** 出したターン、アンタップしているクリーチャーを攻撃できる */
+  untappedTargetsOnEnterTurn?: boolean;
+  /** パワーが min 以上の時、シールドを breaker 枚ブレイクする（「パワーが6000以上の時、「W・ブレイカー」を得る」） */
+  breakerAtPower?: { min: number; breaker: number };
+  /** マナゾーンにアンタップして置かれる（「このカードを自分の手札からマナゾーンに置いた時、アンタップする」） */
+  manaUntapped?: boolean;
 }
 
 /** 禁断の鼓動の裏側（禁断クリーチャー） */
@@ -873,7 +896,7 @@ export interface HandTrigger {
    * opponentAttackOrBlock: 相手のクリーチャーが攻撃またはブロックした時（ニンジャ・ストライク）
    * anyAttack: クリーチャーが攻撃する時（鬼エンド）／ownAttack: 自分のクリーチャー（filter に合うもの）が攻撃する時（アタック・チャンスR）
    */
-  when: 'opponentTurnEnd' | 'ownTurnEnd' | 'anyTurnEnd' | 'ownDestroyed' | 'opponentAttackOrBlock' | 'anyAttack' | 'ownAttack' | 'attackedPlayer';
+  when: 'opponentTurnEnd' | 'ownTurnEnd' | 'anyTurnEnd' | 'ownDestroyed' | 'ownSummon' | 'opponentAttackOrBlock' | 'anyAttack' | 'ownAttack' | 'attackedPlayer';
   condition?: Condition;
   filter?: CardFilter;
   /** 手札のほかに使えるゾーン（アタック・チャンスR は墓地からも） */

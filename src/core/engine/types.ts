@@ -50,6 +50,10 @@ export interface CardInstance {
   equippedTo?: string;
   /** コストを支払わずに出た（「そのクリーチャーがコストを支払わずに出ていたら」） */
   enteredFree?: boolean;
+  /** 召喚で出た（「召喚以外の方法で出た時」） */
+  enteredBySummon?: boolean;
+  /** バトルゾーンに出る前にあったゾーン（「手札以外から出た時」「墓地から出した時」） */
+  enteredFrom?: ZoneName;
   /** 「革命チェンジ」で出た */
   enteredByRevolution?: boolean;
   /** このターン（turn）の終わりにバトルゾーンを離れる（B・A・D・J・O・E・アビスラッシュ） */

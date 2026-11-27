@@ -421,6 +421,8 @@ export function breakerCount(state: GameState, reg: CardRegistry, iid: string): 
   for (const a of activeStatics(state, reg)) {
     if (a.static.type === 'breakerBonus' && a.source === iid) base += a.static.amount * Math.floor(countQuantity(state, reg, a.controller, a.static.perCount, true, iid) / a.static.unit);
   }
+  // 「パワーが6000以上の時、「W・ブレイカー」を得る」
+  if (kw.breakerAtPower && power(state, reg, iid) >= kw.breakerAtPower.min) base = Math.max(base, kw.breakerAtPower.breaker);
   // パワード・ブレイカー：パワー6000ごとに1つ多くブレイクする
   const n = kw.poweredBreaker ? Math.max(base, 1 + Math.floor(power(state, reg, iid) / 6000)) : base;
   // 「クリーチャーは攻撃1回につきシールドを1枚しかブレイクできない」
@@ -580,6 +582,8 @@ export function cannotLeaveNow(state: GameState, reg: CardRegistry, iid: string,
   const inst = state.cards[iid];
   if (!inst || inst.zone !== 'battle') return false;
   const kw = keywords(state, reg, iid);
+  // 「パワーが0以下の間離れない」「パワーが0以下の間破壊されず」
+  if ((kw.stayAtZeroPower || (kw.immortalAtZeroPower && destroy)) && power(state, reg, iid) <= 0) return true;
   return !!kw.cannotLeave || (!!kw.cannotLeaveExceptDestroy && !destroy);
 }
 
@@ -660,8 +664,8 @@ function canAttackWithImpl(state: GameState, reg: CardRegistry, player: PlayerId
   if (kw.cannotAttack) return false;
   // 「出たターンに攻撃できない」：スピードアタッカー・マッハファイターがあっても
   if (kw.noAttackOnEnterTurn && inst.enteredTurn >= state.turn) return false;
-  // マッハファイターは出たターンでもクリーチャーを攻撃できる
-  return !isSummoningSick(state, reg, iid) || (!!kw.machFighter && inst.enteredTurn === state.turn);
+  // マッハファイターは出たターンでもクリーチャーを攻撃できる（「出したターン、アンタップしているクリーチャーを攻撃できる」も）
+  return !isSummoningSick(state, reg, iid) || ((!!kw.machFighter || !!kw.untappedTargetsOnEnterTurn) && inst.enteredTurn === state.turn);
 }
 
 export function attackTargets(state: GameState, reg: CardRegistry, player: PlayerId, iid: string): AttackTarget[] {
@@ -684,10 +688,16 @@ function attackTargetsImpl(state: GameState, reg: CardRegistry, player: PlayerId
     // 「パワー2000以下のクリーチャーに攻撃またはブロックされない」
     const immune = keywords(state, reg, t).immuneToPowerAtMost;
     if (immune !== undefined && power(state, reg, iid) <= immune) continue;
+    // 「出したターン、アンタップしているクリーチャーを攻撃できる」：出たターンはアンタップのクリーチャーだけ
+    if (machOnly && !kw.machFighter) {
+      if (!state.cards[t].tapped) out.push({ kind: 'creature', iid: t });
+      continue;
+    }
     if (state.cards[t].tapped || kw.attackUntapped || machOnly || (kw.attackUntappedCrossed && gearsOn(state, reg, t).length)) out.push({ kind: 'creature', iid: t });
   }
   // 「相手のクリーチャーが攻撃するなら、可能ならこのクリーチャーを攻撃する」：攻撃できるなら攻撃先はそれに限られる
-  const lures = out.filter((t) => t.kind === 'creature' && keywords(state, reg, t.iid).attackLure);
+  const firstAttack = (state.players[player].attacksThisTurn ?? 0) === 0;
+  const lures = out.filter((t) => t.kind === 'creature' && (keywords(state, reg, t.iid).attackLure || (firstAttack && keywords(state, reg, t.iid).attackLureFirst)));
   if (lures.length) return lures;
   // 「可能ならクリーチャーを攻撃する」：攻撃できるクリーチャーがいれば、プレイヤーは攻撃できない
   if (kw.attackCreaturesIfAble && out.some((t) => t.kind === 'creature')) return out.filter((t) => t.kind === 'creature');
@@ -804,6 +814,22 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
     case 'crossed': {
       const gears = [...state.players[0].zones.battle, ...state.players[1].zones.battle].filter((b) => state.cards[b].equippedTo && isCrossGear(reg[state.cards[b].cardId]));
       return c.any ? gears.some((b) => state.cards[state.cards[b].equippedTo!]?.owner === controller) : !!source && gears.filter((b) => state.cards[b].equippedTo === source).length >= (c.min ?? 1);
+    }
+    case 'entry': {
+      const who = c.self ? source : c.iid;
+      const inst = who ? state.cards[who] : undefined;
+      if (!inst || inst.zone !== 'battle') return false;
+      if (c.summoned !== undefined && !!inst.enteredBySummon !== c.summoned) return false;
+      if (c.from && !(inst.enteredFrom && c.from.includes(inst.enteredFrom))) return false;
+      if (c.notFrom && inst.enteredFrom && c.notFrom.includes(inst.enteredFrom)) return false;
+      return true;
+    }
+    case 'selfAttacking':
+      return !!source && state.combat?.attacker === source;
+    case 'civsInBattle': {
+      const civs = new Set<string>();
+      for (const p of [0, 1] as PlayerId[]) for (const b of battleAndFields(state, reg, p)) for (const cv of def(state, reg, b).civilizations) if (cv !== 'zero') civs.add(cv);
+      return civs.size >= c.min;
     }
     case 'gearAttached': {
       const host = source ? state.cards[source]?.equippedTo : undefined;

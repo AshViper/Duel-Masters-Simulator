@@ -1475,6 +1475,18 @@ const C = {
   sameCostReveal: spell('b-96', ['コストが同じカードが２枚出るまで、自分の山札の上からカードを表向きにする。', 'こうして自分の山札をすべて表向きにした場合、このターンの後に自分のターンを追加し、残りのゲーム中、自分の山札のカードが１枚もなくても、自分はゲームに負けない。', '表向きにしたカードをすべて手札に加える。']),
   handGuard: mk('b-97', ['相手の呪文の効果やクリーチャーの能力によって、自分の手札は捨てられない。']),
   discardOne: spell('b-98', ['相手の手札を１枚見ないで選び、捨てさせる。']),
+  nonSummonKill: mk('b-100', ['自分のターンに相手のクリーチャーが召喚以外の方法で出た時、そのクリーチャーを破壊する。']),
+  freeKill2: mk('b-101', ['相手がコストを支払わずにクリーチャーをバトルゾーンに出した時、そのクリーチャーを破壊する。']),
+  zeroImmortal: mk('b-102', ['このクリーチャーは、パワーが０以下の間破壊されず、すべてのバトルに勝つ。'], { power: '0' }),
+  lureFirst: mk('b-103', ['各ターン、相手のクリーチャーがはじめて攻撃するなら、可能ならこのクリーチャーを攻撃する。']),
+  enterUntapped: mk('b-104', ['このクリーチャーは、バトルゾーンに出したターン、アンタップされているクリーチャーを攻撃できる。']),
+  bigW: mk('b-105', ['このクリーチャーは、パワーが6000以上の時、「Ｗ・ブレイカー」を得る。'], { power: '5000' }),
+  atkLock: mk('b-106', ['このクリーチャーの攻撃中、相手はクリーチャーを出せない。']),
+  handJoin: mk('b-107', ['自分のコマンドまたはドラゴンが出た時、このクリーチャーを自分の手札から出してもよい。']),
+  toManaGuard: mk('b-108', ['自分のクリーチャーが離れる時、かわりにマナゾーンに置いてもよい。']),
+  multiUntap: mk('b-109', ['このカードを自分の手札からマナゾーンに置いた時、アンタップする。'], { civ: '火/水' }),
+  killOneOpp: spell('b-111', ['相手のクリーチャーを１体選び、破壊する。']),
+  reanimSelf: mk('b-110', ['このクリーチャーが破壊された時、相手の手札が１枚もなければ、このクリーチャーを自分の墓地から出してもよい。']),
   kinDraw: mk('b-95', ['クロスギア', 'これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時、カードを１枚引いてもよい。'], { type: 'クロスギア', power: '' }),
   buzz: mk('b-74', ['バズレンダ [cc02]（このクリーチャーのコストを支払う時、追加で[cc02]を好きな回数支払ってもよい。このクリーチャーがバトルゾーンに出た時、その[OL]能力を１回と、追加で[cc02]支払った回数、使う）\n\n[OL]カードを１枚引く。'], { cost: '3' }),
   bounceAll: spell('b-65', ['相手のクリーチャーをすべて持ち主の手札に戻す。']),
@@ -1687,6 +1699,119 @@ describe('クロスギア（出す・クロスする・タップして使う能�
     expect(s.pending).toMatchObject({ kind: 'confirm', player: 0 });
     s = act(s, { type: 'RESPOND', player: 0, accept: true });
     expect(s.players[0].zones.hand.length).toBe(hand + 1);
+  });
+});
+
+describe('出方の条件・パワー0・攻撃先・手札から出る（実カードの残り）', () => {
+  const resolve = (s: GameState): GameState => {
+    let guard = 0;
+    while (s.pending && guard++ < 20) {
+      const p = s.pending;
+      if (p.kind === 'confirm') s = act(s, { type: 'RESPOND', player: p.player, accept: true });
+      else if (p.kind === 'selectCards') s = act(s, { type: 'RESPOND', player: p.player, selected: p.candidates.slice(0, Math.max(p.min, 1)) });
+      else s = act(s, { type: 'RESPOND', player: p.player, selected: ['0'] });
+    }
+    return s;
+  };
+  it('「召喚以外の方法で出た時」：効果で出たクリーチャーだけ破壊し、召喚したものは残す', () => {
+    let s = newGame();
+    put(s, 0, C.nonSummonKill.id, 'battle');
+    // 相手（1）のクリーチャーを効果で出す：自分のターン中に
+    const dead = put(s, 1, C.vanilla.id, 'graveyard');
+    const ctx = new Ctx(s, reg);
+    s.queue.push({ kind: 'enterBattle', player: 1, iid: dead });
+    ctx.run();
+    s = resolve(s);
+    expect(s.cards[dead].zone).toBe('graveyard');
+    expect(s.cards[dead].enteredFrom ?? 'graveyard').toBe('graveyard');
+  });
+  it('「相手がコストを支払わずにクリーチャーを出した時」：誘発の原因のクリーチャーを条件で見る', () => {
+    let s = newGame();
+    put(s, 0, C.freeKill2.id, 'battle');
+    const free = put(s, 1, C.vanilla.id, 'hand');
+    s.queue.push({ kind: 'enterBattle', player: 1, iid: free });
+    new Ctx(s, reg).run();
+    s = resolve(s);
+    expect(s.cards[free].zone).toBe('graveyard');
+  });
+  it('パワーが0以下の間、破壊されず、バトルに勝つ', () => {
+    let s = toAttack(newGame());
+    const z = put(s, 0, C.zeroImmortal.id, 'battle');
+    new Ctx(s, reg).checkStateBased();
+    expect(s.cards[z].zone).toBe('battle');
+    const t = put(s, 1, C.vanilla.id, 'battle');
+    s.cards[t].tapped = true;
+    s = act(s, { type: 'ATTACK', player: 0, attacker: z, target: { kind: 'creature', iid: t } });
+    s = resolve(s);
+    expect([s.cards[z].zone, s.cards[t].zone]).toEqual(['battle', 'graveyard']);
+  });
+  it('各ターン最初の攻撃だけ、可能ならこのクリーチャーを攻撃する', () => {
+    const s = newGame();
+    const a = put(s, 0, C.vanilla.id, 'battle');
+    const lure = put(s, 1, C.lureFirst.id, 'battle');
+    put(s, 1, C.small.id, 'battle');
+    s.cards[lure].tapped = true;
+    expect(attackTargets(s, reg, 0, a)).toEqual([{ kind: 'creature', iid: lure }]);
+    s.players[0].attacksThisTurn = 1;
+    expect(attackTargets(s, reg, 0, a).length).toBeGreaterThan(1);
+  });
+  it('出したターン、アンタップしているクリーチャーだけを攻撃できる', () => {
+    const s = newGame();
+    const a = put(s, 0, C.enterUntapped.id, 'battle');
+    s.cards[a].enteredTurn = s.turn;
+    const up = put(s, 1, C.vanilla.id, 'battle');
+    const down = put(s, 1, C.small.id, 'battle');
+    s.cards[down].tapped = true;
+    expect(attackTargets(s, reg, 0, a)).toEqual([{ kind: 'creature', iid: up }]);
+  });
+  it('パワーが6000以上の時だけW・ブレイカー', () => {
+    const s = newGame();
+    const a = put(s, 0, C.bigW.id, 'battle');
+    expect(breakerCount(s, reg, a)).toBe(1);
+    const s2 = act(s, { type: 'MANUAL_POWER', player: 0, iid: a, amount: 1000 });
+    expect(power(s2, reg, a)).toBe(6000);
+    expect(breakerCount(s2, reg, a)).toBe(2);
+  });
+  it('このクリーチャーの攻撃中、相手はクリーチャーを出せない', () => {
+    let s = toAttack(newGame());
+    const a = put(s, 0, C.atkLock.id, 'battle');
+    const c = put(s, 1, C.vanilla.id, 'hand');
+    s.combat = { attacker: a, attackingPlayer: 0, target: { kind: 'player' } };
+    s.queue.push({ kind: 'enterBattle', player: 1, iid: c });
+    new Ctx(s, reg).run();
+    expect(s.cards[c].zone).toBe('hand');
+  });
+  it('自分のドラゴンが出た時、手札のこのクリーチャーを出せる', () => {
+    let s = newGame();
+    const j = put(s, 0, C.handJoin.id, 'hand');
+    s = resolve(play(s, C.dragon.id).s);
+    expect(s.cards[j].zone).toBe('battle');
+  });
+  it('自分のクリーチャーが離れる時、かわりにマナゾーンに置ける', () => {
+    let s = newGame();
+    put(s, 1, C.toManaGuard.id, 'battle');
+    const v = put(s, 1, C.vanilla.id, 'battle');
+    s = play(s, C.killOneOpp.id).s;
+    // 破壊するクリーチャーを選ぶ → かわりにマナゾーンに置くか聞かれる
+    while (s.pending) {
+      const p = s.pending;
+      if (p.kind === 'selectCards') s = act(s, { type: 'RESPOND', player: p.player, selected: [v] });
+      else if (p.kind === 'confirm') s = act(s, { type: 'RESPOND', player: p.player, accept: true });
+      else s = act(s, { type: 'RESPOND', player: p.player, selected: ['0'] });
+    }
+    expect(s.cards[v].zone).toBe('mana');
+  });
+  it('多色でもマナゾーンにアンタップして置かれる', () => {
+    const s = newGame();
+    const m = put(s, 0, C.multiUntap.id, 'mana');
+    expect(s.cards[m].tapped).toBe(false);
+  });
+  it('破壊された時、相手の手札がなければ墓地から出せる', () => {
+    let s = newGame();
+    const r = put(s, 0, C.reanimSelf.id, 'battle');
+    for (const h of [...s.players[1].zones.hand]) new Ctx(s, reg).moveCard(h, 'graveyard');
+    s = resolve(play(s, C.killOwn.id).s);
+    expect(s.cards[r].zone).toBe('battle');
   });
 });
 

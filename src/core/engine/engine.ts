@@ -8,6 +8,7 @@ import { asMove, MOVE_DEST, type MoveEffect } from '../cards/effects';
 import {
   type AltPlay,
   type HandTrigger,
+  type Condition,
   type CardFilter,
   type ZoneGate,
   type CardDefinition,
@@ -168,6 +169,14 @@ function describeTrigger(g: TriggerGroup): string {
   return `${EFFECT_HINT[e.type] ?? '能力'}${t.kind === 'confirmOptional' ? '（使ってもよい）' : ''}`;
 }
 
+/** 条件の中の「そのクリーチャー（誘発の原因）」に、誘発したクリーチャーを入れる */
+function bindCondition(c: Condition, subject: string | undefined): Condition {
+  if (c.type === 'subjectEnteredFree' || (c.type === 'entry' && !c.self)) return { ...c, iid: subject };
+  if (c.type === 'not') return { ...c, condition: bindCondition(c.condition, subject) };
+  if (c.type === 'and' || c.type === 'or') return { ...c, conditions: c.conditions.map((x) => bindCondition(x, subject)) };
+  return c;
+}
+
 function bindEvent(effects: EffectDef[], subject: string | undefined): EffectDef[] {
   return effects.map((e): EffectDef => {
     let out = e;
@@ -175,7 +184,7 @@ function bindEvent(effects: EffectDef[], subject: string | undefined): EffectDef
     if (out.type === 'conditional')
       out = {
         ...out,
-        condition: out.condition.type === 'subjectEnteredFree' ? { ...out.condition, iid: subject } : out.condition,
+        condition: bindCondition(out.condition, subject),
         then: bindEvent(out.then, subject),
         ...(out.else ? { else: bindEvent(out.else, subject) } : {}),
       };
@@ -638,7 +647,7 @@ export class Ctx {
     // パワード・ブロッカー：ブロック中だけ
     if (kw.blockPower && this.s.combat?.blocker === iid) bonus += kw.blockPower;
     // 「ゼニスとバトル中、パワーを+N」
-    if (kw.battlePowerVs && def(this.s, this.reg, opp).races.some((r) => r.includes(kw.battlePowerVs!.race))) bonus += kw.battlePowerVs.amount;
+    if (kw.battlePowerVs && def(this.s, this.reg, opp).races.some((r) => (kw.battlePowerVs!.races ?? [kw.battlePowerVs!.race]).some((x) => r.includes(x)))) bonus += kw.battlePowerVs.amount;
     if (kw.hunting) {
       const owner = this.s.cards[iid].owner;
       bonus += 1000 * battleCards(this.s, this.reg, owner).filter((b) => def(this.s, this.reg, b).races.some((r) => r.includes('ハンター'))).length;
@@ -1004,6 +1013,7 @@ export class Ctx {
       case 'enterBattle': {
         const inst = s.cards[task.iid];
         if (!inst || inst.zone === 'battle') return false;
+        const fromZone = inst.zone;
         const entering = def(s, this.reg, task.iid);
         // 「山札から手札以外のゾーンに置かれる時、かわりに墓地に置く」
         if (inst.zone === 'deck' && this.deckToGrave(inst.owner)) {
@@ -1142,6 +1152,8 @@ export class Ctx {
         if (task.tapped) inst.tapped = true;
         if (task.endOfTurn) inst.leaveAtTurnEnd = { turn: s.turn, how: task.endOfTurn };
         inst.enteredFree = !task.paid;
+        inst.enteredBySummon = !!task.summoned;
+        inst.enteredFrom = fromZone;
         inst.enteredByRevolution = !!task.byRevolution;
         if (!task.paid && isCreatureType(def(s, this.reg, task.iid).type)) s.players[inst.owner].freeEntriesThisTurn = (s.players[inst.owner].freeEntriesThisTurn ?? 0) + 1;
         // 出したクリーチャーに能力を与える
@@ -1352,8 +1364,10 @@ export class Ctx {
         this.log(`バトル：${this.name(attacker)}(${pa}) vs ${this.name(defender)}(${pd})`, s.cards[attacker].owner);
         const losers: string[] = [];
         // 「すべてのバトルに勝つ」：片方だけが持っていればパワーに関係なくそちらが勝つ（両方なら相打ち）
-        const winsA = !!keywords(s, this.reg, attacker).winsAllBattles;
-        const winsD = !!keywords(s, this.reg, defender).winsAllBattles;
+        // 「パワーが0以下の間、すべてのバトルに勝つ」
+        const winsAll = (x: string) => !!keywords(s, this.reg, x).winsAllBattles || (!!keywords(s, this.reg, x).immortalAtZeroPower && power(s, this.reg, x) <= 0);
+        const winsA = winsAll(attacker);
+        const winsD = winsAll(defender);
         if (winsA || winsD) {
           if (winsA) losers.push(defender);
           if (winsD) losers.push(attacker);
@@ -3441,7 +3455,7 @@ export class Ctx {
 
   // ───────────────────────── 誘発 ─────────────────────────
   private abilityTasks(ab: TriggeredAbility, controller: PlayerId, source: string, subject?: string): Task[] {
-    if (ab.condition && !evalCondition(this.s, this.reg, controller, ab.condition, false, source)) return [];
+    if (ab.condition && !evalCondition(this.s, this.reg, controller, bindCondition(ab.condition, subject), false, source)) return [];
     const effects = bindEvent(ab.effects, subject);
     if (ab.optional) return [{ kind: 'confirmOptional', controller, source, effects }];
     return this.effectTasks(controller, source, effects);
@@ -3515,6 +3529,16 @@ export class Ctx {
           delete s.players[e.player].nextSummonDiscount;
           if (nsd.turn === s.turn && nsd.grant && s.cards[e.iid]) s.cards[e.iid].keywordsTurn = { ...(s.cards[e.iid].keywordsTurn ?? {}), ...nsd.grant };
         }
+        // 手札にある間の誘発：「自分のコマンドまたはドラゴンが出た時、このクリーチャーを自分の手札から出してもよい」
+        if (s.cards[e.iid] && s.cards[e.iid].owner === e.player) {
+          for (const h of [...s.players[e.player].zones.hand]) {
+            for (const ht of def(s, this.reg, h).handTriggers ?? []) {
+              if (ht.when !== 'ownSummon' || !matchFilter(s, this.reg, e.iid, ht.filter)) continue;
+              if (ht.condition && !evalCondition(s, this.reg, e.player, ht.condition, false, h)) continue;
+              this.addTrigger(e.player, h, this.effectTasks(e.player, h, [{ type: 'playRevealed', iid: h, as: 'creature' }]));
+            }
+          }
+        }
         if (s.cards[e.iid]?.owner === e.player) {
           this.fireZoneGates(e.player, 'enter', e.iid);
           if (e.summoned) this.fireZoneGates(e.player, 'summon', e.iid);
@@ -3564,7 +3588,7 @@ export class Ctx {
         }
         this.triggerFrom(e.iid, 'onDestroyed');
         this.triggerOthers(e.iid, 'onOtherDestroyed', e.player);
-        // 手札にある間の誘発：「自分のエグザイル・クリーチャーが破壊された時、このクリーチャーを自分の手札から出してもよい」
+        // 手札にある間の誘発：「自分のエグザイル・クリーチャーが破壊された時、このクリーチャーを自分の手札から出してもよい」（下の CREATURE_SUMMONED にも同じ形）
         for (const h of [...s.players[e.player].zones.hand]) {
           for (const ht of def(s, this.reg, h).handTriggers ?? []) {
             if (ht.when !== 'ownDestroyed' || !s.cards[e.iid] || !matchFilter(s, this.reg, e.iid, ht.filter)) continue;
@@ -3790,8 +3814,11 @@ export class Ctx {
         if (a.static.type === 'opponentEntersTapped' && a.controller !== inst.owner && matchFilter(s, this.reg, iid, a.static.filter)) inst.tapped = true;
       }
     }
-    // 多色カードはタップしてマナゾーンに置かれる
-    if (to === 'mana' && manaCivilizations(def(s, this.reg, iid)).length > 1) inst.tapped = true;
+    // 多色カードはタップしてマナゾーンに置かれる（「マナゾーンに置いた時、アンタップする」カードは除く）
+    const untapIn =
+      def(s, this.reg, iid).keywords?.manaUntapped ||
+      activeStatics(s, this.reg).some((a) => a.static.type === 'manaEntersUntapped' && a.controller === inst.owner && matchFilter(s, this.reg, iid, a.static.filter, a.source, true));
+    if (to === 'mana' && !untapIn && manaCivilizations(def(s, this.reg, iid)).length > 1) inst.tapped = true;
     // 「マナゾーンに置く時、このカードはタップして置く」
     const md = def(s, this.reg, iid);
     if (to === 'mana' && (md.keywords?.manaTapped || md.twin?.keywords?.manaTapped)) inst.tapped = true;
