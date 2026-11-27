@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/textParser.ts（4211行）
+# src/core/cards/textParser.ts（4214行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -37,44 +37,44 @@ generated: 2026-11-27
 - L945 fn `choosesCards`
 - L951 fn `parseRefSentence`
 - L1018 fn `parseSentence`
-- L1467 fn `splitClauses`
-- L1484 interface `Group`
-- L1490 fn `flattenGroups`
-- L1495 fn `hasRealEffect`
-- L1505 fn `parseBothCondition`
-- L1537 fn `parseBody`
-- L1891 fn `pushGroup`
-- L1900 fn `parseLook`
-- L2030 fn `parseLookMulti`
-- L2093 fn `parseRevealIf`
-- L2116 fn `parsePickWhat`
-- L2167 fn `parsePer`
-- L2189 fn `parseSelfCost`
-- L2202 fn `parseStatic`
-- L2505 fn `parseFromReminder`
-- L2560 fn `mergeParsed`
-- L2572 fn `parseGateTrigger`
-- L2595 fn `parseZoneGate`
-- L2618 fn `parseGrantFrame`
-- L2627 **export** fn `splitAbilityLines`
-- L2678 **export** fn `parseAbilityText`
-- L2935 fn `parseOverloadBody`
-- L2953 fn `readByGrammar`
-- L2958 fn `mergeGrammar`
-- L2967 type `Snapshot`
-- L2968 fn `snapshot`
-- L2972 fn `restore`
-- L2985 fn `parseAwakenLink`
-- L2993 fn `splitCondition`
-- L3251 fn `parseLine`
-- L3849 fn `isUnsafe`
-- L3854 fn `selfKeywordStatic`
-- L3862 fn `parseMark`
-- L3932 fn `parseAltPlay`
-- L3977 fn `evolveFilter`
-- L3999 fn `parseEvolveSpec`
-- L4038 fn `sClassZones`
-- L4054 fn `parseSwapCondition`
-- L4082 fn `parseReplacement`
-- L4194 **export** fn `explainManual`
+- L1470 fn `splitClauses`
+- L1487 interface `Group`
+- L1493 fn `flattenGroups`
+- L1498 fn `hasRealEffect`
+- L1508 fn `parseBothCondition`
+- L1540 fn `parseBody`
+- L1894 fn `pushGroup`
+- L1903 fn `parseLook`
+- L2033 fn `parseLookMulti`
+- L2096 fn `parseRevealIf`
+- L2119 fn `parsePickWhat`
+- L2170 fn `parsePer`
+- L2192 fn `parseSelfCost`
+- L2205 fn `parseStatic`
+- L2508 fn `parseFromReminder`
+- L2563 fn `mergeParsed`
+- L2575 fn `parseGateTrigger`
+- L2598 fn `parseZoneGate`
+- L2621 fn `parseGrantFrame`
+- L2630 **export** fn `splitAbilityLines`
+- L2681 **export** fn `parseAbilityText`
+- L2938 fn `parseOverloadBody`
+- L2956 fn `readByGrammar`
+- L2961 fn `mergeGrammar`
+- L2970 type `Snapshot`
+- L2971 fn `snapshot`
+- L2975 fn `restore`
+- L2988 fn `parseAwakenLink`
+- L2996 fn `splitCondition`
+- L3254 fn `parseLine`
+- L3852 fn `isUnsafe`
+- L3857 fn `selfKeywordStatic`
+- L3865 fn `parseMark`
+- L3935 fn `parseAltPlay`
+- L3980 fn `evolveFilter`
+- L4002 fn `parseEvolveSpec`
+- L4041 fn `sClassZones`
+- L4057 fn `parseSwapCondition`
+- L4085 fn `parseReplacement`
+- L4197 **export** fn `explainManual`
 

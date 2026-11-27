@@ -161,23 +161,32 @@ export function similarity(a: string, b: string): number {
   return (2 * hit) / (ga.length + gb.length);
 }
 
-/** 何も見つからなかった時に使う、名前の前半・後半のキーワード（書き間違いに備える） */
-export function fallbackKeywords(name: string): string[] {
-  const base = name.replace(/[《》\s　]/g, '');
-  if (base.length < 6) return [];
-  const half = Math.ceil(base.length / 2);
-  return [...new Set([base.slice(-half), base.slice(0, half)])];
+// 公式のカード名検索は「書いた文字列をそのまま含む名前」を探す。空白で区切ると「どれかを含む」になり、新しいカード順に並ぶ。
+// 中黒の有無・全角半角が違うと 0 件になる。そこで名前を語に分けて別々に検索し、珍しい語を含むカードから順に詳細を確かめる。
+
+/** 公式検索に投げる語（空白・ツインパクトの「／」で区切る） */
+export function nameParts(name: string): string[] {
+  const parts = name
+    .replace(/[《》]/g, '')
+    .split(/[\s　／/]+/)
+    .map((p) => p.trim())
+    .filter((p) => [...p].length >= 2);
+  return [...new Set(parts)];
 }
 
-/** 公式検索に投げるキーワードの候補（そのまま → ツインパクトの片面 → 空白区切りの最長部分） */
-export function searchKeywords(name: string): string[] {
-  const base = name.replace(/[《》]/g, '').replace(/\s+/g, ' ').trim();
-  const out = [base];
-  const halves = base.split(/\s*[／/]\s*/).filter(Boolean);
-  if (halves.length > 1) out.push(...halves);
-  for (const h of halves) {
-    const parts = h.split(' ').filter(Boolean);
-    if (parts.length > 1) out.push(parts.reduce((a, b) => (b.length > a.length ? b : a)));
-  }
-  return [...new Set(out)];
+/** 語で 0 件だった時に使う、記号で区切った断片（全角半角をそろえる） */
+export function nameFragments(part: string): string[] {
+  const frags = part
+    .normalize('NFKC')
+    .split(/[・･·•=＝+＋!！?？「」『』【】()（）〈〉<>＜＞~〜"“”'’,，、。.:：;；\-‐−–—#＃&＆]+/)
+    .filter((p) => [...p].length >= 2);
+  return [...new Set(frags)];
+}
+
+/** 断片でも 0 件だった時に使う前半・後半（書き間違い・中黒の書き忘れに備える） */
+export function nameHalves(s: string): string[] {
+  const cs = [...s];
+  if (cs.length < 4) return [];
+  const half = Math.ceil(cs.length / 2);
+  return [...new Set([cs.slice(0, half).join(''), cs.slice(-half).join('')])];
 }

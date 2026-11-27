@@ -23,7 +23,7 @@ generated: 2026-11-27
 | `src/core/cards/abilityWordList.ts` | 35 | 能力語の一覧（design/ability-coverage.md の「特殊能力」352種から作った、並びは文字コード順）。 |  |
 | `src/core/cards/cards.basic.test.ts` | 1313 | textParser / 能力テキストの読み取り / 読み取った効果がエンジンで動く / 能力テキストの読み取り（公式の書式・キーワード・フィルター） | [[codemap/src-core-cards-cards.basic.test\|地図]] |
 | `src/core/cards/cards.deck13.test.ts` | 101 | ウラギリダムスの読み取り / ウラギリダムスの処理 / 追加の言い回し |  |
-| `src/core/cards/cards.decks.test.ts` | 549 | deckCards / デッキのカードがすべて自動処理になる / savedCards / 読み取り | [[codemap/src-core-cards-cards.decks.test\|地図]] |
+| `src/core/cards/cards.decks.test.ts` | 564 | deckCards / デッキのカードがすべて自動処理になる / savedCards / 読み取り | [[codemap/src-core-cards-cards.decks.test\|地図]] |
 | `src/core/cards/cards.engine.test.ts` | 3475 | engineMore / 読み取り / エンジンで動く / 別のコストでの使い方 | [[codemap/src-core-cards-cards.engine.test\|地図]] |
 | `src/core/cards/cards.newParser.test.ts` | 758 | lexer / 語に分ける / 動詞の活用 / カッコ・カード名・能力語 | [[codemap/src-core-cards-cards.newParser.test\|地図]] |
 | `src/core/cards/cards.sample7.test.ts` | 137 | 例文7の読み取り / 例文7の動作 |  |
@@ -35,10 +35,10 @@ generated: 2026-11-27
 | `src/core/cards/lineDefs.ts` | 204 | 能力の文ごとの効果定義。 |  |
 | `src/core/cards/officialConvert.ts` | 332 | 公式カード検索の詳細（OfficialCardDetail）を、デッキ構築・対戦で使うカード定義に変換する。 | [[codemap/src-core-cards-officialConvert\|地図]] |
 | `src/core/cards/registry.ts` | 82 | カードIDからカード定義を引く辞書。エンジン・UI 共通で使う。 |  |
-| `src/core/cards/textParser.ts` | 4211 | 公式カードの能力テキスト（日本語）を、エンジンが処理できる効果定義に変換する。 | [[codemap/src-core-cards-textParser\|地図]] |
+| `src/core/cards/textParser.ts` | 4214 | 公式カードの能力テキスト（日本語）を、エンジンが処理できる効果定義に変換する。 | [[codemap/src-core-cards-textParser\|地図]] |
 | `src/core/cards/types.ts` | 1128 | カードの基本情報（カードデータ）の型定義。 | [[codemap/src-core-cards-types\|地図]] |
-| `src/core/deck/deckText.test.ts` | 105 | parseDeckText / カード名の照合 / deckToText |  |
-| `src/core/deck/deckText.ts` | 184 | AI やメモで書いたデッキリスト（表・箇条書き）のテキストから「カード名と枚数」を読み取る。 |  |
+| `src/core/deck/deckText.test.ts` | 106 | parseDeckText / カード名の照合 / deckToText |  |
+| `src/core/deck/deckText.ts` | 193 | AI やメモで書いたデッキリスト（表・箇条書き）のテキストから「カード名と枚数」を読み取る。 |  |
 | `src/core/deck/defaultDecks.test.ts` | 15 | DEFAULT_DECKS |  |
 | `src/core/deck/defaultDecks.ts` | 114 | 最初から用意しておくデッキ（デッキ一覧の「デフォルトデッキ」から追加する）。 |  |
 | `src/core/deck/rules.test.ts` | 47 | デッキ構成チェック / カード検索 |  |
@@ -67,7 +67,7 @@ generated: 2026-11-27
 | `src/net/protocol.ts` | 73 | オンライン対戦（PeerJS）でやり取りするメッセージ。 |  |
 | `src/server/dmApi.ts` | 43 | 公式カード検索の中継の本体（Vite のサーバーと、Pages 版のブラウザ内ブリッジで共有する）。 |  |
 | `src/server/dmOfficial.test.ts` | 103 | 公式カード検索の解析 / 公式カードの変換 / 画像の中継 |  |
-| `src/server/dmOfficial.ts` | 321 | デュエル・マスターズ公式カード検索（https://dm.takaratomy.co.jp/card/）の | [[codemap/src-server-dmOfficial\|地図]] |
+| `src/server/dmOfficial.ts` | 342 | デュエル・マスターズ公式カード検索（https://dm.takaratomy.co.jp/card/）の | [[codemap/src-server-dmOfficial\|地図]] |
 | `src/server/vitePlugin.ts` | 39 | 公式カード検索の中継。開発サーバー（npm run dev）とプレビュー（npm run preview）で動く。経路は dmApi.ts を参照。 |  |
 | `src/store/appStore.ts` | 195 | 保存済みの公式カードは、読み込むたびに能力テキストを読み直す（読み取りの改良を反映するため） |  |
 | `src/store/battleStore.ts` | 199 | BattleMode, NetBridge, setNetBridge, isCpuTurnPlayer, useBattle |  |
@@ -82,7 +82,7 @@ generated: 2026-11-27
 | `src/ui/components/CardFilter.tsx` | 62 | カード検索フォーム（デッキ構築・図鑑で共用）。2列にまとめて縦に伸ばさない |  |
 | `src/ui/components/CardView.tsx` | 122 | CIV_COLOR, civGradient, CardSize, CardView |  |
 | `src/ui/components/DeckPicker.tsx` | 94 | デッキの代表カード（指定したカード、なければコストが一番高いカード）と文明ごとの枚数 |  |
-| `src/ui/components/DeckTextImport.tsx` | 235 | DeckTextImport |  |
+| `src/ui/components/DeckTextImport.tsx` | 241 | DeckTextImport |  |
 | `src/ui/components/OfficialBridgePanel.tsx` | 87 | 中継サーバーのない版（GitHub Pages）で、公式サイトとつなぐ手順とブックマークレットを出す。 |  |
 | `src/ui/components/OfficialPicker.tsx` | 170 | OfficialPicker |  |
 | `src/ui/components/ProxyPrintDialog.tsx` | 77 | ProxyPrintDialog |  |

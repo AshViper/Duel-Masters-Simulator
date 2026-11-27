@@ -62,7 +62,9 @@ export function DeckTextImport({ onClose, onApply, initialText }: { initialText?
     setError(parsed.entries.length === 0 ? 'カード名と枚数を読み取れませんでした。「《カード名》 4」や表の形で貼り付けてください。' : '');
     const initial: Row[] = parsed.entries.map((entry) => {
       const choices = localChoices(entry.name, cards);
-      return { entry, count: entry.count, choices, chosen: choices[0]?.key ?? '', state: choices.length ? 'done' : 'waiting' };
+      // 保存済みで完全一致した時だけ公式検索を省く（片面一致だけなら、同じ名前の別カードが公式にあるかもしれない）
+      const exact = choices.some((c) => c.score === 3);
+      return { entry, count: entry.count, choices, chosen: choices[0]?.key ?? '', state: exact ? 'done' : 'waiting' };
     });
     setRows(initial);
     cancel.current = { cancelled: false };
@@ -75,14 +77,18 @@ export function DeckTextImport({ onClose, onApply, initialText }: { initialText?
       patch(i, { state: 'resolving' });
       try {
         const r = await api<{ candidates: ResolvedCandidate[] }>(`/dm-api/resolve?name=${encodeURIComponent(initial[i].entry.name)}`);
-        const choices: Choice[] = r.candidates.map((c) => {
+        const official: Choice[] = r.candidates.map((c) => {
           const local = registry[officialCardId(c.id)];
           return { key: local ? local.id : c.id, label: c.name, local, official: c, score: c.score };
         });
+        const merged = [...initial[i].choices, ...official.filter((o) => !initial[i].choices.some((l) => l.key === o.key))];
+        const choices = merged.sort((a, b) => b.score - a.score);
         // 完全一致・片面一致なら自動で選ぶ。部分一致だけの時も先頭を選ぶが、確認を促す
         patch(i, { state: 'done', choices, chosen: choices[0]?.key ?? '' });
       } catch (e) {
-        patch(i, { state: 'error', error: (e as Error).message });
+        // 公式検索に失敗しても、保存済みの片面一致があればそれを使えるようにする
+        if (initial[i].choices.length) patch(i, { state: 'done' });
+        else patch(i, { state: 'error', error: (e as Error).message });
       }
     }
     setBusy('');

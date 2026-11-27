@@ -4,7 +4,7 @@
 // ・公式サーバーへの負荷を抑えるため、リクエストは直列化して間隔を空け、短時間だけメモリにキャッシュする。
 // ブラウザからは CORS で直接取得できないため、Vite の開発サーバー上の中継（vitePlugin.ts）から呼ぶ。
 
-import { fallbackKeywords, nameMatchScore, searchKeywords } from '../core/deck/deckText';
+import { nameFragments, nameHalves, nameMatchScore, nameParts } from '../core/deck/deckText';
 
 export const DM_ORIGIN = 'https://dm.takaratomy.co.jp';
 const CARD_URL = `${DM_ORIGIN}/card/`;
@@ -286,33 +286,54 @@ export interface ResolvedCandidate {
   score: number;
 }
 
-const MAX_DETAILS_PER_NAME = 8;
+const MAX_DETAILS_PER_NAME = 10;
+const MAX_SEARCHES_PER_NAME = 12;
 
 /**
  * 書かれたカード名から公式カードを探す。検索結果には名前が載らないので、候補の詳細を読んで名前を照合する。
+ * 公式検索は「書いた文字列を含む名前」を新しい順に返し、空白は「どれかを含む」になる。名前をそのまま投げると
+ * 別のカードに埋もれたり（「轟く侵略 レッドゾーン」）、中黒・全角半角の違いで 0 件になったりする。
+ * そこで語ごとに検索し（0 件なら記号で区切った断片 → 前半・後半）、件数の少ない語を含むカードほど先に詳細を確かめる。
  * 完全一致が見つかればそこで止める（公式へのリクエストを減らすため）。
  */
 export function resolveCardName(name: string): Promise<{ name: string; candidates: ResolvedCandidate[] }> {
   return cached(`r:${name}`, async () => {
-    const found = new Map<string, ResolvedCandidate>();
-    let checked = 0;
-    const keywords = searchKeywords(name);
-    const fallback = fallbackKeywords(name);
-    for (let k = 0; k < keywords.length; k++) {
-      const keyword = keywords[k];
-      const result = await searchOfficial({ keyword, keywordTypes: ['card_name'], page: 1 });
-      for (const c of result.cards) {
-        if (found.has(c.id) || checked >= MAX_DETAILS_PER_NAME) continue;
-        checked++;
-        const d = await fetchOfficialDetail(c.id);
-        const faces = d.faces.map((f) => f.name.replace(/\([A-Za-z0-9-]+\s[^)]*\)\s*$/, '').trim());
-        const full = faces[0] ?? c.id;
-        found.set(c.id, { id: c.id, name: full, thumbUrl: c.thumbUrl, score: nameMatchScore(name, full, faces) });
+    const weight = new Map<string, number>();
+    const thumbs = new Map<string, string>();
+    const searched = new Map<string, number>();
+    /** 1語を検索して、当たったカードに「その語の珍しさ」を足す。当たった件数を返す */
+    const search = async (keyword: string): Promise<number> => {
+      const seen = searched.get(keyword);
+      if (seen !== undefined) return seen;
+      if (searched.size >= MAX_SEARCHES_PER_NAME) return 0;
+      const r = await searchOfficial({ keyword, keywordTypes: ['card_name'], page: 1 });
+      searched.set(keyword, r.cards.length);
+      const total = r.cards.length * Math.max(1, r.lastPage);
+      for (const c of r.cards) {
+        weight.set(c.id, (weight.get(c.id) ?? 0) + 1 / total);
+        thumbs.set(c.id, c.thumbUrl);
       }
-      const best = Math.max(0, ...[...found.values()].map((c) => c.score));
-      if (best === 3) break;
-      // 書かれた名前では何も一致しない時だけ、名前の前半・後半でも探す
-      if (k === keywords.length - 1 && best === 0 && fallback.length) keywords.push(...fallback.filter((f) => !keywords.includes(f)).splice(0));
+      return r.cards.length;
+    };
+    /** 0 件なら前半・後半に分けて探す（2段まで。「ボルシャックドリームドラゴン」→「ドリームドラゴン」→「ドリーム」） */
+    const searchOrSplit = async (s: string, depth: number): Promise<void> => {
+      if ((await search(s)) || depth === 0) return;
+      for (const h of nameHalves(s)) if ([...h].length >= 3) await searchOrSplit(h, depth - 1);
+    };
+    for (const part of nameParts(name)) {
+      if (await search(part)) continue;
+      for (const frag of nameFragments(part)) await searchOrSplit(frag, 2);
+    }
+
+    const found = new Map<string, ResolvedCandidate>();
+    const order = [...weight.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX_DETAILS_PER_NAME);
+    for (const [id] of order) {
+      const d = await fetchOfficialDetail(id);
+      const faces = d.faces.map((f) => f.name.replace(/\([A-Za-z0-9-]+\s[^)]*\)\s*$/, '').trim());
+      const full = faces[0] ?? id;
+      const score = nameMatchScore(name, full, faces);
+      found.set(id, { id, name: full, thumbUrl: thumbs.get(id) ?? '', score });
+      if (score === 3) break;
     }
     const candidates = [...found.values()].filter((c) => c.score > 0).sort((a, b) => b.score - a.score);
     return { name, candidates };

@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/server/dmOfficial.ts（321行）
+# src/server/dmOfficial.ts（342行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -37,5 +37,5 @@ generated: 2026-11-27
 - L269 **export** fn `fetchOfficialDetail`
 - L274 **export** fn `fetchOfficialOptions`
 - L280 **export** interface `ResolvedCandidate`
-- L295 **export** fn `resolveCardName`
+- L299 **export** fn `resolveCardName`
 

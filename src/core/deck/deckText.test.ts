@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deckToText, fallbackKeywords, nameMatchScore, normalizeCardName, parseDeckText, searchKeywords } from './deckText';
+import { deckToText, nameFragments, nameHalves, nameMatchScore, nameParts, normalizeCardName, parseDeckText } from './deckText';
 
 const SAMPLE_TSV = `修正版40枚
 カード\t枚数\t役割
@@ -74,13 +74,14 @@ describe('カード名の照合', () => {
     expect(nameMatchScore('ミクルとミステリーの扉', 'ミラクルとミステリーの扉')).toBe(1);
   });
 
-  it('見つからない時のキーワード（前半・後半）', () => {
-    expect(fallbackKeywords('ミクルとミステリーの扉')).toEqual(['ステリーの扉', 'ミクルとミス']);
-  });
-
-  it('検索キーワードの候補', () => {
-    expect(searchKeywords('エターナル・ブレイン／ブレイン珊瑚の仙樹')).toEqual(['エターナル・ブレイン／ブレイン珊瑚の仙樹', 'エターナル・ブレイン', 'ブレイン珊瑚の仙樹']);
-    expect(searchKeywords('水上第九院 シャコガイル')).toEqual(['水上第九院 シャコガイル', 'シャコガイル']);
+  it('検索する語・断片・前半後半', () => {
+    expect(nameParts('エターナル・ブレイン／ブレイン珊瑚の仙樹')).toEqual(['エターナル・ブレイン', 'ブレイン珊瑚の仙樹']);
+    expect(nameParts('《月下卍壊 ガ・リュミーズ 卍》')).toEqual(['月下卍壊', 'ガ・リュミーズ']);
+    expect(nameFragments('ﾄﾞｱﾉｯｶ=ﾉｱﾄﾞｯｶ')).toEqual(['ドアノッカ', 'ノアドッカ']);
+    expect(nameFragments('ＣＲＹＭＡＸ')).toEqual(['CRYMAX']);
+    expect(nameHalves('ロジックサークル')).toEqual(['ロジック', 'サークル']);
+    expect(nameHalves('ミクルとミステリーの扉')).toEqual(['ミクルとミス', 'ステリーの扉']);
+    expect(nameHalves('ギャイ')).toEqual([]);
   });
 });
 
