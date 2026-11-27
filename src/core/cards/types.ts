@@ -648,7 +648,10 @@ export type StaticAbility = (
   /** カードをマナゾーンにタップして置く（「相手はカードをマナゾーンに置く時、タップして置く」） */
   | { type: 'manaEntersTapped'; who: 'self' | 'opponent' | 'both' }
   /** 各ターンに使える（出せる）数の上限（「相手は各ターン1回までしか呪文を唱えられない」「各ターン1体までしかクリーチャーを出せない」） */
-  | { type: 'playLimit'; who: 'self' | 'opponent' | 'both'; what: 'spell' | 'creature'; max: number }
+  /** what: attack/block は「各ターン1度しか、クリーチャーで攻撃もブロックもできない」（ガードマンはブロックに数えない） */
+  | { type: 'playLimit'; who: 'self' | 'opponent' | 'both'; what: 'spell' | 'creature' | 'attack' | 'block'; max: number }
+  /** 自分のターンのはじめに、マナゾーンのカードを max 枚までしかアンタップできない（卍月 ガ・リュザーク 卍） */
+  | { type: 'manaUntapLimit'; who: 'self' | 'opponent' | 'both'; max: number }
   /** 召喚以外の方法でクリーチャーが出る時、かわりに墓地に置く（who: そのクリーチャーを出すプレイヤー） */
   | { type: 'nonSummonEntryToGrave'; who: 'self' | 'opponent' | 'both' }
   /** 山札から手札以外のゾーンに置かれる時、かわりに墓地に置く（カレイコの黒像） */

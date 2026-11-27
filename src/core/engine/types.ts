@@ -100,6 +100,8 @@ export interface PlayerState {
   freeSpellsThisTurn?: number;
   /** このターンに、このプレイヤーのクリーチャーが攻撃した回数 */
   attacksThisTurn?: number;
+  /** このターンに、このプレイヤーのクリーチャーがブロックした回数（ガードマンは数えない） */
+  blocksThisTurn?: number;
   /** このターンに、このプレイヤーのクリーチャーがバトルに勝った回数 */
   battleWinsThisTurn?: number;
   /** このターンにブレイクされたこのプレイヤーのシールドの数 */

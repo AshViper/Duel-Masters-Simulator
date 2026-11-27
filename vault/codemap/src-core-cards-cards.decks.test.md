@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/cards.decks.test.ts（539行）
+# src/core/cards/cards.decks.test.ts（549行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -14,7 +14,7 @@ generated: 2026-11-27
 - L63 デッキのカードがすべて自動処理になる
 - L182 savedCards
 - L223 読み取り
-- L243 エンジンで動く
-- L311 savedDefs
-- L376 読み取り
-- L382 エンジンで動く
+- L253 エンジンで動く
+- L321 savedDefs
+- L386 読み取り
+- L392 エンジンで動く

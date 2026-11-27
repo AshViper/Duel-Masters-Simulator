@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/officialConvert.ts（331行）
+# src/core/cards/officialConvert.ts（332行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -20,13 +20,13 @@ generated: 2026-11-27
 - L52 fn `faceText`
 - L57 fn `manualEffectCount`
 - L72 **export** fn `convertOfficialCard`
-- L148 fn `splitTwinName`
-- L153 fn `isForbiddenLabel`
-- L158 fn `forbiddenSealCount`
-- L166 **export** fn `faceKind`
-- L178 **export** fn `applyParsedEffects`
-- L306 type `AbilitySet`
-- L307 fn `hasAny`
-- L311 fn `compact`
-- L321 fn `twinKeywords`
+- L149 **export** fn `splitTwinName`
+- L154 fn `isForbiddenLabel`
+- L159 fn `forbiddenSealCount`
+- L167 **export** fn `faceKind`
+- L179 **export** fn `applyParsedEffects`
+- L307 type `AbilitySet`
+- L308 fn `hasAny`
+- L312 fn `compact`
+- L322 fn `twinKeywords`
 

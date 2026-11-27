@@ -591,14 +591,14 @@ export function minimalSacrifice(state: GameState, reg: CardRegistry, player: Pl
 }
 
 /** このプレイヤーが、このターンにこれ以上クリーチャーを出せない／呪文を唱えられないなら理由を返す（「各ターン1体までしか」） */
-export function playLimitReached(state: GameState, reg: CardRegistry, player: PlayerId, what: 'spell' | 'creature'): string | null {
+export function playLimitReached(state: GameState, reg: CardRegistry, player: PlayerId, what: 'spell' | 'creature' | 'attack' | 'block'): string | null {
   const P = state.players[player];
-  const used = what === 'spell' ? (P.spellsThisTurn ?? 0) : (P.creaturesThisTurn ?? 0);
+  const used = (what === 'spell' ? P.spellsThisTurn : what === 'creature' ? P.creaturesThisTurn : what === 'attack' ? P.attacksThisTurn : P.blocksThisTurn) ?? 0;
   for (const a of activeStatics(state, reg)) {
     const s = a.static;
     if (s.type !== 'playLimit' || s.what !== what) continue;
     const hit = s.who === 'both' || (s.who === 'self') === (a.controller === player);
-    if (hit && used >= s.max) return `${def(state, reg, a.source).name} の効果で、このターンはこれ以上${what === 'spell' ? '呪文を唱えられません' : 'クリーチャーを出せません'}`;
+    if (hit && used >= s.max) return `${def(state, reg, a.source).name} の効果で、このターンはこれ以上${{ spell: '呪文を唱えられません', creature: 'クリーチャーを出せません', attack: '攻撃できません', block: 'ブロックできません' }[what]}`;
   }
   return null;
 }
@@ -716,6 +716,8 @@ function canAttackWithImpl(state: GameState, reg: CardRegistry, player: PlayerId
   if (!battleCards(state, reg, player).includes(iid)) return false;
   const kw = keywords(state, reg, iid);
   if (kw.cannotAttack) return false;
+  // 「相手は各ターン1度しか、クリーチャーで攻撃できない」
+  if (playLimitReached(state, reg, player, 'attack')) return false;
   // 「出たターンに攻撃できない」：スピードアタッカー・マッハファイターがあっても
   if (kw.noAttackOnEnterTurn && inst.enteredTurn >= state.turn) return false;
   // マッハファイターは出たターンでもクリーチャーを攻撃できる（「出したターン、アンタップしているクリーチャーを攻撃できる」も）
@@ -762,6 +764,8 @@ export function blockersFor(state: GameState, reg: CardRegistry, defender: Playe
   const akw = keywords(state, reg, attacker);
   const unblockable = !!akw.unblockable;
   const target = state.combat?.target;
+  // 「各ターン1度しか、クリーチャーでブロックできない」：ガードマンはブロックではないので使える
+  const blockLimited = !!playLimitReached(state, reg, defender, 'block');
   return battleCards(state, reg, defender).filter((b) => {
     if (state.cards[b].tapped) return false;
     const kw = keywords(state, reg, b);
@@ -772,7 +776,7 @@ export function blockersFor(state: GameState, reg: CardRegistry, defender: Playe
     // ガードマンは「ブロック」ではなく攻撃先の変更なので、ブロックされないクリーチャーにも使える
     if (kw.superGuardman) return true;
     if (kw.guardman && target?.kind === 'creature' && target.iid !== b) return true;
-    return !!kw.blocker && !unblockable;
+    return !!kw.blocker && !unblockable && !blockLimited;
   });
 }
 

@@ -416,7 +416,15 @@ export class Ctx {
         // 「次の相手のターンのはじめに、それらはアンタップしない」マナもタップしたまま
         // 「誰も、自身のマナゾーンの呪文カードをアンタップできない」
         const spellsStay = activeStatics(s, this.reg).some((a) => a.static.type === 'manaSpellsStayTapped');
-        for (const iid of P.zones.mana) if (!s.cards[iid].keywordsUntil?.keywords.noUntap && !(spellsStay && this.reg[s.cards[iid].cardId]?.type === 'spell')) s.cards[iid].tapped = false;
+        // 「相手のターンのはじめに、相手は自身のマナゾーンのカードを3枚までしかアンタップできない」
+        let untapMax = Infinity;
+        for (const a of activeStatics(s, this.reg)) {
+          const st = a.static;
+          if (st.type === 'manaUntapLimit' && (st.who === 'both' || (st.who === 'self') === (a.controller === pl))) untapMax = Math.min(untapMax, st.max);
+        }
+        const toUntap = P.zones.mana.filter((iid) => s.cards[iid].tapped && !s.cards[iid].keywordsUntil?.keywords.noUntap && !(spellsStay && this.reg[s.cards[iid].cardId]?.type === 'spell'));
+        for (const iid of untapMax < toUntap.length ? this.pickManaToUntap(toUntap, untapMax) : toUntap) s.cards[iid].tapped = false;
+        if (untapMax < toUntap.length) this.log(`マナゾーンのカードを${untapMax}枚までしかアンタップできない`, pl);
         // 「自分のターンのはじめにアンタップしない」クリーチャーはタップしたまま
         for (const iid of P.zones.battle) if (!keywords(s, this.reg, iid).noUntap) s.cards[iid].tapped = false;
         P.chargedThisTurn = false;
@@ -513,6 +521,7 @@ export class Ctx {
       p.freeEntriesThisTurn = 0;
       p.freeSpellsThisTurn = 0;
       p.attacksThisTurn = 0;
+      p.blocksThisTurn = 0;
     }
     const P = s.players[s.activePlayer];
     s.inExtraTurn = P.extraTurns > 0;
@@ -819,6 +828,22 @@ export class Ctx {
         }
       }
     }
+  }
+
+  /** アンタップできる枚数に上限がある時、どのマナをアンタップするか（文明がばらけるように選ぶ） */
+  private pickManaToUntap(cands: string[], max: number): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const civs = (iid: string) => this.reg[this.s.cards[iid].cardId]?.civilizations ?? [];
+    for (const iid of cands) {
+      if (out.length >= max) break;
+      if (civs(iid).some((c) => !seen.has(c))) {
+        out.push(iid);
+        civs(iid).forEach((c) => seen.add(c));
+      }
+    }
+    for (const iid of cands) if (out.length < max && !out.includes(iid)) out.push(iid);
+    return out;
   }
 
   /** 無月の門などの素材の候補：自分のバトルゾーン（フィールドを含む）・墓地の、条件に合うカード */
@@ -1398,6 +1423,7 @@ export class Ctx {
           s.cards[b].tapped = true;
           s.combat.target = { kind: 'creature', iid: b };
           s.combat.blocker = b;
+          if (keywords(s, this.reg, b).blocker) s.players[task.defender].blocksThisTurn = (s.players[task.defender].blocksThisTurn ?? 0) + 1;
           this.log(`${this.name(b)} がブロック`, task.defender);
           this.emit({ type: 'BLOCKED', blocker: b, attacker: task.attacker });
         }

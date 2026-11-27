@@ -2430,6 +2430,16 @@ function parseStatic(t: string): StaticAbility[] | null {
   if (m) return [{ type: 'playLimit', who: m[1] === '自分' ? 'self' : 'opponent', what: 'spell', max: n(m[2]) }];
   m = t.match(/^(相手|自分)は各ターン(\d+)体までしかクリーチャーを(?:出せない|バトルゾーンに出せない)$/);
   if (m) return [{ type: 'playLimit', who: m[1] === '自分' ? 'self' : 'opponent', what: 'creature', max: n(m[2]) }];
+  // 「相手は各ターン1度しか、クリーチャーで攻撃もブロックもできない」
+  m = t.match(/^(相手|自分)は、?各ターン(\d+)(?:度|回)(?:まで)?しか、?クリーチャーで(攻撃もブロックも|攻撃|ブロック)できない$/);
+  if (m) {
+    const who = m[1] === '自分' ? 'self' : 'opponent';
+    const whats: Array<'attack' | 'block'> = m[3] === '攻撃' ? ['attack'] : m[3] === 'ブロック' ? ['block'] : ['attack', 'block'];
+    return whats.map((what) => ({ type: 'playLimit' as const, who, what, max: n(m![2]) }));
+  }
+  // 「相手のターンのはじめに、相手は自身のマナゾーンのカードを3枚までしかアンタップできない」
+  m = t.match(/^(?:(?:相手|自分)のターンのはじめに、)?(相手|自分)は、?(?:自身の)?マナゾーンのカードを(\d+)枚(?:まで)?しかアンタップできない$/);
+  if (m) return [{ type: 'manaUntapLimit', who: m[1] === '自分' ? 'self' : 'opponent', max: n(m[2]) }];
   // カレイコの黒像：「いずれかのプレイヤーの山札から、手札以外のゾーンにカードが置かれる時、かわりにそのプレイヤーは、そのカードを墓地に置く」
   m = t.match(/^(いずれかのプレイヤー|相手|自分)の山札から、?手札以外のゾーンにカードが置かれる時、かわりに(?:そのプレイヤーは、?)?そのカードを(?:持ち主の)?墓地に置く$/);
   if (m) return [{ type: 'deckToGraveInstead', who: m[1] === '自分' ? 'self' : m[1] === '相手' ? 'opponent' : 'both' }];
@@ -3254,6 +3264,14 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     if (!parseLine(turnTrig[1] ?? `このクリーチャーが${turnTrig[2]}`, options, kind, tmp) || tmp.abilities.some((a) => a.effects.some((e) => e.type === 'manual'))) return false;
     for (const ab of tmp.abilities) out.abilities.push({ ...ab, condition: ab.condition ? { type: 'and', conditions: [{ type: 'selfEnteredThisTurn' }, ab.condition] } : { type: 'selfEnteredThisTurn' } });
     return true;
+  }
+  // 「相手のターンのはじめに、相手は自身のマナゾーンのカードを3枚までしかアンタップできない」：誘発ではなく常在効果
+  if (/^(?:相手|自分)のターンのはじめに、(?:相手|自分)は、?(?:自身の)?マナゾーンのカードを\d+枚(?:まで)?しかアンタップできない。?$/.test(t)) {
+    const st = parseStatic(t.replace(/。$/, ''));
+    if (st) {
+      out.statics.push(...st);
+      return true;
+    }
   }
   // 「このクリーチャーをタップして出してもよい」：出た時に、タップするかを選ぶ
   if (/^このクリーチャーを、?タップして(?:バトルゾーンに)?出してもよい。?$/.test(t) && kind === 'creature') {

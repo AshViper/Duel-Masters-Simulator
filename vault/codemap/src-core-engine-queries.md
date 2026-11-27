@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/engine/queries.ts（1181行）
+# src/core/engine/queries.ts（1185行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -65,38 +65,38 @@ generated: 2026-11-27
 - L700 **export** fn `isSummoningSick`
 - L709 **export** fn `canAttackWith`
 - L713 fn `canAttackWithImpl`
-- L725 **export** fn `attackTargets`
-- L729 fn `attackTargetsImpl`
-- L761 **export** fn `blockersFor`
-- L782 **export** fn `targetCandidates`
-- L809 **export** fn `countQuantity`
-- L822 **export** fn `evalCondition`
-- L945 fn `simpleSpec`
-- L950 **export** fn `multiEvolveSpec`
-- L955 **export** fn `evolveSourceCandidates`
-- L968 **export** fn `validEvolveSources`
-- L978 **export** fn `defaultEvolveSources`
-- L991 **export** fn `evolutionBases`
-- L1007 fn `matchesEvolvesFrom`
-- L1015 **export** fn `canBeEvolutionSource`
-- L1028 **export** fn `choosePayment`
-- L1035 **export** fn `payMana`
-- L1058 fn `assignCivs`
-- L1076 **export** fn `altCost`
-- L1085 **export** fn `altPayment`
-- L1090 **export** fn `altUsable`
-- L1104 **export** fn `canPlayAlt`
-- L1112 **export** fn `fushigiCandidates`
-- L1116 **export** fn `canPlay`
-- L1120 fn `canPlayImpl`
-- L1140 **export** fn `untappedManaCount`
-- L1144 **export** fn `isIdle`
-- L1148 **export** fn `instancesIn`
-- L1153 **export** fn `attackSwapCandidates`
-- L1177 **export** fn `sClassCards`
+- L727 **export** fn `attackTargets`
+- L731 fn `attackTargetsImpl`
+- L763 **export** fn `blockersFor`
+- L786 **export** fn `targetCandidates`
+- L813 **export** fn `countQuantity`
+- L826 **export** fn `evalCondition`
+- L949 fn `simpleSpec`
+- L954 **export** fn `multiEvolveSpec`
+- L959 **export** fn `evolveSourceCandidates`
+- L972 **export** fn `validEvolveSources`
+- L982 **export** fn `defaultEvolveSources`
+- L995 **export** fn `evolutionBases`
+- L1011 fn `matchesEvolvesFrom`
+- L1019 **export** fn `canBeEvolutionSource`
+- L1032 **export** fn `choosePayment`
+- L1039 **export** fn `payMana`
+- L1062 fn `assignCivs`
+- L1080 **export** fn `altCost`
+- L1089 **export** fn `altPayment`
+- L1094 **export** fn `altUsable`
+- L1108 **export** fn `canPlayAlt`
+- L1116 **export** fn `fushigiCandidates`
+- L1120 **export** fn `canPlay`
+- L1124 fn `canPlayImpl`
+- L1144 **export** fn `untappedManaCount`
+- L1148 **export** fn `isIdle`
+- L1152 **export** fn `instancesIn`
+- L1157 **export** fn `attackSwapCandidates`
+- L1181 **export** fn `sClassCards`
 
 ## switch の case（`ラベル:行`）
 
 ### evalCondition
-not:824 · and:826 · or:828 · compare:830 · attackedThisTurn:835 · selfIsEvolution:837 · summonedThisTurn:843 · castThisTurn:845 · turnTally:847 · chosenDistinctNames:857 · didNot:861 · enteredFreeThisTurn:863 · nthAttackThisTurn:865 · enteredNamedThisTurn:867 · firstAttackThisTurn:869 · crossed:871 · entry:875 · godLinked:884 · shieldForce:886 · selfPower:890 · selfAttacking:895 · civsInBattle:897 · gearAttached:902 · selfTapped:906 · wonBattleThisTurn:908 · selfEnteredThisTurn:910 · subjectEnteredFree:912 · enteredThisTurn:914 · underCount:918 · opponentTurn:920 · inExtraTurn:922 · shieldsBrokenThisTurn:924 · playedFreeThisTurn:926 · enteredByRevolution:930 · usedThisTurn:932 · chosenMatches:934
+not:828 · and:830 · or:832 · compare:834 · attackedThisTurn:839 · selfIsEvolution:841 · summonedThisTurn:847 · castThisTurn:849 · turnTally:851 · chosenDistinctNames:861 · didNot:865 · enteredFreeThisTurn:867 · nthAttackThisTurn:869 · enteredNamedThisTurn:871 · firstAttackThisTurn:873 · crossed:875 · entry:879 · godLinked:888 · shieldForce:890 · selfPower:894 · selfAttacking:899 · civsInBattle:901 · gearAttached:906 · selfTapped:910 · wonBattleThisTurn:912 · selfEnteredThisTurn:914 · subjectEnteredFree:916 · enteredThisTurn:918 · underCount:922 · opponentTurn:924 · inExtraTurn:926 · shieldsBrokenThisTurn:928 · playedFreeThisTurn:930 · enteredByRevolution:934 · usedThisTurn:936 · chosenMatches:938
 

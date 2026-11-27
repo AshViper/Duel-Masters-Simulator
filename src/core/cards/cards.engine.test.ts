@@ -1550,6 +1550,9 @@ const C = {
   summonOnly: mk('b-70', ['このクリーチャーは、召喚以外の方法で出ない。']),
   reanimate: spell('b-71', ['クリーチャーを１体、自分の墓地からバトルゾーンに出す。']),
   noLoseWin: mk('b-72', ['このクリーチャーがバトルに勝った時、次の自分のターンのはじめまで、自分はゲームに負けず、相手はゲームに勝てない。']),
+  untapLimit: mk('b-901', ['相手のターンのはじめに、相手は自身のマナゾーンのカードを３枚までしかアンタップできない。'], { cost: '9' }),
+  onceAtkBlk: spell('b-902', ['次の自分のターンのはじめまで、相手は各ターン１度しか、クリーチャーで攻撃もブロックもできない。']),
+  blockerT: mk('b-903', ['ブロッカー']),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
 const filler = Array.from({ length: 40 }, () => 'S01-043');
@@ -1580,6 +1583,51 @@ const toAttack = (s: GameState) => {
   while (s.phase !== 'main') s = act(s, { type: 'NEXT_PHASE', player: s.activePlayer });
   return s;
 };
+
+describe('卍月 ガ・リュザーク 卍', () => {
+  it('相手のターンのはじめに、相手はマナを3枚までしかアンタップできない（常在効果として読む）', () => {
+    expect(C.untapLimit.statics).toEqual([{ type: 'manaUntapLimit', who: 'opponent', max: 3 }]);
+    let s = newGame();
+    put(s, 0, C.untapLimit.id, 'battle');
+    mana(s, 5, 1);
+    mana(s, 5, 0);
+    for (const m of [...s.players[0].zones.mana, ...s.players[1].zones.mana]) s.cards[m].tapped = true;
+    while (s.activePlayer !== 1) s = act(s, { type: 'NEXT_PHASE', player: s.activePlayer });
+    expect(s.players[1].zones.mana.filter((m) => !s.cards[m].tapped)).toHaveLength(3);
+    // 自分のターンは制限なし
+    while (s.activePlayer !== 0) s = act(s, { type: 'NEXT_PHASE', player: s.activePlayer });
+    expect(s.players[0].zones.mana.filter((m) => !s.cards[m].tapped)).toHaveLength(5);
+  });
+
+  it('呪文：次の自分のターンのはじめまで、相手は各ターン1度しかクリーチャーで攻撃もブロックもできない', () => {
+    expect(C.onceAtkBlk.abilities?.flatMap((a) => a.effects).some((e) => e.type === 'manual')).toBe(false);
+    let s = toAttack(newGame());
+    const a1 = put(s, 0, C.vanilla.id, 'battle');
+    const a2 = put(s, 0, C.vanilla.id, 'battle');
+    const b1 = put(s, 1, C.blockerT.id, 'battle');
+    put(s, 1, C.blockerT.id, 'battle');
+    ({ s } = play(s, C.onceAtkBlk.id));
+    // 1回目の攻撃はブロックできる
+    s = act(s, { type: 'ATTACK', player: 0, attacker: a1, target: { kind: 'player' } });
+    expect(s.pending).toMatchObject({ kind: 'block', player: 1 });
+    s = act(s, { type: 'RESPOND', player: 1, selected: [b1] });
+    while (s.pending) s = act(s, { type: 'RESPOND', player: s.pending.player, selected: [] });
+    // 2回目はもうブロックできない
+    expect(blockersFor(s, reg, 1, a2)).toEqual([]);
+    // 相手のターン：攻撃は1度だけ
+    while (s.activePlayer !== 1) s = act(s, { type: 'NEXT_PHASE', player: s.activePlayer });
+    s = toAttack(s);
+    const extra = put(s, 1, C.vanilla.id, 'battle');
+    const other1 = put(s, 1, C.vanilla.id, 'battle');
+    expect(canAttackWith(s, reg, 1, other1)).toBe(true);
+    s = act(s, { type: 'ATTACK', player: 1, attacker: extra, target: { kind: 'player' } });
+    expect(canAttackWith(s, reg, 1, other1)).toBe(false);
+    // 次の自分のターンのはじめに終わる
+    while (s.pending) s = act(s, { type: 'RESPOND', player: s.pending.player, selected: s.pending.kind === 'selectCards' ? s.pending.candidates.slice(0, s.pending.min) : [] });
+    while (s.activePlayer !== 0) s = act(s, { type: 'NEXT_PHASE', player: s.activePlayer });
+    expect(s.turnStatics.some((t) => t.static.type === 'playLimit')).toBe(false);
+  });
+});
 
 describe('読み取り', () => {
   it('すべて自動処理になる', () => {

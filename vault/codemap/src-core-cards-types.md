@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/types.ts（1121行）
+# src/core/cards/types.ts（1124行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -31,20 +31,20 @@ generated: 2026-11-27
 - L583 **export** interface `TriggeredAbility`
 - L618 **export** interface `Applies`
 - L629 **export** type `StaticAbility`
-- L695 **export** interface `ReplacementAbility`
-- L727 **export** interface `Keywords`
-- L885 **export** interface `ForbiddenSide`
-- L892 **export** interface `TwinSide`
-- L902 **export** interface `AttackSwap`
-- L915 **export** interface `AltPlay`
-- L958 **export** interface `ZoneGate`
-- L970 **export** interface `HandTrigger`
-- L998 **export** interface `EvolveSpec`
-- L1015 **export** interface `CardDefinition`
-- L1085 **export** interface `PsychicSide`
-- L1091 **export** fn `isCreatureType`
-- L1096 **export** fn `isNonCreaturePermanent`
-- L1101 **export** fn `manaCivilizations`
-- L1106 **export** interface `PlayFace`
-- L1115 **export** fn `playFace`
+- L698 **export** interface `ReplacementAbility`
+- L730 **export** interface `Keywords`
+- L888 **export** interface `ForbiddenSide`
+- L895 **export** interface `TwinSide`
+- L905 **export** interface `AttackSwap`
+- L918 **export** interface `AltPlay`
+- L961 **export** interface `ZoneGate`
+- L973 **export** interface `HandTrigger`
+- L1001 **export** interface `EvolveSpec`
+- L1018 **export** interface `CardDefinition`
+- L1088 **export** interface `PsychicSide`
+- L1094 **export** fn `isCreatureType`
+- L1099 **export** fn `isNonCreaturePermanent`
+- L1104 **export** fn `manaCivilizations`
+- L1109 **export** interface `PlayFace`
+- L1118 **export** fn `playFace`
 
