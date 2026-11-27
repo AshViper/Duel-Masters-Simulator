@@ -7,3 +7,4 @@ playwright-report
 vault/.obsidian/workspace*.json
 vault/.obsidian/cache
 vault/.trash/
+.wrangler
