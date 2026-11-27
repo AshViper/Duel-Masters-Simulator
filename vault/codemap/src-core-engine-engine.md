@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/engine/engine.ts（3700行）
+# src/core/engine/engine.ts（3705行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -67,28 +67,28 @@ generated: 2026-11-27
 - L2858 `setTapped`
 - L2866 `moveTo`
 - L2875 `putIntoBattle`
-- L2890 `lookAtTop`
-- L2977 `awakenLink`
-- L3008 `unlink`
-- L3030 `removeOwnSeals`
-- L3059 `soulRaid`
-- L3091 `withTargets`
-- L3220 `abilityTasks`
-- L3228 `triggerFrom`
-- L3264 `triggerOthers`
-- L3272 `whoMatches`
-- L3277 `emit`
-- L3446 `random`
-- L3452 `shuffle`
-- L3461 `topOfDeck`
-- L3466 `draw`
-- L3485 `deckToGrave`
-- L3491 `moveCard`
-- L3602 `checkStateBased`
-- L3644 `gameOver`
-- L3663 `avertLoss`
-- L3688 `name`
-- L3696 `log`
+- L2895 `lookAtTop`
+- L2982 `awakenLink`
+- L3013 `unlink`
+- L3035 `removeOwnSeals`
+- L3064 `soulRaid`
+- L3096 `withTargets`
+- L3225 `abilityTasks`
+- L3233 `triggerFrom`
+- L3269 `triggerOthers`
+- L3277 `whoMatches`
+- L3282 `emit`
+- L3451 `random`
+- L3457 `shuffle`
+- L3466 `topOfDeck`
+- L3471 `draw`
+- L3490 `deckToGrave`
+- L3496 `moveCard`
+- L3607 `checkStateBased`
+- L3649 `gameOver`
+- L3668 `avertLoss`
+- L3693 `name`
+- L3701 `log`
 
 ## switch の case（`ラベル:行`）
 
@@ -111,5 +111,5 @@ draw:1915 · addManaFromDeck:1930 · addShieldFromDeck:1932 · choose:1934 · ma
 battle:2735 · under:2742 · deckTop:2745 · deckBottom:2750 · shieldTop:2752
 
 ### emit
-CARD_DRAWN:3282 · CREATURE_SUMMONED:3287 · CREATURE_DESTROYED:3321 · CREATURE_LEFT:3339 · ATTACK_DECLARED:3350 · CREATURE_TAPPED:3360 · SHIELD_LEFT:3364 · UNDER_LEFT:3376 · CARD_TARGETED:3383 · BLOCKED:3386 · BATTLE_WON:3391 · TURN_STARTED:3404 · TURN_ENDED:3407 · BROKE_SHIELDS:3410 · SHIELD_BROKEN:3414 · SHIELD_ADDED:3419 · CARD_DISCARDED:3423 · CARD_PLAYED:3427 · SPELL_CAST:3434
+CARD_DRAWN:3287 · CREATURE_SUMMONED:3292 · CREATURE_DESTROYED:3326 · CREATURE_LEFT:3344 · ATTACK_DECLARED:3355 · CREATURE_TAPPED:3365 · SHIELD_LEFT:3369 · UNDER_LEFT:3381 · CARD_TARGETED:3388 · BLOCKED:3391 · BATTLE_WON:3396 · TURN_STARTED:3409 · TURN_ENDED:3412 · BROKE_SHIELDS:3415 · SHIELD_BROKEN:3419 · SHIELD_ADDED:3424 · CARD_DISCARDED:3428 · CARD_PLAYED:3432 · SPELL_CAST:3439
 

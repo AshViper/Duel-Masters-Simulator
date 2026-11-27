@@ -257,7 +257,7 @@ function parseNP(c: Cur): NP | null {
       break;
     }
     // 名詞
-    const n = c.kind('noun', (t) => ['creature', 'card', 'shield', 'spell', 'player', 'evolution'].includes(t.noun));
+    const n = c.kind('noun', (t) => ['creature', 'card', 'element', 'shield', 'spell', 'player', 'evolution'].includes(t.noun));
     if (n) {
       np.noun = n.noun === 'evolution' ? 'creature' : n.noun;
       if (n.noun === 'evolution') np.filter.evolution = true;
@@ -280,6 +280,8 @@ function toTarget(np: NP, count: TargetSpec['count'], upTo: boolean, from?: { ow
   const filter: CardFilter = { ...np.filter };
   if ((np.noun === 'creature' && (zone !== 'battle' || filter.race)) || (np.noun === 'creature' && Object.keys(filter).length === 0 && zone !== 'battle')) filter.cardType = 'creature';
   if (np.noun === 'spell') filter.cardType = 'spell';
+  // 手札・墓地などの「エレメント」：呪文以外のカード
+  if (np.noun === 'element' && zone !== 'battle') filter.not = { cardType: 'spell' };
   return {
     owner,
     zone,
@@ -287,6 +289,8 @@ function toTarget(np: NP, count: TargetSpec['count'], upTo: boolean, from?: { ow
     ...(upTo ? { upTo: true } : {}),
     ...(Object.keys(filter).length ? { filter } : {}),
     ...(from && from.zones.length > 1 ? { extraZones: from.zones.slice(1) } : {}),
+    // エレメント・バトルゾーンのカード：クリーチャー以外（フィールド・タマシードなど）も選べる
+    ...((zone === 'battle' && np.noun === 'card') || np.noun === 'element' ? { element: true } : {}),
   };
 }
 

@@ -136,6 +136,8 @@ export interface TargetSpec {
   anyZone?: boolean;
   /** zone のほかに選べるゾーン（「自分の手札または墓地から」） */
   extraZones?: TargetSpec['zone'][];
+  /** エレメント（バトルゾーンのクリーチャー以外のカード＝フィールド・タマシード・クロスギア・ドラグハートなども含む）から選ぶ */
+  element?: boolean;
   /** 候補からこの数だけ選んで残し、残りすべてに行う（「3枚ずつ選び、残りを墓地に置く」）。count は 'all' にする */
   keep?: number;
 }

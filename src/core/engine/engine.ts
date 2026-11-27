@@ -2879,6 +2879,11 @@ export class Ctx {
       this.log(`${d.name} をバトルゾーンに出す`, controller);
       return { kind: 'enterBattle', player: this.s.cards[iid].owner, iid };
     }
+    // エレメントを出す効果：フィールド・タマシードもバトルゾーンに出せる
+    if (isNonCreaturePermanent(d.type)) {
+      this.log(`${d.name} をバトルゾーンに出す`, controller);
+      return { kind: 'enterBattle', player: this.s.cards[iid].owner, iid };
+    }
     if (!isCreatureType(d.type) || d.type === 'evolution') {
       this.log(`${d.name} はバトルゾーンに出せない`, controller);
       return;

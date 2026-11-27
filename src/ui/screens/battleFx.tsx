@@ -181,7 +181,8 @@ export function ActionFx({ g, me, solo }: { g: GameState; me: PlayerId; solo: bo
         case 'CREATURE_LEFT': {
           const r = prevRects.current.get(e.iid);
           const destroyed = g.lastEvents.some((x) => x.type === 'CREATURE_DESTROYED' && x.iid === e.iid);
-          if (r) newGhosts.push({ id: ++seq, card: defOf(e.iid), x: r.x, y: r.y, w: r.w, kind: destroyed ? 'destroy' : 'leave', label: destroyed ? '破壊' : (LEAVE_LABEL[e.to] ?? ZONE_LABEL[e.to]) });
+          // 破壊は砕ける残像で見せる。ほかの移動は battleFlights がカードを行き先まで飛ばして見せる
+          if (r && destroyed) newGhosts.push({ id: ++seq, card: defOf(e.iid), x: r.x, y: r.y, w: r.w, kind: 'destroy', label: '破壊' });
           if (!destroyed && e.to !== 'graveyard') {
             items.push({ tone: 'leave', player: e.player, title: LEAVE_LABEL[e.to] ?? ZONE_LABEL[e.to], text: `${who(e.player)}の ${name(e.iid)}`, card: defOf(e.iid) });
           } else if (!destroyed) {

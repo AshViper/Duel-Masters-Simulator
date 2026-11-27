@@ -374,7 +374,7 @@ describe('読み取り（textParser で手動だった文）', () => {
 
   it('相手のカードを表向きにしてシールドの上に置く', () => {
     expect(cr('このクリーチャーがバトルゾーンに出た時、バトルゾーンにある相手のカードを１枚選び、表向きにして持ち主のシールド１つの上に置く。').abilities[0].effects).toEqual([
-      { type: 'move', target: { owner: 'opponent', zone: 'battle', count: 1 }, to: 'shieldTop' },
+      { type: 'move', target: { owner: 'opponent', zone: 'battle', count: 1, element: true }, to: 'shieldTop' },
     ]);
   });
 

@@ -662,7 +662,9 @@ export function targetCandidates(state: GameState, reg: CardRegistry, controller
   const out: string[] = [];
   for (const o of owners) {
     for (const zone of zones) {
-      for (const iid of zone === 'battle' ? battleCards(state, reg, o) : state.players[o].zones[zone]) {
+      // 「エレメント」「バトルゾーンにあるカード」・クリーチャー以外の種類の指定：フィールドなども選べる
+      const inBattle = spec.element || (spec.filter?.cardType && isNonCreaturePermanent(spec.filter.cardType)) || spec.filter?.typeLabelIncludes ? battleAndFields(state, reg, o) : battleCards(state, reg, o);
+      for (const iid of zone === 'battle' ? inBattle : state.players[o].zones[zone]) {
         if (matchFilter(state, reg, iid, spec.filter, source)) out.push(iid);
       }
     }

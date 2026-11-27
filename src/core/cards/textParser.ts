@@ -619,7 +619,10 @@ function parseObject(s: string): { target: TargetSpec; noun: string; filter: Car
     ...(upTo || many ? { upTo: true } : {}),
     ...(Object.keys(filter).length ? { filter } : {}),
     ...(extraZones ? { extraZones } : {}),
+    ...((zone === 'battle' && (noun === 'カード' || noun === 'ドラグハート')) || noun === 'エレメント' ? { element: true } : {}),
   };
+  // 手札・墓地などの「エレメント」：呪文以外のカード（クリーチャー・フィールド・タマシードなど）
+  if (noun === 'エレメント' && zone !== 'battle') target.filter = { ...(target.filter ?? {}), not: { cardType: 'spell' } };
   return { target, noun, filter, explicitOwner: !!ownerWord || fromZone, verb };
 }
 
@@ -660,7 +663,7 @@ const VERBS: VerbRule[] = [
       re: r.re,
       zones: r.from,
       build: (t, m) =>
-        move(r.creatureOnly && !t.filter?.typeLabelIncludes ? { ...t, filter: { ...(t.filter ?? {}), cardType: 'creature' } } : t, r.to, r.tapped?.test(m[0]) ? { tapped: true } : {}),
+        move(r.creatureOnly && !t.filter?.typeLabelIncludes && !t.element ? { ...t, filter: { ...(t.filter ?? {}), cardType: 'creature' } } : t, r.to, r.tapped?.test(m[0]) ? { tapped: true } : {}),
     }),
   ),
 ];
@@ -1477,7 +1480,7 @@ function parseLook(count: number, next: string[]): { effect: EffectDef; used: nu
   let pickAll = false;
   let chooser: 'opponent' | undefined;
   let what: string, pc: string, dest: string, restInline: string | undefined;
-  const keepM = text.match(/^(?:その中から|そのうちの|その中の)、?(.*?)を?(\d+)(?:枚|体)(?:まで)?選ぶ$/);
+  const keepM = text.match(/^(?:その中から|そのうちの|その中の)、?(.*?)を?(\d+)(?:枚|体|つ)(?:まで)?選ぶ$/);
   const keep = !!keepM;
   // 「その中の水のカードをすべて自分の手札に加え、それ以外のカードを自分の墓地に置く」
   const all = text.match(new RegExp(`^その中(?:の|から)、?(.*?)をすべて、?${SHOW}、?(?:自分の)?${DEST}(?:、(.+))?$`));
@@ -1494,7 +1497,7 @@ function parseLook(count: number, next: string[]): { effect: EffectDef; used: nu
     [, , , dest, restInline] = any;
     pc = String(count);
   } else {
-    const m = text.match(new RegExp(`^(?:その中から|そのうちの|その中の)、?(.*?)(\\d+)(?:枚|体)(?:まで)?(?:選び|選んで|を)?、?(相手に選ばせ、?)?${SHOW}、?(?:自分の)?${DEST}(?:、(.+))?$`));
+    const m = text.match(new RegExp(`^(?:その中から|そのうちの|その中の)、?(.*?)(\\d+)(?:枚|体|つ)(?:まで)?(?:選び|選んで|を)?、?(相手に選ばせ、?)?${SHOW}、?(?:自分の)?${DEST}(?:、(.+))?$`));
     if (!m) return null;
     let opp: string | undefined;
     [, what, pc, opp, dest, restInline] = m;
@@ -1674,11 +1677,13 @@ function parseRevealIf(next: string[]): { effect: EffectDef; used: number } | nu
 /** 「水のカード」「進化クリーチャー以外のクリーチャー」など、選ぶカードの条件を読む（空なら条件なし） */
 function parsePickWhat(w: string, filter: CardFilter): boolean {
   if (!w) return true;
-  const wm = w.match(/^(.*?)(クリーチャー|呪文|カード)$/);
+  const wm = w.match(/^(.*?)(クリーチャー|呪文|カード|エレメント)$/);
   const tmp: CardFilter = {};
   if (wm && parseMods(wm[1], tmp)) {
     Object.assign(filter, tmp);
     if (wm[2] === 'クリーチャー') filter.cardType = 'creature';
+    // エレメント：呪文以外のカード（クリーチャー・フィールド・タマシードなど）
+    if (wm[2] === 'エレメント') filter.not = { cardType: 'spell' };
     if (wm[2] === '呪文') filter.cardType = 'spell';
     return true;
   }
@@ -1724,7 +1729,7 @@ function parsePer(t: string): { per: Quantity; unit: number } | null {
   if (noun === 'クリーチャー' && zone !== 'battle') filter.cardType = 'creature';
   if (noun === '呪文') filter.cardType = 'spell';
   const who: Quantity['who'] = whoWord?.includes('自分') ? 'self' : whoWord?.includes('相手') ? 'opponent' : 'any';
-  return { per: { who, zone: zone as Quantity['zone'], ...(Object.keys(filter).length ? { filter } : {}) }, unit: n(unit) };
+  return { per: { who, zone: zone as Quantity['zone'], ...(Object.keys(filter).length ? { filter } : {}), ...(zone === 'battle' && (noun === 'エレメント' || noun === 'カード') ? { withPermanents: true } : {}) }, unit: n(unit) };
 }
 
 /** 「このクリーチャーの召喚コストを、クリーチャー1体につき1少なくする。ただしコストは2以下にならない」 */
@@ -2480,7 +2485,7 @@ function splitCondition(body: string): { body: string | null; condition?: Condit
     const filter: CardFilter = {};
     // 「他の」はこのカード自身を数えない（エンジンが条件の判定に発生源を渡す）
     if (!parseSubject(m[2], filter)) return { body: null };
-    const left: Quantity = { who: who(m[1]), zone: 'battle', ...(Object.keys(filter).length ? { filter } : {}) };
+    const left: Quantity = { who: who(m[1]), zone: 'battle', ...(Object.keys(filter).length ? { filter } : {}), ...(/エレメント$/.test(m[2]) ? { withPermanents: true } : {}) };
     const cond: Condition = { type: 'compare', left, op: '>=', right: m[3] ? n(m[3]) : 1 };
     return { body: m[5], condition: m[4] === 'なければ' ? { type: 'not', condition: cond } : cond };
   }

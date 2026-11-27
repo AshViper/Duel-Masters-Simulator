@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/cards.special.test.ts（1167行）
+# src/core/cards/cards.special.test.ts（1229行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -35,3 +35,4 @@ generated: 2026-11-27
 - L1094 呪文
 - L1119 S-MAX進化
 - L1158 ハイパーモード
+- L1169 エレメント（クリーチャー以外のバトルゾーンのカードも含む）

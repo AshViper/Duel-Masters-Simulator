@@ -12,6 +12,7 @@ import { create } from 'zustand';
 import '../battle.css';
 import { dropKey, parseDropKey, resolveDrop, type DropResult, type DropTarget } from './battleDrag';
 import { ActionFx } from './battleFx';
+import { CardFlights } from './battleFlights';
 
 const CIV_ORDER = CIVILIZATIONS;
 
@@ -519,6 +520,7 @@ export function BattleScreen() {
       </aside>
       )}
       <ActionFx g={g} me={me} solo={mode === 'solo'} />
+      <CardFlights g={g} canSee={canControl} />
       {pending && (
         <DecisionPanel
           g={g}

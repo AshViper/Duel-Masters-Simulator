@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/textParser.ts（3227行）
+# src/core/cards/textParser.ts（3232行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -26,54 +26,54 @@ generated: 2026-11-27
 - L542 fn `civList`
 - L546 fn `setRaces`
 - L561 fn `parseObject`
-- L626 type `Zone`
-- L627 type `VerbRule`
-- L669 fn `parseSelfVerb`
-- L687 fn `parseTargeted`
-- L719 fn `parseGrant`
-- L733 fn `parseSubject`
-- L761 fn `refTarget`
-- L767 fn `refAnyZone`
-- L773 fn `choosesCards`
-- L779 fn `parseRefSentence`
-- L830 fn `parseSentence`
-- L1084 fn `splitClauses`
-- L1101 interface `Group`
-- L1107 fn `flattenGroups`
-- L1112 fn `hasRealEffect`
-- L1122 fn `parseBothCondition`
-- L1154 fn `parseBody`
-- L1450 fn `pushGroup`
-- L1459 fn `parseLook`
-- L1589 fn `parseLookMulti`
-- L1652 fn `parseRevealIf`
-- L1675 fn `parsePickWhat`
-- L1709 fn `parsePer`
-- L1731 fn `parseSelfCost`
-- L1742 fn `parseStatic`
-- L1976 fn `parseFromReminder`
-- L2031 fn `mergeParsed`
-- L2043 fn `parseGateTrigger`
-- L2066 fn `parseZoneGate`
-- L2089 fn `parseGrantFrame`
-- L2098 **export** fn `splitAbilityLines`
-- L2143 **export** fn `parseAbilityText`
-- L2295 fn `readByGrammar`
-- L2300 fn `mergeGrammar`
-- L2309 type `Snapshot`
-- L2310 fn `snapshot`
-- L2314 fn `restore`
-- L2327 fn `parseAwakenLink`
-- L2335 fn `splitCondition`
-- L2518 fn `parseLine`
-- L2981 fn `isUnsafe`
-- L2986 fn `selfKeywordStatic`
-- L2994 fn `parseMark`
-- L3032 fn `parseAltPlay`
-- L3061 fn `evolveFilter`
-- L3083 fn `parseEvolveSpec`
-- L3122 fn `sClassZones`
-- L3138 fn `parseSwapCondition`
-- L3160 fn `parseReplacement`
-- L3210 **export** fn `explainManual`
+- L629 type `Zone`
+- L630 type `VerbRule`
+- L672 fn `parseSelfVerb`
+- L690 fn `parseTargeted`
+- L722 fn `parseGrant`
+- L736 fn `parseSubject`
+- L764 fn `refTarget`
+- L770 fn `refAnyZone`
+- L776 fn `choosesCards`
+- L782 fn `parseRefSentence`
+- L833 fn `parseSentence`
+- L1087 fn `splitClauses`
+- L1104 interface `Group`
+- L1110 fn `flattenGroups`
+- L1115 fn `hasRealEffect`
+- L1125 fn `parseBothCondition`
+- L1157 fn `parseBody`
+- L1453 fn `pushGroup`
+- L1462 fn `parseLook`
+- L1592 fn `parseLookMulti`
+- L1655 fn `parseRevealIf`
+- L1678 fn `parsePickWhat`
+- L1714 fn `parsePer`
+- L1736 fn `parseSelfCost`
+- L1747 fn `parseStatic`
+- L1981 fn `parseFromReminder`
+- L2036 fn `mergeParsed`
+- L2048 fn `parseGateTrigger`
+- L2071 fn `parseZoneGate`
+- L2094 fn `parseGrantFrame`
+- L2103 **export** fn `splitAbilityLines`
+- L2148 **export** fn `parseAbilityText`
+- L2300 fn `readByGrammar`
+- L2305 fn `mergeGrammar`
+- L2314 type `Snapshot`
+- L2315 fn `snapshot`
+- L2319 fn `restore`
+- L2332 fn `parseAwakenLink`
+- L2340 fn `splitCondition`
+- L2523 fn `parseLine`
+- L2986 fn `isUnsafe`
+- L2991 fn `selfKeywordStatic`
+- L2999 fn `parseMark`
+- L3037 fn `parseAltPlay`
+- L3066 fn `evolveFilter`
+- L3088 fn `parseEvolveSpec`
+- L3127 fn `sClassZones`
+- L3143 fn `parseSwapCondition`
+- L3165 fn `parseReplacement`
+- L3215 **export** fn `explainManual`
 

@@ -208,7 +208,7 @@ describe('手札にある間の誘発・攻撃まわりの条件', () => {
   const big = mk('h-21', [], { cost: '9', power: '2000' });
   const climax = mk('h-22', ['クライマックス・ドロン・ゴー：自分のエグザイル・クリーチャーが破壊された時、このクリーチャーを自分の手札からバトルゾーンに出してもよい。'], { cost: '8' });
   const exile = mk('h-23', [], { race: 'エグザイル・クリーチャー' });
-  const zero = mk('h-24', ['侵略ZERO：相手のターンの終わりに、そのターン、相手のクリーチャーがコストを支払わずに出ていたら、この呪文を自分の手札からコストを支払わずに唱えてもよい。', 'カードを２枚引く。'], { type: '呪文', power: '' });
+  const zero = mk('h-24', ['侵略ZERO：相手のターンの終わりに、そのターン、相手のクリーチャーがコストを支払わずに出ていたら、この呪文を自分の手札からコストを支払わずに唱えてもよい。', 'カードを２枚引く。'], { type: '呪文', power: '', cost: '0' });
   const untapAfter = mk('h-25', ['各ターン、このクリーチャーがはじめて攻撃する時、その攻撃の後、このクリーチャーをアンタップする。']);
   const firstAtk = mk('h-26', ['自分のクリーチャーが攻撃する時、それがこのターン最初の攻撃なら、カードを１枚引く。']);
   const r2 = buildRegistry([...SAMPLE_CARDS, ...Object.values(C), revenge, big, climax, exile, zero, untapAfter, firstAtk]);
@@ -1163,4 +1163,66 @@ describe('ハイパーモード', () => {
     expect(C.vamiria.hyperForm?.abilities?.[0]).toMatchObject({ when: 'onDraw', who: 'opponent', minDrawCount: 2 });
   });
 });
+});
+
+// ════════════════════════ エレメント ════════════════════════
+describe('エレメント（クリーチャー以外のバトルゾーンのカードも含む）', () => {
+  const base = { packName: '(T 1/1)', imageUrl: '', rarity: 'C', mana: '1', illustrator: '', flavor: '' };
+  const mk = (id: string, abilities: string[], o: { type?: string; power?: string; cost?: string } = {}) =>
+    convertOfficialCard({ id, detailUrl: '', faces: [{ ...base, name: id, race: 'テスト', civilization: '火', type: o.type ?? 'クリーチャー', power: o.power ?? '3000', cost: o.cost ?? '2', abilities }] });
+  const C = {
+    seed: mk('e-seed', [], { type: 'タマシード', power: '' }),
+    beast: mk('e-beast', [], { power: '2000' }),
+    kill: mk('e-kill', ['相手のエレメントを1つ選び、破壊する。'], { type: '呪文', power: '', cost: '0' }),
+    count: mk('e-count', ['自分のエレメント1つにつき、カードを1枚引く。'], { type: '呪文', power: '', cost: '0' }),
+    raise: mk('e-raise', ['自分の手札からコスト5以下のエレメントを1つ選び、バトルゾーンに出す。'], { type: '呪文', power: '', cost: '0' }),
+  };
+  const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
+  const filler = Array.from({ length: 40 }, () => 'S01-043');
+  const newGame = () => createGame({ players: [{ name: 'A', deck: filler }, { name: 'B', deck: filler }], seed: 5, firstPlayer: 0 }, reg);
+  function put(s: GameState, player: PlayerId, cardId: string, zone: ZoneName): string {
+    const iid = `e${s.nextIid++}`;
+    s.cards[iid] = { iid, cardId, owner: player, zone: 'deck', tapped: false, enteredTurn: 0, powerModTurn: 0, under: [], faceUp: false };
+    s.players[player].zones.deck.unshift(iid);
+    new Ctx(s, reg).moveCard(iid, zone);
+    return iid;
+  }
+  const act = (s: GameState, a: Action) => {
+    const r = applyAction(s, a, reg);
+    if (r.error) throw new Error(r.error);
+    return r.state;
+  };
+
+  it('「相手のエレメントを1つ選び」はタマシードも選べる', () => {
+    let s = newGame();
+    const seed = put(s, 1, C.seed.id, 'battle');
+    const beast = put(s, 1, C.beast.id, 'battle');
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: put(s, 0, C.kill.id, 'hand') });
+    expect(s.pending).toMatchObject({ kind: 'selectCards' });
+    expect((s.pending as { candidates: string[] }).candidates.sort()).toEqual([seed, beast].sort());
+    s = act(s, { type: 'RESPOND', player: 0, selected: [seed] });
+    expect(s.cards[seed].zone).toBe('graveyard');
+  });
+
+  it('「自分のエレメント1つにつき」はタマシードも数える', () => {
+    let s = newGame();
+    put(s, 0, C.seed.id, 'battle');
+    put(s, 0, C.beast.id, 'battle');
+    const deck = s.players[0].zones.deck.length;
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: put(s, 0, C.count.id, 'hand') });
+    expect(deck - s.players[0].zones.deck.length).toBe(2);
+  });
+
+  it('手札のエレメントを出す効果で、タマシードを出せる（呪文は選べない）', () => {
+    let s = newGame();
+    const seed = put(s, 0, C.seed.id, 'hand');
+    const kill = put(s, 0, C.kill.id, 'hand');
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: put(s, 0, C.raise.id, 'hand') });
+    if (s.pending?.kind === 'selectCards') {
+      expect(s.pending.candidates).toContain(seed);
+      expect(s.pending.candidates).not.toContain(kill);
+      s = act(s, { type: 'RESPOND', player: 0, selected: [seed] });
+    }
+    expect(s.cards[seed].zone).toBe('battle');
+  });
 });

@@ -264,7 +264,7 @@ describe('能力テキストの読み取り（公式の書式・キーワード�
       keywords: { speedAttacker: true, slayer: true },
     });
     expect(spell('相手は自身のエレメントを1つ選び、破壊する。').abilities[0].effects).toEqual([
-      { type: 'destroy', target: { owner: 'opponent', zone: 'battle', count: 1, chooser: 'owner' } },
+      { type: 'destroy', target: { owner: 'opponent', zone: 'battle', count: 1, element: true, chooser: 'owner' } },
     ]);
     expect(spell('相手は自身の手札をすべて捨てる。').abilities[0].effects).toEqual([{ type: 'move', to: 'graveyard', target: { owner: 'opponent', zone: 'hand', count: 'all' } }]);
     expect(creature('このクリーチャーが出た時、自分の山札の上から4枚までマナゾーンに置く。').abilities[0].effects).toEqual([{ type: 'deckTopTo', count: 4, to: 'mana' }]);
