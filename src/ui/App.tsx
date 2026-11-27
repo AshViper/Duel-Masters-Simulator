@@ -8,7 +8,7 @@ import { LibraryScreen } from './screens/Library';
 import { OfficialSearchScreen } from './screens/OfficialSearch';
 import { OnlineScreen } from './screens/Online';
 import { DeckListScreen, HistoryScreen, HomeScreen, SettingsScreen } from './screens/Menus';
-import { useBridgeConnected } from './officialBridge';
+import { useBridgeConnected, useBridgeKind } from './officialBridge';
 import { BridgeImport } from './components/BridgeImport';
 import { AppShell } from './components/AppShell';
 
@@ -39,10 +39,12 @@ function CurrentScreen() {
     void init().then(() => repairBackImages());
   }, [init]);
   // ブックマークレットで公式サイトから開かれたら、ホームから公式カード検索へ進む
+  // （ユーザースクリプトは開くたびに自動でつながるので、その時は進まない）
   const bridged = useBridgeConnected();
+  const bridgeKind = useBridgeKind();
   useEffect(() => {
-    if (bridged && ready && useApp.getState().screen === 'home') go('official');
-  }, [bridged, ready, go]);
+    if (bridgeKind === 'tab' && ready && useApp.getState().screen === 'home') go('official');
+  }, [bridgeKind, ready, go]);
   // 公開版では中継（ブックマークレット）がつながってから公式へアクセスできるので、つながった時にも取り直す
   useEffect(() => {
     if (bridged && ready) void repairBackImages();

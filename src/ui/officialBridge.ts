@@ -8,6 +8,11 @@
 //   4. 添えられたカードは、アプリが自動で保存する（BridgeImport.tsx）
 // 解析・キャッシュ・間隔制御はアプリ側（dmOfficial.ts）で行う。どちらもメッセージの送り主のオリジンを確かめる。
 // ブックマークレットは公式の /card/ と /wp-content/card/ 以外は取得しない。
+//
+// もう一つの経路：ユーザースクリプト（public/dm-bridge.user.js、Tampermonkey など）を入れていれば、
+// アプリを開くだけで自動でつながる（公式のタブは要らない）。同じページの中で window.postMessage でやりとりする。
+//   アプリ → dm-us-ping / dm-us-fetch、スクリプト → dm-us-hello / dm-us-result
+// 公式サイトのページでスクリプトが出す「DMシミュへ保存」ボタンは、アプリを #dm-import=<nonce>:<id,id,...> で開く。
 
 import { useSyncExternalStore } from 'react';
 import { DM_ORIGIN, setOfficialFetcher, type OfficialFetcher } from '../server/dmOfficial';
@@ -16,13 +21,31 @@ const WINDOW_NAME = 'dm-card-simulator';
 const TIMEOUT_MS = 20000;
 
 let bridge: Window | null = null;
+/** ユーザースクリプトが入っているか（入っていればアプリを開くだけでつながる） */
+let userscript = false;
 let seq = 0;
 const pending = new Map<number, { resolve: (v: { status: number; bytes: ArrayBuffer; contentType: string }) => void; reject: (e: Error) => void }>();
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((l) => l());
 
 export function isBridgeConnected(): boolean {
-  return !!bridge && !bridge.closed;
+  return userscript || (!!bridge && !bridge.closed);
+}
+
+/** どの経路でつながっているか */
+export type BridgeKind = 'userscript' | 'tab' | null;
+function bridgeKind(): BridgeKind {
+  if (userscript) return 'userscript';
+  return bridge && !bridge.closed ? 'tab' : null;
+}
+export function useBridgeKind(): BridgeKind {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    bridgeKind,
+  );
 }
 
 /** ブリッジの接続状態を React で使う */
@@ -38,7 +61,7 @@ export function useBridgeConnected(): boolean {
 
 const bridgeFetcher: OfficialFetcher = (url, init) =>
   new Promise((resolve, reject) => {
-    if (!bridge || bridge.closed) {
+    if (!userscript && (!bridge || bridge.closed)) {
       bridge = null;
       notify();
       return reject(new Error('公式サイトのタブとの接続が切れました。公式カード検索のページでブックマークレットをもう一度押してください。'));
@@ -55,7 +78,9 @@ const bridgeFetcher: OfficialFetcher = (url, init) =>
     // User-Agent / Referer はブラウザでは指定できないので送らない
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries(init.headers ?? {})) if (/^(content-type|x-requested-with)$/i.test(k)) headers[k] = v;
-    bridge.postMessage({ type: 'dm-fetch', id, url, method: init.method ?? 'GET', body: init.body, headers }, DM_ORIGIN);
+    const msg = { id, url, method: init.method ?? 'GET', body: init.body, headers };
+    if (userscript) return window.postMessage({ type: 'dm-us-fetch', ...msg }, location.origin);
+    bridge!.postMessage({ type: 'dm-fetch', ...msg }, DM_ORIGIN);
   });
 
 /** ブックマークレットを押したページに出ていたカード（自動で保存する） */
@@ -94,9 +119,27 @@ export function clearBridgeImportRequest(): void {
   notify();
 }
 
+type BridgeMessage = { type?: string; id?: number; status?: number; contentType?: string; bytes?: ArrayBuffer; error?: string; req?: unknown } | null;
+
+function settle(m: NonNullable<BridgeMessage>) {
+  const p = pending.get(m.id!);
+  if (!p) return;
+  pending.delete(m.id!);
+  if (m.error) p.reject(new Error(`公式サイトから取得できませんでした: ${m.error}`));
+  else p.resolve({ status: m.status ?? 0, bytes: m.bytes ?? new ArrayBuffer(0), contentType: m.contentType ?? '' });
+}
+
 function onMessage(e: MessageEvent) {
+  const m = e.data as BridgeMessage;
+  // ユーザースクリプト（同じページ）から
+  if (e.origin === location.origin) {
+    if (m?.type === 'dm-us-hello' && !userscript) {
+      userscript = true;
+      notify();
+    } else if (m?.type === 'dm-us-result' && typeof m.id === 'number') settle(m);
+    return;
+  }
   if (e.origin !== DM_ORIGIN || !e.source) return;
-  const m = e.data as { type?: string; id?: number; status?: number; contentType?: string; bytes?: ArrayBuffer; error?: string; req?: unknown } | null;
   if (m?.type === 'dm-bridge-hello') {
     bridge = e.source as Window;
     bridge.postMessage({ type: 'dm-bridge-ack' }, DM_ORIGIN);
@@ -105,12 +148,18 @@ function onMessage(e: MessageEvent) {
     notify();
     return;
   }
-  if (m?.type === 'dm-fetch-result' && typeof m.id === 'number') {
-    const p = pending.get(m.id);
-    if (!p) return;
-    pending.delete(m.id);
-    if (m.error) p.reject(new Error(`公式サイトから取得できませんでした: ${m.error}`));
-    else p.resolve({ status: m.status ?? 0, bytes: m.bytes ?? new ArrayBuffer(0), contentType: m.contentType ?? '' });
+  if (m?.type === 'dm-fetch-result' && typeof m.id === 'number') settle(m);
+}
+
+/** スクリプトの「DMシミュへ保存」ボタンから #dm-import=<nonce>:<id,id,...> で開かれた時 */
+function readImportHash() {
+  const hit = /^#dm-import=([^:]+):(.+)$/.exec(location.hash);
+  if (!hit) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  const req = takeNewRequest({ nonce: decodeURIComponent(hit[1]), ids: decodeURIComponent(hit[2]).split(',') });
+  if (req) {
+    importRequest = req;
+    notify();
   }
 }
 
@@ -121,6 +170,10 @@ export function initOfficialBridge(): void {
   started = true;
   setOfficialFetcher(bridgeFetcher);
   window.addEventListener('message', onMessage);
+  // ユーザースクリプトは先に hello を送っていることがあるので、こちらからも呼ぶ
+  window.postMessage({ type: 'dm-us-ping' }, location.origin);
+  readImportHash();
+  window.addEventListener('hashchange', readImportHash);
   // 再読み込みした時も、開いたタブ（window.opener）がブリッジならつなぎ直す
   try {
     window.opener?.postMessage({ type: 'dm-bridge-ping' }, DM_ORIGIN);

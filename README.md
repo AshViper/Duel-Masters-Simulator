@@ -19,7 +19,20 @@ npm run test:e2e   # UIテスト（Playwright。初回は npx playwright install
 
 Pages 版はサーバーを使わずに、すべての機能（公式カード検索を含む）が動きます。
 
+#### GitHub Pages で公式カード検索を使う（ユーザースクリプトで自動接続・おすすめ）
+
+ブラウザごとに最初の1回だけ準備すれば、以後は **Pages 版を開くだけで公式サイトにつながります**（公式サイトのタブも要りません）。複数のブラウザで使う時はこちらが楽です。
+
+1. ブラウザに拡張機能「Tampermonkey」か「Violentmonkey」を入れる（Chrome・Edge では拡張機能の詳細で「ユーザー スクリプトを許可」をオンにする）。
+2. Pages 版の「公式カード検索」画面の「ユーザースクリプトを入れる」（https://ashviper.github.io/Duel-Masters-Simulator/dm-bridge.user.js ）を開き、インストールする。
+3. Pages 版を再読み込みすると「公式サイトとつながっています（ユーザースクリプトで自動接続）」と出ます。
+4. 公式カード検索のページの右下に「DMシミュへ保存」ボタンが出ます。押すとそのページのカード（最大100枚）が Pages 版に保存されます。
+
+- スクリプトは公式の `/card/` と `/wp-content/card/` 以外は取得せず、Cookie も送りません（本体は `public/dm-bridge.user.js`、アプリ側は `src/ui/officialBridge.ts`）。
+
 #### GitHub Pages で公式カード検索を使う（ブックマークレット）
+
+拡張機能を入れたくない時の方法です。
 
 公式サイトはほかのサイトからの読み取り（CORS）を許可していないため、Pages 版のアプリからは直接取得できません。そこで、**あなたが開いた公式カード検索のタブに取得を代わりにしてもらいます**（サーバーや第三者のサービスは使いません。仕組みは `src/ui/officialBridge.ts`）。
 

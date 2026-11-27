@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../../store/appStore';
 import { saveOfficialCards } from '../../store/officialCards';
-import { clearBridgeImportRequest, useBridgeImportRequest } from '../officialBridge';
+import { clearBridgeImportRequest, useBridgeConnected, useBridgeImportRequest } from '../officialBridge';
 
-// ブックマークレットを押したページ（公式の検索結果・カード詳細）に出ていたカードを、自動で保存する。
+// ブックマークレット（またはユーザースクリプトの「DMシミュへ保存」）を押したページ（公式の検索結果・カード詳細）に出ていたカードを、自動で保存する。
 // 進み具合と結果を画面上部に出す。保存済みのカードは公式へ取りに行かない。
 
 type Status = { phase: 'saving'; done: number; total: number } | { phase: 'done'; saved: number; skipped: number; errors: string[] };
@@ -11,18 +11,19 @@ type Status = { phase: 'saving'; done: number; total: number } | { phase: 'done'
 export function BridgeImport() {
   const request = useBridgeImportRequest();
   const ready = useApp((s) => s.ready);
+  const connected = useBridgeConnected();
   const go = useApp((s) => s.go);
   const [status, setStatus] = useState<Status | null>(null);
 
   useEffect(() => {
-    if (!request || !ready) return;
+    if (!request || !ready || !connected) return;
     clearBridgeImportRequest();
     const ids = request.ids;
     setStatus({ phase: 'saving', done: 0, total: ids.length });
     void saveOfficialCards(ids, (done, total) => setStatus({ phase: 'saving', done, total })).then((r) =>
       setStatus({ phase: 'done', saved: r.saved, skipped: r.skipped, errors: r.errors }),
     );
-  }, [request, ready]);
+  }, [request, ready, connected]);
 
   if (!status) return null;
   if (status.phase === 'saving') {
