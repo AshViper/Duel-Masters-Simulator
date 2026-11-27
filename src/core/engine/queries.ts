@@ -475,6 +475,8 @@ function mergeKeywords(base: Keywords, add: Keywords | undefined): Keywords {
   for (const [k, v] of Object.entries(add) as [keyof Keywords, Keywords[keyof Keywords]][]) {
     if (k === 'breaker') out.breaker = Math.max(out.breaker ?? 1, v as number);
     else if (k === 'powerAttacker') out.powerAttacker = (out.powerAttacker ?? 0) + (v as number);
+    // 「シールドをブレイクできない」（0）や「1枚しかブレイクできない」は値0でも有効。きびしい方を使う
+    else if (k === 'maxBreakPerAttack' && typeof v === 'number') out.maxBreakPerAttack = Math.min(out.maxBreakPerAttack ?? Infinity, v);
     else if (v) (out as Record<string, unknown>)[k] = v;
   }
   return out;
@@ -1187,6 +1189,14 @@ export function choosePayment(state: GameState, reg: CardRegistry, player: Playe
   const face = playFace(def(state, reg, iid), side);
   const cost = effectiveCost(state, reg, player, iid, side, sacrifice, neo);
   return payMana(state, reg, player, cost, face.civilizations, preferred);
+}
+
+/** 支払いに使えるアンタップのカード（マナゾーンと《極楽鳥》のようなクリーチャー）と、それぞれの文明。表示用 */
+export function untappedPaySources(state: GameState, reg: CardRegistry, player: PlayerId): { iid: string; civs: Civilization[] }[] {
+  const birds = battleCards(state, reg, player).filter((b) => !state.cards[b].tapped && keywords(state, reg, b).tapAsMana);
+  const untapped = [...state.players[player].zones.mana.filter((m) => !state.cards[m].tapped), ...birds];
+  const allCivs = manaHasAllCivs(state, reg, player);
+  return untapped.map((iid) => ({ iid, civs: payCivs(state, reg, iid, allCivs) }));
 }
 
 /** コストと必要な文明から、支払うマナを決める（払えなければ null） */

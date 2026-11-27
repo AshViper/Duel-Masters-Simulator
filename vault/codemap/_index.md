@@ -48,7 +48,7 @@ generated: 2026-11-27
 | `src/core/cards/cards.sd1b4.test.ts` | 513 | SD1その4の読み取り / SD1その4の動作 | [[codemap/src-core-cards-cards.sd1b4.test\|地図]] |
 | `src/core/cards/cards.sd1b5.test.ts` | 456 | SD1その5の読み取り / SD1その5の動作 | [[codemap/src-core-cards-cards.sd1b5.test\|地図]] |
 | `src/core/cards/cards.sd1b6.test.ts` | 482 | SD1その6の読み取り / SD1その6の動作 | [[codemap/src-core-cards-cards.sd1b6.test\|地図]] |
-| `src/core/cards/cards.sd1b7.test.ts` | 570 | SD1その7の読み取り / SD1その7の動作 | [[codemap/src-core-cards-cards.sd1b7.test\|地図]] |
+| `src/core/cards/cards.sd1b7.test.ts` | 591 | SD1その7の読み取り / SD1その7の動作 | [[codemap/src-core-cards-cards.sd1b7.test\|地図]] |
 | `src/core/cards/cards.special.test.ts` | 1229 | hyperspatial / 読み取り / 覚醒・解除 / ドラグハート | [[codemap/src-core-cards-cards.special.test\|地図]] |
 | `src/core/cards/effects.ts` | 52 | 移動先ごとの情報。新しい移動先を足す時はここと MoveDest に1行足すだけで、 |  |
 | `src/core/cards/grammar.ts` | 1478 | 能力テキストの構文解析：字句解析（lexer.ts）で分けた語の並びを、誘発・条件・目的語・動詞の部品として読み、効果定義を組み立てる。 | [[codemap/src-core-cards-grammar\|地図]] |
@@ -69,7 +69,7 @@ generated: 2026-11-27
 | `src/core/engine/engine.ts` | 4998 | ゲームエンジン本体。applyAction(state, action) で新しい状態を返す純粋な入口を持ち、 | [[codemap/src-core-engine-engine\|地図]] |
 | `src/core/engine/legal.ts` | 62 | 入力待ちでない時にターンプレイヤーが取れる合法アクションの一覧。 |  |
 | `src/core/engine/order.test.ts` | 148 | 効果の処理順 / 置換効果が2つ以上ある時 |  |
-| `src/core/engine/queries.ts` | 1347 | ゲーム状態を読むだけの関数群（状態を変更しない）。UI・AI・エンジンで共用する。 | [[codemap/src-core-engine-queries\|地図]] |
+| `src/core/engine/queries.ts` | 1357 | ゲーム状態を読むだけの関数群（状態を変更しない）。UI・AI・エンジンで共用する。 | [[codemap/src-core-engine-queries\|地図]] |
 | `src/core/engine/rng.ts` | 10 | 決定的な乱数（mulberry32）。状態を GameState に保存するので保存・復元・リプレイで再現できる。 |  |
 | `src/core/engine/setup.ts` | 111 | PlayerSetup, NewGameOptions, createGame |  |
 | `src/core/engine/timing.test.ts` | 191 | 総合ルールの処理順 / 手動操作 |  |
@@ -111,7 +111,7 @@ generated: 2026-11-27
 | `src/ui/officialApi.ts` | 45 | 公式カード検索の中継（/dm-api/*）を呼ぶ小さなヘルパー |  |
 | `src/ui/officialBridge.ts` | 259 | 中継サーバーのない環境（GitHub Pages 版）で公式カード検索を使うための「ブリッジ」。 | [[codemap/src-ui-officialBridge\|地図]] |
 | `src/ui/proxyPrint.ts` | 204 | デッキからプロキシ印刷用の A4 PDF を作る。 |  |
-| `src/ui/screens/Battle.tsx` | 1135 | BattleScreen | [[codemap/src-ui-screens-Battle\|地図]] |
+| `src/ui/screens/Battle.tsx` | 1138 | BattleScreen | [[codemap/src-ui-screens-Battle\|地図]] |
 | `src/ui/screens/BattleSetup.tsx` | 103 | BattleSetupScreen |  |
 | `src/ui/screens/DeckBuilder.tsx` | 392 | DeckBuilderScreen | [[codemap/src-ui-screens-DeckBuilder\|地図]] |
 | `src/ui/screens/Home.tsx` | 304 | HomeScreen, DeckListScreen | [[codemap/src-ui-screens-Home\|地図]] |

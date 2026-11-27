@@ -4,7 +4,7 @@
 // 極楽鳥・清浄のカルマ インカ・冒険妖精ポレキチ・星空に浮かぶニンギョ・晴舞龍 ズンドコ・モモキング・進化設計図
 import { describe, expect, it } from 'vitest';
 import { applyAction, Ctx } from '../engine/engine';
-import { attackTargets, blockersFor, canAttackWith, canPlay, effectiveCost, keywords, matchFilter, power } from '../engine/queries';
+import { attackTargets, blockersFor, breakerCount, canAttackWith, canPlay, effectiveCost, keywords, matchFilter, power, untappedPaySources } from '../engine/queries';
 import { createGame } from '../engine/setup';
 import type { Action, GameState, PlayerId } from '../engine/types';
 import { SAMPLE_CARDS } from '../testing/fixtureCards';
@@ -502,6 +502,27 @@ describe('SD1その7の動作', () => {
     const shields = s.players[1].zones.shield.length;
     s = attack(s, 0, bird, { kind: 'player' }, false);
     expect(s.players[1].zones.shield.length).toBe(shields);
+  });
+
+  it('表示用の支払い元：極楽鳥はすべての文明、カサブランカがいればマナはすべての文明', () => {
+    const s = newGame();
+    clearZone(s, 0, 'mana');
+    mana(s, 0, C.small.id, 1);
+    const bird = put(s, 0, C.bird.id, 'battle');
+    const src = untappedPaySources(s, reg, 0);
+    expect(src.map((x) => x.iid)).toContain(bird);
+    expect(src.find((x) => x.iid === bird)!.civs).toHaveLength(5);
+    expect(src.find((x) => x.iid !== bird)!.civs).toEqual(['fire']);
+    put(s, 0, C.casa.id, 'battle');
+    expect(untappedPaySources(s, reg, 0).every((x) => x.civs.length === 5)).toBe(true);
+  });
+
+  it('付与された「シールドをブレイクできない」（0）も有効で、きびしい方が使われる', () => {
+    const s = newGame();
+    const c = put(s, 0, C.big.id, 'battle');
+    s.cards[c].keywordsTurn = { breaker: 2, maxBreakPerAttack: 0 };
+    expect(keywords(s, reg, c).maxBreakPerAttack).toBe(0);
+    expect(breakerCount(s, reg, c)).toBe(0);
   });
 
   it('清浄のカルマ インカ（呪文側）：選んだプレイヤーの墓地を山札に加えてシャッフル', () => {

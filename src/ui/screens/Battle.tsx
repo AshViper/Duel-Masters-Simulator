@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement, type CSSProperties } from 'react';
-import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isCreatureType, isNonCreaturePermanent, manaCivilizations, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
+import { CARD_TYPE_LABEL, CIV_LABEL, CIVILIZATIONS, isCreatureType, isNonCreaturePermanent, ZONE_LABEL, type CardDefinition, type ZoneName } from '../../core/cards/types';
 import { getLegalActions } from '../../core/engine/legal';
-import { activeStatics, altCost, battleCards, canCross, crossCost,canTapAbility, isCrossGear, isGrCard, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canSummonFromZone, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount } from '../../core/engine/queries';
+import { activeStatics, altCost, battleCards, canCross, crossCost,canTapAbility, isCrossGear, isGrCard, evolveSourceCandidates, multiEvolveSpec, validEvolveSources, attackTargets, canAttackWith, canPlay, canSummonFromZone, canPlayAlt, choosePayment, fushigiCandidates, effectiveCost, evolutionBases, hyperizeCandidates, isIdle, isIgnored, keywords as cardKeywords, minimalSacrifice, sasageruCandidates, usesHyperEnergy, sealForQueries, def as cardDef, power, untappedManaCount, untappedPaySources } from '../../core/engine/queries';
 import { other, PHASE_LABEL, type Action, type GameState, type PlayerId } from '../../core/engine/types';
 import { useApp } from '../../store/appStore';
 import { isCpuTurnPlayer, useBattle } from '../../store/battleStore';
@@ -337,7 +337,10 @@ export function BattleScreen() {
     const handHidden = !canControl(p);
     const targetable = canAttackPlayer && !!attacker && g.cards[attacker].owner !== p;
     const untapped = untappedManaCount(g, p);
-    const manaCivs = CIV_ORDER.map((c) => ({ c, n: P.zones.mana.filter((m) => !g.cards[m].tapped && manaCivilizations(def(m)).includes(c)).length })).filter((x) => x.n > 0);
+    // 《カサブランカ》（マナはすべての文明）や《極楽鳥》（マナとしてタップできる）も含めて、支払いに使える文明を数える
+    const paySources = untappedPaySources(g, registry, p);
+    const extraPay = paySources.length - untapped;
+    const manaCivs = CIV_ORDER.map((c) => ({ c, n: paySources.filter((x) => x.civs.includes(c)).length })).filter((x) => x.n > 0);
     const graveTop = P.zones.graveyard[P.zones.graveyard.length - 1];
     const hyperTop = P.zones.hyperspatial[P.zones.hyperspatial.length - 1];
     // 超次元ゾーンを使うプレイヤー（サイキック・クリーチャーを持っている）だけ置き場を出す。空になっても消さない
@@ -385,7 +388,7 @@ export function BattleScreen() {
     const mana = (
       <div className="zone mana" {...dropProps(p, 'mana')} data-testid={`mana-${p}`}>
         <span className="zone-label">
-          マナ <b>{untapped}</b>/{P.zones.mana.length}
+          マナ <b>{untapped}</b>/{P.zones.mana.length}{extraPay > 0 && <span title="マナとしてタップできるクリーチャー">＋{extraPay}</span>}
           <span className="mana-civs">
             {manaCivs.map(({ c, n }) => (
               <i key={c} style={{ background: CIV_COLOR[c] }} title={`${CIV_LABEL[c]} ${n}`}>{n}</i>
