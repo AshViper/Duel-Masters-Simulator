@@ -1,4 +1,4 @@
-import { convertOfficialCard, officialCardId, OFFICIAL_PREFIX } from '../core/cards/officialConvert';
+import { convertOfficialCard, officialCardId, OFFICIAL_PREFIX, splitTwinName } from '../core/cards/officialConvert';
 import type { OfficialCardDetail } from '../server/dmOfficial';
 import { db } from '../db/db';
 import { deleteImages, hasImage, saveImage, setMissingImageHandler } from '../db/imageCache';
@@ -45,6 +45,8 @@ export async function saveOfficialCard(id: string): Promise<'saved' | 'skipped'>
 
 /** 古い版で保存した禁断の鼓動・サイキック・クリーチャー（裏側のパワーが分からない）。公式から保存し直す必要がある */
 function isStaleOfficial(card: CardDefinition): boolean {
+  // 空白なしの「A/B」の名前を分けられなかった版で保存したツインパクト：呪文側がハイパーモードと取り違えられて消えている
+  if (!card.twin && card.hyperText && card.type !== 'spell' && splitTwinName(card.name)) return true;
   return (!!card.forbidden && card.forbidden.creature.power === undefined) || (!!card.psychic && card.psychic.back.power === undefined) || (!!card.twin && /サイキック/.test(card.typeLabel ?? ''));
 }
 

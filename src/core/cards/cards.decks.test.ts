@@ -232,6 +232,16 @@ describe('読み取り', () => {
     const old = applyParsedEffects({ ...C.twin, name: TWIN, twin: { ...C.twin.twin!, name: TWIN }, hyperText: undefined });
     expect([old.name, old.twin?.name, old.hyperText]).toEqual(['ボルメテウス・イエロー', 'ボルメテウス・スパーク', undefined]);
   });
+  it('空白なしの「A/B」の名前のツインパクトも分ける（呪文側をハイパーモードと取り違えて消さない）', () => {
+    const N = '龍聖霊ウルフェウス/ヘブンの衝撃';
+    const c = mk(
+      's-twin2',
+      { name: N, type: 'クリーチャー', race: 'エンジェル・コマンド', civilization: '光', cost: '9', power: '12000', abilities: ['W・ブレイカー'] },
+      { name: N, type: '呪文', civilization: '光', cost: '5', abilities: ['S・トリガー', '相手の進化ではないクリーチャーを１体選び、裏向きにして持ち主のシールドゾーンに新しいシールドとして置く。'] },
+    );
+    expect([c.name, c.twin?.name, c.twin?.cost, c.hyperText, c.support]).toEqual(['龍聖霊ウルフェウス', 'ヘブンの衝撃', 5, undefined, 'full']);
+    expect(c.twin?.abilities?.[0].effects[0]).toMatchObject({ type: 'move', to: 'shield', target: { owner: 'opponent', count: 1, filter: { nonEvolution: true } } });
+  });
   it('ウルトラ・セイバー', () => {
     expect(C.ultra.replacements).toEqual([{ event: 'leaveBattle', subject: 'otherOwn', filter: { nameIncludes: 'ボルメテウス' }, instead: 'destroySelf', optional: true }]);
   });

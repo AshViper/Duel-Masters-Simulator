@@ -145,8 +145,9 @@ export function convertOfficialCard(d: OfficialCardDetail): CardDefinition {
 }
 
 /** 「クリーチャー名 / 呪文名」を2つに分ける。区切りがなければ null */
-function splitTwinName(name: string): [string, string] | null {
-  const parts = name.split(/\s+[/／]\s+/);
+/** ツインパクトの「クリーチャー名 / 呪文名」を分ける。公式は空白なしの「A/B」で返すこともある */
+export function splitTwinName(name: string): [string, string] | null {
+  const parts = name.split(/\s*[/／]\s*/);
   return parts.length === 2 && parts[0] && parts[1] ? [parts[0], parts[1]] : null;
 }
 
