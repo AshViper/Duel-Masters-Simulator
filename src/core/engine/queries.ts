@@ -1078,7 +1078,10 @@ function assignCivs(civs: Civilization[], mana: string[], mciv: (m: string) => C
 
 /** 別のコストで使う時に支払うコスト。sacrifice[0] はフシギバースでマナゾーンに置くクリーチャー */
 export function altCost(state: GameState, reg: CardRegistry, player: PlayerId, iid: string, alt: AltPlay, sacrifice: string[] = []): number {
-  if (alt.cost === undefined) return Math.max(1, effectiveCost(state, reg, player, iid, 'main') - (alt.reduce ?? 0));
+  if (alt.cost === undefined) {
+    const k = alt.reducePer ? Math.floor(countQuantity(state, reg, player, alt.reducePer.per, true, iid) / alt.reducePer.unit) : 1;
+    return Math.max(alt.min ?? 1, effectiveCost(state, reg, player, iid, 'main') - (alt.reduce ?? 0) * k);
+  }
   if (alt.fushigi) {
     const sac = sacrifice[0];
     return Math.max(alt.fushigi.min, alt.cost - (sac && state.cards[sac] ? def(state, reg, sac).cost : 0));

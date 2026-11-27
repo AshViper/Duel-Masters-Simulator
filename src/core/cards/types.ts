@@ -924,6 +924,10 @@ export interface AltPlay {
   civilizations?: Civilization[];
   /** 元のコストから少なくする数（B・A・D、J・O・E） */
   reduce?: number;
+  /** reduce を「〜unit体につき」で掛ける（無月の影罪：自分の墓地にあるマフィ・ギャング1体につき1少なく） */
+  reducePer?: { per: Quantity; unit: number };
+  /** 少なくした後のコストの下限（省略時は1） */
+  min?: number;
   /** 使う時にカードがあるゾーン（省略時は手札） */
   from?: 'graveyard';
   /** 使える条件（「自分の墓地にカードが6枚以上あれば」） */

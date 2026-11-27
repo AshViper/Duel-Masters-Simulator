@@ -98,6 +98,9 @@ const C = {
   twice: spell('m-77', ['次の中から２回選ぶ。同じものを選んでもよい。\n▶カードを２枚引き、自分の手札を１枚捨てる。\n▶「S・トリガー」を持つカードを１枚、自分の墓地からコストを支払わずに実行する。こうして呪文を唱えたなら、それを唱えた後、墓地のかわりに山札の下に置く。\n▶クリーチャーを１体選び、シールド化する。']),
   handMana: mk('m-78', ['このクリーチャーがバトルゾーンに出た時、自分の手札をすべてマナゾーンに置く。その後、それと同じ枚数のカードを自分のマナゾーンから手札に戻す。']),
   discard: spell('m-79', ['自分の手札を１枚捨てる。']),
+  kage: mk('m-95', ['罪・無月の影罪（自分の墓地にあるマフィ・ギャング１体につき、このクリーチャーの召喚コストを１少なくしてもよい。そうしたら、このターンの終わりに、自分のクリーチャーを１体破壊する。このクリーチャーのコストは０以下にはならない）'], { cost: '6', race: 'マフィ・ギャング' }),
+  mafia: mk('m-96', [], { race: 'マフィ・ギャング' }),
+  darkEvo: mk('m-97', ['進化：闇のクリーチャー'], { type: '進化クリーチャー', power: '6000' }),
   plus: mk('m-15', ['{STP} S・トリガー・プラス（このクリーチャーを自分のシールドゾーンから手札に加える時、コストを支払わずにすぐ召喚してもよい）', '{x+}このクリーチャーが出た時、相手のクリーチャーをすべてタップする。']),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
@@ -394,6 +397,45 @@ describe('別のコストでの使い方', () => {
     s2 = act(s2, { type: 'PLAY_CARD', player: 0, iid: b2 });
     s2 = endTurn(s2);
     expect(s2.cards[b2].zone).toBe('battle');
+  });
+
+  it('無月の影罪：墓地のマフィ・ギャングの数だけ少なくし（1より少なくならない）、使った時だけターンの終わりに自分のクリーチャーを1体破壊する', () => {
+    let s = newGame();
+    const k = put(s, 0, C.kage.id, 'hand');
+    const ap = C.kage.altPlays![0];
+    // 墓地にマフィ・ギャングがなければ使えない
+    expect(canPlayAlt(s, reg, 0, k, 0)).toBe(false);
+    put(s, 0, C.mafia.id, 'graveyard');
+    put(s, 0, C.vanilla.id, 'graveyard');
+    put(s, 0, C.mafia.id, 'graveyard');
+    expect(altCost(s, reg, 0, k, ap)).toBe(4);
+    for (let i = 0; i < 6; i++) put(s, 0, C.mafia.id, 'graveyard');
+    expect(altCost(s, reg, 0, k, ap)).toBe(1);
+    mana(s, 1);
+    s = act(s, { ...alt, iid: k });
+    expect(s.cards[k].zone).toBe('battle');
+    s = endTurn(s);
+    for (let i = 0; i < 4 && s.pending; i++) s = act(s, s.pending.kind === 'selectCards' ? { type: 'RESPOND', player: s.pending.player, selected: s.pending.candidates.slice(0, Math.max(1, s.pending.min)) } : { type: 'RESPOND', player: s.pending.player, selected: [], accept: true });
+    expect(s.cards[k].zone).toBe('graveyard');
+    // ふつうに召喚すれば残る
+    let s2 = newGame();
+    const k2 = put(s2, 0, C.kage.id, 'hand');
+    put(s2, 0, C.mafia.id, 'graveyard');
+    mana(s2, 6);
+    s2 = act(s2, { type: 'PLAY_CARD', player: 0, iid: k2 });
+    s2 = endTurn(s2);
+    expect(s2.pending).toBeFalsy();
+    expect(s2.cards[k2].zone).toBe('battle');
+  });
+
+  it('「進化：闇のクリーチャー」：闇のクリーチャーの上にだけ進化できる', () => {
+    expect(C.darkEvo.evolvesFrom).toEqual({ civilization: 'darkness' });
+    const s = newGame();
+    const e = put(s, 0, C.darkEvo.id, 'hand');
+    put(s, 0, C.vanilla.id, 'battle');
+    expect(evolutionBases(s, reg, 0, e)).toEqual([]);
+    const d = put(s, 0, C.dark.id, 'battle');
+    expect(evolutionBases(s, reg, 0, e)).toEqual([d]);
   });
 
   it('J・O・E：ターンの終わりに山札の下に置いて、カードを1枚引く', () => {

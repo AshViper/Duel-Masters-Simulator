@@ -85,6 +85,8 @@ export function normalizeText(s: string): string {
   // 入れ子のカッコにも対応して内側から消す
   for (let i = 0; i < 3; i++) t = t.replace(/\([^()]*\)/g, '');
   return t
+    // 「罪・無月の大罪3」：能力語の前の「罪・」は分類の印
+    .replace(/^罪・(?=無月の)/, '')
     .replace(/することができない/g, 'できない')
     .replace(/_(?=\d)/g, '-')
     .replace(/そのターン、そのクリーチャー/g, 'このターン、そのクリーチャー')
@@ -3672,7 +3674,10 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     return true;
   }
   // 進化元：「進化：自分の火のクリーチャー1体の上に置く」「進化：自分のドラゴン1体の上に置く」
-  const evo = t.match(/^進化[:\-—―ー](?:進化ではない、?)?(?:自分の)?(?:(光|水|闇|火|自然)の)?(.*?)1体の上に置く。?$/);
+  // 短い書き方：「進化：闇のクリーチャー」「進化：ドラゴン」
+  const evo =
+    t.match(/^進化[:\-—―ー](?:進化ではない、?)?(?:自分の)?(?:(光|水|闇|火|自然)の)?(.*?)1体の上に置く。?$/) ??
+    t.match(/^進化[:\-—―ー](?:自分の)?(?:(光|水|闇|火|自然)の)?([ァ-ヴー・一-鿿A-Za-z]+?)。?$/);
   if (evo) {
     const race = evo[2] === 'クリーチャー' ? undefined : evo[2].replace(/・?クリーチャー$/, '');
     if (race === '') return false;
@@ -3932,6 +3937,22 @@ function parseAltPlay(t: string, rawLine: string, kind: 'creature' | 'spell'): A
     if (m && r.kinds.includes(kind)) return r.build(m, raw);
   }
   // リサイタル：「この呪文を墓地からコスト5を支払って唱えてもよい。そうして唱えた後、墓地に置くかわりに自分の山札の一番下に置く」
+  // 無月の影罪（補足説明）：「自分の墓地にあるマフィ・ギャング1体につき、このクリーチャーの召喚コストを1少なくしてもよい。そうしたら、このターンの終わりに、自分のクリーチャーを1体破壊する。このクリーチャーのコストは0以下にはならない」
+  // 無月の大罪（補足説明）：「このクリーチャーの召喚コストを3少なくしてもよい。そうしたら、このターンの終わりに、自分のクリーチャーを1体破壊する」
+  const sin = kind === 'creature' ? body.match(/^(?:(.+?につき)、?)?このクリーチャーの召喚コストを(\d+)少なくしてもよい。そうしたら、このターンの終わりに、自分のクリーチャーを(\d+)体破壊する(?:。(?:ただし、?)?(?:このクリーチャーの)?コストは(\d+)(以下|より少なく)(?:には|に)?ならない)?$/) : null;
+  if (sin) {
+    const p = sin[1] ? parsePer(sin[1]) : null;
+    if (!sin[1] || p) {
+      const min = sin[4] === undefined ? 1 : sin[5] === '以下' ? n(sin[4]) + 1 : n(sin[4]);
+      return {
+        name: p ? '無月の影罪' : '無月の大罪',
+        reduce: n(sin[2]),
+        ...(p ? { reducePer: p, condition: { type: 'compare', left: p.per, op: '>=', right: p.unit } } : {}),
+        ...(min !== 1 ? { min } : {}),
+        then: [{ type: 'atTurnEnd', effects: [{ type: 'destroy', target: { owner: 'self', zone: 'battle', count: n(sin[3]) } }] }],
+      };
+    }
+  }
   const recital = body.match(/^この呪文を(?:自分の)?墓地からコスト(\d+)を支払って唱えてもよい(。そうして唱えた後、墓地に置くかわりに(?:自分の)?山札の(?:一番)?下に置く)?$/);
   if (recital && kind === 'spell') return { name: `墓地からコスト${n(recital[1])}で唱える`, cost: n(recital[1]), from: 'graveyard', ...(recital[2] ? { spellAfter: 'deckBottom' as const } : {}) };
   // 「自分の墓地にカードが6枚以上あれば、この呪文を[wdf04]支払って唱えてもよい」「この呪文を[ll04]支払って唱えてもよい。そうしたら、〜」
