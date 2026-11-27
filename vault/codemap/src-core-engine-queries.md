@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/engine/queries.ts（1188行）
+# src/core/engine/queries.ts（1193行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -27,76 +27,76 @@ generated: 2026-11-27
 - L203 fn `hyperDef`
 - L220 **export** fn `hyperizeCandidates`
 - L233 **export** fn `matchFilter`
-- L323 **export** fn `canTapAbility`
-- L330 **export** fn `gearsOn`
-- L335 fn `matchFace`
-- L355 **export** interface `ActiveStatic`
-- L362 **export** fn `activeStatics`
-- L366 fn `activeStaticsImpl`
-- L382 fn `ownerMatches`
-- L386 fn `appliesToCreature`
-- L396 fn `mergeKeywords`
-- L408 **export** fn `keywords`
-- L412 fn `keywordsImpl`
-- L428 **export** fn `withoutAttackLocks`
-- L434 **export** fn `ignoresAttackLocks`
-- L438 **export** fn `power`
-- L442 fn `powerImpl`
-- L462 **export** fn `breakerCount`
-- L480 fn `justDiving`
-- L487 **export** fn `isUntargetable`
-- L496 **export** fn `cannotBeAttacked`
-- L503 **export** fn `effectiveCost`
-- L507 fn `effectiveCostImpl`
-- L559 **export** fn `usesHyperEnergy`
-- L567 **export** fn `sasageruCandidates`
-- L579 **export** fn `minimalSacrifice`
-- L594 **export** fn `playLimitReached`
-- L609 **export** fn `isAura`
-- L613 **export** fn `isCrossGear`
-- L618 **export** fn `isGrCard`
-- L623 **export** fn `canCross`
-- L633 **export** fn `cannotLeaveNow`
-- L643 **export** fn `cannotLose`
-- L653 **export** fn `handProtected`
-- L658 **export** fn `forcedAttackers`
-- L663 **export** fn `entryBlocked`
-- L673 **export** fn `playRestriction`
-- L700 **export** fn `isSummoningSick`
-- L709 **export** fn `canAttackWith`
-- L713 fn `canAttackWithImpl`
-- L727 **export** fn `attackTargets`
-- L731 fn `attackTargetsImpl`
-- L763 **export** fn `blockersFor`
-- L786 **export** fn `targetCandidates`
-- L813 **export** fn `countQuantity`
-- L826 **export** fn `evalCondition`
-- L949 fn `simpleSpec`
-- L954 **export** fn `multiEvolveSpec`
-- L959 **export** fn `evolveSourceCandidates`
-- L972 **export** fn `validEvolveSources`
-- L982 **export** fn `defaultEvolveSources`
-- L995 **export** fn `evolutionBases`
-- L1011 fn `matchesEvolvesFrom`
-- L1019 **export** fn `canBeEvolutionSource`
-- L1032 **export** fn `choosePayment`
-- L1039 **export** fn `payMana`
-- L1062 fn `assignCivs`
-- L1080 **export** fn `altCost`
-- L1092 **export** fn `altPayment`
-- L1097 **export** fn `altUsable`
-- L1111 **export** fn `canPlayAlt`
-- L1119 **export** fn `fushigiCandidates`
-- L1123 **export** fn `canPlay`
-- L1127 fn `canPlayImpl`
-- L1147 **export** fn `untappedManaCount`
-- L1151 **export** fn `isIdle`
-- L1155 **export** fn `instancesIn`
-- L1160 **export** fn `attackSwapCandidates`
-- L1184 **export** fn `sClassCards`
+- L325 **export** fn `canTapAbility`
+- L332 **export** fn `gearsOn`
+- L337 fn `matchFace`
+- L357 **export** interface `ActiveStatic`
+- L364 **export** fn `activeStatics`
+- L368 fn `activeStaticsImpl`
+- L384 fn `ownerMatches`
+- L388 fn `appliesToCreature`
+- L398 fn `mergeKeywords`
+- L410 **export** fn `keywords`
+- L414 fn `keywordsImpl`
+- L430 **export** fn `withoutAttackLocks`
+- L436 **export** fn `ignoresAttackLocks`
+- L440 **export** fn `power`
+- L444 fn `powerImpl`
+- L464 **export** fn `breakerCount`
+- L482 fn `justDiving`
+- L489 **export** fn `isUntargetable`
+- L498 **export** fn `cannotBeAttacked`
+- L505 **export** fn `effectiveCost`
+- L509 fn `effectiveCostImpl`
+- L561 **export** fn `usesHyperEnergy`
+- L569 **export** fn `sasageruCandidates`
+- L581 **export** fn `minimalSacrifice`
+- L596 **export** fn `playLimitReached`
+- L611 **export** fn `isAura`
+- L615 **export** fn `isCrossGear`
+- L620 **export** fn `isGrCard`
+- L625 **export** fn `canCross`
+- L635 **export** fn `cannotLeaveNow`
+- L645 **export** fn `cannotLose`
+- L655 **export** fn `handProtected`
+- L660 **export** fn `forcedAttackers`
+- L665 **export** fn `entryBlocked`
+- L675 **export** fn `playRestriction`
+- L702 **export** fn `isSummoningSick`
+- L711 **export** fn `canAttackWith`
+- L715 fn `canAttackWithImpl`
+- L729 **export** fn `attackTargets`
+- L733 fn `attackTargetsImpl`
+- L765 **export** fn `blockersFor`
+- L788 **export** fn `targetCandidates`
+- L815 **export** fn `countQuantity`
+- L828 **export** fn `evalCondition`
+- L951 fn `simpleSpec`
+- L956 **export** fn `multiEvolveSpec`
+- L961 **export** fn `evolveSourceCandidates`
+- L974 **export** fn `validEvolveSources`
+- L984 **export** fn `defaultEvolveSources`
+- L997 **export** fn `evolutionBases`
+- L1013 fn `matchesEvolvesFrom`
+- L1021 **export** fn `canBeEvolutionSource`
+- L1034 **export** fn `choosePayment`
+- L1041 **export** fn `payMana`
+- L1064 fn `assignCivs`
+- L1082 **export** fn `altCost`
+- L1097 **export** fn `altPayment`
+- L1102 **export** fn `altUsable`
+- L1116 **export** fn `canPlayAlt`
+- L1124 **export** fn `fushigiCandidates`
+- L1128 **export** fn `canPlay`
+- L1132 fn `canPlayImpl`
+- L1152 **export** fn `untappedManaCount`
+- L1156 **export** fn `isIdle`
+- L1160 **export** fn `instancesIn`
+- L1165 **export** fn `attackSwapCandidates`
+- L1189 **export** fn `sClassCards`
 
 ## switch の case（`ラベル:行`）
 
 ### evalCondition
-not:828 · and:830 · or:832 · compare:834 · attackedThisTurn:839 · selfIsEvolution:841 · summonedThisTurn:847 · castThisTurn:849 · turnTally:851 · chosenDistinctNames:861 · didNot:865 · enteredFreeThisTurn:867 · nthAttackThisTurn:869 · enteredNamedThisTurn:871 · firstAttackThisTurn:873 · crossed:875 · entry:879 · godLinked:888 · shieldForce:890 · selfPower:894 · selfAttacking:899 · civsInBattle:901 · gearAttached:906 · selfTapped:910 · wonBattleThisTurn:912 · selfEnteredThisTurn:914 · subjectEnteredFree:916 · enteredThisTurn:918 · underCount:922 · opponentTurn:924 · inExtraTurn:926 · shieldsBrokenThisTurn:928 · playedFreeThisTurn:930 · enteredByRevolution:934 · usedThisTurn:936 · chosenMatches:938
+not:830 · and:832 · or:834 · compare:836 · attackedThisTurn:841 · selfIsEvolution:843 · summonedThisTurn:849 · castThisTurn:851 · turnTally:853 · chosenDistinctNames:863 · didNot:867 · enteredFreeThisTurn:869 · nthAttackThisTurn:871 · enteredNamedThisTurn:873 · firstAttackThisTurn:875 · crossed:877 · entry:881 · godLinked:890 · shieldForce:892 · selfPower:896 · selfAttacking:901 · civsInBattle:903 · gearAttached:908 · selfTapped:912 · wonBattleThisTurn:914 · selfEnteredThisTurn:916 · subjectEnteredFree:918 · enteredThisTurn:920 · underCount:924 · opponentTurn:926 · inExtraTurn:928 · shieldsBrokenThisTurn:930 · playedFreeThisTurn:932 · enteredByRevolution:936 · usedThisTurn:938 · chosenMatches:940
 

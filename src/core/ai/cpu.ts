@@ -57,7 +57,10 @@ function respond(state: GameState, reg: CardRegistry, me: PlayerId, level: Diffi
   if (p.kind === 'chooseMode') {
     // S・トリガーの面選択は「使う」側、モード選択は先頭（EASY はランダム）
     // バズレンダの追加の支払いは、払えるだけ払う（選択肢は回数の少ない順）
-    const i = level === 'easy' ? Math.floor(rand() * p.options.length) : p.prompt.includes('バズレンダ') ? p.options.length - 1 : 0;
+    // 「プレイヤーを1人選ぶ（墓地を山札の下へ）」：墓地の多いほう（同じなら相手）。置いた枚数がその後の効果の数になる
+    const graves = p.prompt.includes('プレイヤーを1人選ぶ') ? p.options.map((o) => Number(o.match(/墓地(\d+)枚/)?.[1] ?? 0)) : null;
+    const i =
+      level === 'easy' ? Math.floor(rand() * p.options.length) : p.prompt.includes('バズレンダ') ? p.options.length - 1 : graves?.length === 2 ? (graves[1] >= graves[0] ? 1 : 0) : 0;
     return { type: 'RESPOND', player: me, selected: [String(i)] };
   }
 

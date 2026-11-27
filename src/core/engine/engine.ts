@@ -2209,6 +2209,10 @@ export class Ctx {
         out.push({ source: src, ability: ab, key });
       }
     }
+    // 他のカードから与えられた「エスケープ」
+    const kwKey = `${iid}:kw-escape`;
+    if (cause === 'destroy' && !used.includes(kwKey) && keywords(s, this.reg, iid).escape && s.players[owner].zones.shield.length > 0 && !out.some((x) => x.source === iid && x.ability.instead === 'escape'))
+      out.push({ source: iid, ability: { event: 'destroyed', subject: 'self', instead: 'escape', optional: true }, key: kwKey });
     return out;
   }
 
@@ -3172,6 +3176,29 @@ export class Ctx {
           this.log('山札をシャッフル', p);
         }
         return false;
+      case 'graveToDeckBottom': {
+        // 「プレイヤーを1人選ぶ。そのプレイヤーは自身の墓地にあるカードの枚数を数え、シャッフルして山札の下に置く」
+        let who: PlayerId = e.who === 'opponent' ? opp : controller;
+        if (e.who === 'choose') {
+          const r = this.takeResponse();
+          if (!r) {
+            s.pending = { kind: 'chooseMode', player: controller, source, prompt: `${this.name(source)}：プレイヤーを1人選ぶ（そのプレイヤーの墓地のカードをすべて、シャッフルして山札の下に置く）`, options: [`自分（墓地${s.players[controller].zones.graveyard.length}枚）`, `相手（墓地${s.players[opp].zones.graveyard.length}枚）`] };
+            return true;
+          }
+          who = r.selected?.[0] === '1' ? opp : controller;
+        }
+        const grave = [...s.players[who].zones.graveyard];
+        // シャッフルしてから山札の下へ（並びは乱数で決める）
+        for (let i = grave.length - 1; i > 0; i--) {
+          const j = Math.floor(this.random() * (i + 1));
+          [grave[i], grave[j]] = [grave[j], grave[i]];
+        }
+        for (const iid of grave) this.moveCard(iid, 'deck', { toTop: false });
+        // 後の文の「こうして山札の下に置かれたカードの枚数」で数える
+        s.lastChosen = grave;
+        this.log(`${s.players[who].name} の墓地のカード${grave.length}枚をシャッフルして山札の下に置いた`, controller);
+        return false;
+      }
       case 'graveyardToDeck': {
         const grave = [...s.players[controller].zones.graveyard];
         for (const iid of grave) this.moveCard(iid, 'deck');
@@ -3846,7 +3873,7 @@ export class Ctx {
       if (ab.duringTurn && (s.activePlayer === inst.owner) !== (ab.duringTurn === 'self')) return;
       // 「各ターンに1度」
       if (ab.oncePerTurn) {
-        const key = `${iid}:${i}`;
+        const key = `${iid}:${ab.onceKey ?? i}`;
         s.usedThisTurn ??= [];
         if (s.usedThisTurn.includes(key)) return;
         s.usedThisTurn.push(key);

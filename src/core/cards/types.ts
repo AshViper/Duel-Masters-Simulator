@@ -129,6 +129,8 @@ export interface CardFilter {
   sameRaceAsSubject?: boolean;
   /** このターンに破壊された */
   destroyedThisTurn?: boolean;
+  /** コストが、直前に選んだ（動かした）カードの枚数以下（「こうして山札の下に置かれたカードの枚数以下のコストを持つ」） */
+  maxCostChosenCount?: boolean;
 }
 
 /** 効果の対象指定 */
@@ -343,6 +345,11 @@ export type EffectDef =
   | { type: 'shuffleDeck'; both?: boolean }
   /** 自分の墓地のカードをすべて山札に加えてシャッフルする */
   | { type: 'graveyardToDeck' }
+  /**
+   * 墓地のカードをすべてシャッフルして山札の下に置く。who: choose はプレイヤーを1人選ぶ（「プレイヤーを1人選ぶ。そのプレイヤーは自身の墓地にあるカードの枚数を数え、シャッフルして山札の下に置く」）。
+   * 置いたカードは後の文の「こうして山札の下に置かれたカード」で指せる（lastChosen）
+   */
+  | { type: 'graveToDeckBottom'; who: 'self' | 'opponent' | 'choose' }
   /** 山札の上から1枚目を公開し、クリーチャーなら出してもよい／呪文なら唱えてもよい／それ以外は otherwise へ */
   | { type: 'revealTopCard'; ifCreature?: 'battle'; ifSpell?: 'cast'; otherwise?: 'mana' }
   /** 相手に自分のシールドを1つ選ばせて見る。呪文ならコストを支払わずに唱えてもよい（ラッキー・ダーツ） */
@@ -596,6 +603,8 @@ export interface TriggeredAbility {
   filter?: CardFilter;
   /** 各ターンに1度だけ */
   oncePerTurn?: boolean;
+  /** oncePerTurn を数える名前：同じ名前の能力は合わせて各ターンに1度（「自分の多色クリーチャーが出た時」を自分自身と他に分けた2つの誘発） */
+  onceKey?: string;
   /** onDraw：そのターンに引いた枚数がこれ以上の時だけ（「2枚目以降のカードを引いた時」） */
   minDrawCount?: number;
   /** onOwnNthEnter：そのターンの何体目のクリーチャーが出た時か */
@@ -746,6 +755,8 @@ export interface Keywords {
   noUntap?: boolean;
   /** 攻撃中のみパワー加算 */
   powerAttacker?: number;
+  /** エスケープ（他のカードから与えられた時）：破壊される時、かわりに自分のシールドを1つ手札に加えてもよい */
+  escape?: boolean;
   /** バトルに負けた場合、相手も破壊する */
   slayer?: boolean;
   /** バトルに勝ったら破壊される */
@@ -954,6 +965,8 @@ export interface AltPlay {
   /** 使えるタイミング（省略時は自分のメインステップ）。attackEndBreak: 自分のクリーチャーの攻撃の終わりに、その攻撃でシールドをブレイクしていれば（キリフダッシュ） */
   /** ownAttack: 自分のクリーチャーが攻撃する時（D・D・D） */
   timing?: 'attackEndBreak' | 'ownAttack';
+  /** 攻撃中のクリーチャーのコストの数だけ少なくする（min より少なくならない。「そのコストを攻撃中のクリーチャーのコストの数少なくする」） */
+  reduceByAttacker?: boolean;
 }
 
 /**

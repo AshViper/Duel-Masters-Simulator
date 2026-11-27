@@ -262,6 +262,8 @@ export function matchFilter(state: GameState, reg: CardRegistry, iid: string, f:
   // 誘発の原因と比べる条件が、誘発の時に置き換えられていない：何にも合わない
   if (f.subjectRel || f.sameRaceAsSubject) return false;
   if (f.destroyedThisTurn && inst.destroyedTurn !== state.turn) return false;
+  // 「こうして山札の下に置かれたカードの枚数以下のコストを持つ」
+  if (f.maxCostChosenCount && d.cost > (state.lastChosen ?? []).length) return false;
   if (f.maxCostSumOfChosen) {
     const sum = (state.lastChosen ?? []).filter((x) => state.cards[x]).reduce((a, x) => a + def(state, reg, x).cost, 0);
     if (d.cost > sum) return false;
@@ -1086,6 +1088,9 @@ export function altCost(state: GameState, reg: CardRegistry, player: PlayerId, i
     const sac = sacrifice[0];
     return Math.max(alt.fushigi.min, alt.cost - (sac && state.cards[sac] ? def(state, reg, sac).cost : 0));
   }
+  // 「そのコストを攻撃中のクリーチャーのコストの数少なくする」
+  const attacker = alt.reduceByAttacker ? state.combat?.attacker : undefined;
+  if (attacker && state.cards[attacker]) return Math.max(alt.min ?? 1, alt.cost - def(state, reg, attacker).cost);
   return alt.cost;
 }
 
