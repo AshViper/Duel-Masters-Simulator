@@ -40,7 +40,7 @@ interface BattleState {
   start: (opts: { mode: BattleMode; decks: [Deck, Deck]; difficulty: Difficulty; firstPlayer?: PlayerId }) => void;
   dispatch: (a: Action) => boolean;
   /** オンライン：対戦を始める（ゲストは受け取った状態で始める） */
-  startOnline: (game: GameState, deckNames: [string, string], seat: PlayerId) => void;
+  startOnline: (game: GameState, deckNames: [string, string], seat: PlayerId, sleeves?: [string | undefined, string | undefined]) => void;
   /** オンライン（ゲスト）：ホストから届いた状態にする */
   setRemoteState: (game: GameState) => void;
   /** オンライン（ホスト）：ゲストの操作を処理する。エラーなら文言を返す */
@@ -136,9 +136,9 @@ export const useBattle = create<BattleState>((set, get) => {
       return true;
     },
 
-    startOnline: (game, deckNames, seat) => {
+    startOnline: (game, deckNames, seat, sleeves = [undefined, undefined]) => {
       if (cpuTimer) clearTimeout(cpuTimer);
-      set({ game, mode: 'online', difficulty: 'normal', deckNames, sleeves: [undefined, undefined], saveId: null, error: null, recorded: game.gameOverReason !== null, seat });
+      set({ game, mode: 'online', difficulty: 'normal', deckNames, sleeves, saveId: null, error: null, recorded: game.gameOverReason !== null, seat });
       useApp.getState().go('battle');
     },
 

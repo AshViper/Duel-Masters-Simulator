@@ -90,4 +90,4 @@ tags: [decisions]
 - 選べるもの：標準の裏面・色柄プリセット（CSS グラデーション）・自分の画像（IndexedDB images、キー `ui:sleeve:`）。`src/ui/sleeves.ts`
 - 全体の標準は localStorage `sleeves`、デッキごとは `Deck.sleeve`（未指定なら全体の標準）。デッキと一緒に保存・バックアップされる。バックアップには `sleeves` 欄（標準と追加画像の一覧）も入れる
 - 表示は CSS 変数 `--sleeve`（background-image の値）。:root に全体の標準、対戦では `.side` ごとに各デッキのスリーブ。中断保存にも `sleeves` を残す
-- オンライン対戦では相手のスリーブは届けない（両者とも自分の全体の標準で表示）。必要なら後で画像と同じ仕組みで送る
+- オンライン対戦：ゲストは hello の `sleeve`、ホストは start の `sleeves` で各自のスリーブ（デッキの指定、なければ全体の標準）を送る。自分の画像なら受け手が `needImages` で取りに来る（カード画像と同じ仕組み、相手の端末には保存しない）。省略可能な欄なので PROTOCOL_VERSION は上げていない（古い版の相手は自分の標準で表示）

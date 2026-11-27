@@ -72,7 +72,7 @@ generated: 2026-11-27
 | `src/store/appStore.ts` | 195 | 保存済みの公式カードは、読み込むたびに能力テキストを読み直す（読み取りの改良を反映するため） |  |
 | `src/store/battleStore.ts` | 199 | BattleMode, NetBridge, setNetBridge, isCpuTurnPlayer, useBattle |  |
 | `src/store/officialCards.ts` | 146 | isOfficialSaved, saveOfficialCard, repairBackImages, saveOfficialCards, deleteAllOfficialC |  |
-| `src/store/onlineStore.ts` | 291 | OnlineRole, OnlineStatus, useOnline | [[codemap/src-store-onlineStore\|地図]] |
+| `src/store/onlineStore.ts` | 307 | OnlineRole, OnlineStatus, useOnline | [[codemap/src-store-onlineStore\|地図]] |
 | `src/ui/App.tsx` | 87 | App |  |
 | `src/ui/battleBackground.ts` | 56 | 対戦画面の背景画像（ユーザーが選んだ画像）。IndexedDB の images テーブルに Blob で保存する。 |  |
 | `src/ui/cardLooks.ts` | 91 | カードの見た目の好み（カード名ごと）：どのイラストで表示するか、キラ加工をかけるか。 |  |

@@ -17,6 +17,7 @@ import {
 } from '../net/protocol';
 import { setBattleCards, useApp } from './appStore';
 import { setNetBridge, useBattle } from './battleStore';
+import { isSleeveImage, useSleeves } from '../ui/sleeves';
 
 export type OnlineRole = 'host' | 'guest';
 export type OnlineStatus =
@@ -53,6 +54,16 @@ let link: Link | null = null;
 /** ホストが覚えておく相手のデッキ（再戦用） */
 let guestDeck: Deck | null = null;
 let guestCards: CardDefinition[] = [];
+/** ホストが覚えておく相手のスリーブ */
+let guestSleeve: string | undefined;
+
+/** 相手に見せる自分のスリーブ（デッキの指定、なければ全体の標準） */
+const mySleeve = (deck: Deck): string => deck.sleeve ?? useSleeves.getState().current;
+
+/** 相手のスリーブが自分の画像なら、手元にない時だけ送ってもらう */
+async function requestSleeveImage(sleeve: string | undefined): Promise<void> {
+  if (isSleeveImage(sleeve) && !(await canShowImage(sleeve))) link?.send({ t: 'needImages', keys: [sleeve] });
+}
 
 const myName = (fallback: string) => useApp.getState().settings.playerName.trim() || fallback;
 
@@ -110,8 +121,9 @@ export const useOnline = create<OnlineState>((set, get) => {
     );
     const cards = [...guestCards, ...deckCardDefs(deck, registry)];
     const deckNames: [string, string] = [deck.name, guestDeck.name];
-    link.send({ t: 'start', state: game, cards, deckNames });
-    useBattle.getState().startOnline(game, deckNames, 0);
+    const sleeves: [string, string | undefined] = [mySleeve(deck), guestSleeve];
+    link.send({ t: 'start', state: game, cards, deckNames, sleeves });
+    useBattle.getState().startOnline(game, deckNames, 0, sleeves);
   };
 
   const hostMessage = (m: NetMessage) => {
@@ -137,11 +149,13 @@ export const useOnline = create<OnlineState>((set, get) => {
         }
         guestDeck = m.deck;
         guestCards = m.cards;
+        guestSleeve = typeof m.sleeve === 'string' ? m.sleeve : undefined;
         set({ opponentName: m.name, status: 'playing', message: '' });
         void requestMissingImages(m.cards);
+        void requestSleeveImage(guestSleeve);
         // 対戦中の再接続なら続きから
         if (battle.mode === 'online' && battle.game && battle.game.gameOverReason === null) {
-          link?.send({ t: 'start', state: battle.game, cards: [...m.cards, ...hostCards], deckNames: battle.deckNames });
+          link?.send({ t: 'start', state: battle.game, cards: [...m.cards, ...hostCards], deckNames: battle.deckNames, sleeves: battle.sleeves });
           return;
         }
         startHostGame();
@@ -164,8 +178,9 @@ export const useOnline = create<OnlineState>((set, get) => {
       case 'start':
         applyBattleRegistry(m.cards);
         set({ status: 'playing', message: '', opponentName: m.state.players[0].name });
-        useBattle.getState().startOnline(m.state, m.deckNames, 1);
+        useBattle.getState().startOnline(m.state, m.deckNames, 1, m.sleeves);
         void requestMissingImages(m.cards);
+        void requestSleeveImage(m.sleeves?.[0]);
         return;
       case 'state':
         useBattle.getState().setRemoteState(m.state);
@@ -207,7 +222,7 @@ export const useOnline = create<OnlineState>((set, get) => {
       peer = r.peer;
       link = wrapConnection(r.conn, { onMessage: guestMessage, onClose: onLinkClosed });
       const registry = buildRegistry(useApp.getState().cards);
-      link.send({ t: 'hello', v: PROTOCOL_VERSION, name: myName('ゲスト'), deck, cards: deckCardDefs(deck, registry) });
+      link.send({ t: 'hello', v: PROTOCOL_VERSION, name: myName('ゲスト'), deck, cards: deckCardDefs(deck, registry), sleeve: mySleeve(deck) });
     } catch (e) {
       // 対戦中の再接続に失敗したら、対戦画面のまま再接続をやり直せるようにする
       set({ status: before === 'disconnected' ? 'disconnected' : 'error', message: (e as Error).message });
@@ -283,6 +298,7 @@ export const useOnline = create<OnlineState>((set, get) => {
       peer = null;
       guestDeck = null;
       guestCards = [];
+      guestSleeve = undefined;
       if (get().role) restoreRegistry();
       set({ role: null, status: 'idle', code: '', message: '', opponentName: '' });
     },
