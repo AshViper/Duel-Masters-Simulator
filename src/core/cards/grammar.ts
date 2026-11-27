@@ -4,7 +4,7 @@
 //   誘発（〜した時、）parseTrigger ／ 条件（〜あれば、〜なら、）parseConditions ／ 名詞句（相手のコスト5以下のクリーチャー）parseNP ／
 //   目的語（〜を1体まで、自分の手札から）parseObject ／ 動詞句（墓地に置く・コストを支払わずに召喚する）resolveVerb
 // 読めない語の並びがあれば null を返す（誤って自動処理しないため。呼んだ側で手動処理にする）。
-import type { CardFilter, Civilization, Condition, EffectDef, HandTrigger, Keywords, MoveDest, ReplacementAbility, StaticAbility, TargetSpec, TriggeredAbility, TriggerEvent } from './types';
+import type { CardFilter, Civilization, Condition, EffectDef, HandTrigger, Keywords, MoveDest, Quantity, ReplacementAbility, StaticAbility, TargetSpec, TriggeredAbility, TriggerEvent } from './types';
 import { tokenize, type Token } from './lexer';
 
 /** 構文解析の結果（textParser の ParsedAbilities の一部と同じ形） */
@@ -14,6 +14,8 @@ export interface GrammarResult {
   statics: StaticAbility[];
   replacements: ReplacementAbility[];
   handTriggers: HandTrigger[];
+  /** このカード自身の召喚コストを「〜1体につき」少なくする */
+  selfCost?: { amount: number; per: Quantity; unit: number; min: number };
 }
 
 type Kind = 'creature' | 'spell';
@@ -126,8 +128,21 @@ function addCost(f: CardFilter, n: number, op: string): boolean {
 function parseNP(c: Cur): NP | null {
   return c.try(() => {
     const np: NP = { noun: '', filter: {} };
+    // 「そのドラゴン以下のコストを持つ」「その捨てたカードと同じコストの」：直前に選んだ（動かした）カードとコストを比べる
+    const refCost = c.try(() => {
+      if (!c.lit('その')) return null;
+      if (!c.kind('word') && !c.kind('noun')) return null;
+      let cmp: 'le' | 'eq';
+      if (c.kind('compare', (t) => t.op === '<=') && c.lit('の')) cmp = 'le';
+      else if (c.lit('と') && c.kind('compare', (t) => t.op === 'same')) cmp = 'eq';
+      else return null;
+      if (!c.lit('コスト')) return null;
+      if (!(c.try(() => c.lit('を') && c.verb('持つ', ['plain'])) || c.lit('の'))) return null;
+      return cmp;
+    });
+    if (refCost) np.filter.refCost = refCost;
     // この〜（自分自身）
-    if (c.lit('この')) {
+    if (!refCost && c.lit('この')) {
       const n = c.kind('noun');
       if (!n) return null;
       np.ref = 'this';
@@ -135,12 +150,12 @@ function parseNP(c: Cur): NP | null {
       return np;
     }
     // それ・その〜・その2体
-    if (c.lit('それ') || c.lit('それら')) {
+    if (!refCost && (c.lit('それ') || c.lit('それら'))) {
       np.ref = 'chosen';
       np.noun = 'card';
       return np;
     }
-    if (c.lit('その')) {
+    if (!refCost && c.lit('その')) {
       const cnt = c.kind('count');
       const n = c.kind('noun');
       if (!cnt && !n) return null;
@@ -247,9 +262,10 @@ function parseNP(c: Cur): NP | null {
       np.noun = n.noun === 'evolution' ? 'creature' : n.noun;
       if (n.noun === 'evolution') np.filter.evolution = true;
     } else {
-      // 名詞のない「ドルスザク」「ドラゴン」：種族のクリーチャー
+      // 名詞のない「ドルスザク」「ドラゴン」、「ドラゴン・クリーチャー」：種族のクリーチャー
       const w = c.kind('word', (t) => t.script === 'katakana' || t.script === 'kanji');
       if (!w) return null;
+      c.try(() => c.lit('・') && c.kind('noun', (t) => t.noun === 'creature'));
       np.noun = 'creature';
       np.filter.race = w.text;
     }
@@ -472,6 +488,20 @@ function refTarget(np: NP, ctx: Ctx): TargetSpec {
 
 /** 効果の文1つ（「。」まで）を読む。読めなければ null */
 function parseEffectSentence(ts: Token[], ctx: Ctx): VerbPhrase | null {
+  // 「それがドラゴンなら、〜」：直前に選んだ（動かした）カードが条件に合う時だけ
+  const head = new Cur(ts);
+  const ifChosen = ctx.chosen
+    ? head.try(() => {
+        if (!head.lit('それ', 'が')) return null;
+        const np = parseNP(head);
+        if (!np || np.ref || !head.kind('aux', (t) => t.aux === 'if') || !head.lit('、')) return null;
+        return np.filter;
+      })
+    : null;
+  if (ifChosen) {
+    const inner = parseEffectSentence(head.rest(), ctx);
+    return inner && { effects: [{ type: 'conditional', condition: { type: 'chosenMatches', filter: ifChosen }, then: inner.optional ? [{ type: 'optional', effects: inner.effects }] : inner.effects }], optional: false };
+  }
   const c = new Cur(ts);
   const special = parseSpecialSentence(c, ctx);
   if (special) return c.done ? special : null;
@@ -495,14 +525,52 @@ function parseEffectSentence(ts: Token[], ctx: Ctx): VerbPhrase | null {
     effects.push(...phrase.effects);
     optional ||= phrase.optional;
     if (!c.lit('、')) break;
+    // 「〜置き、その後、〜」：文の途中のつなぎ
+    if (c.kind('conj', (t) => t.conj === 'then')) c.lit('、');
   }
   if (!c.done) return null;
   return effects.length ? { effects, optional } : null;
 }
 
+/**
+ * 山札の上から置く節：「自分の山札の上から1枚目をタップして自分のマナゾーンに置く」「自分の山札の上からさらにもう1枚、タップしてマナゾーンに置く」
+ * 「自分の山札の上から3枚を墓地に置く」
+ */
+function parseDeckTopClause(c: Cur): VerbPhrase | null {
+  return c.try(() => {
+    const who = c.kind('player', (t) => t.player === 'self' || t.player === 'opponent');
+    if (!who || !c.lit('の', '山札', 'の', '上', 'から')) return null;
+    c.kind('conj', (t) => t.conj === 'also');
+    c.kind('adv', (t) => t.adv === 'more');
+    const n = c.kind('count', (t) => t.unit === '枚');
+    if (!n) return null;
+    // 「1枚目を」「3枚を」「もう1枚、」
+    if (!c.lit('を')) c.lit('、');
+    c.lit('、');
+    const tapped = !!c.try(() => c.verb('タップする', ['te']));
+    c.try(() => c.kind('player') && c.lit('の'));
+    const z = c.kind('zone', (t) => ['mana', 'graveyard', 'hand', 'shield'].includes(t.zone));
+    if (!z || !c.lit('に') || !c.verb(['置く', '加える'], ['plain', 'renyo', 'te'])) return null;
+    const optional = endMay(c);
+    const effect: EffectDef = {
+      type: 'deckTopTo',
+      count: n.ordinal ? 1 : n.n,
+      to: z.zone as 'mana' | 'graveyard' | 'hand' | 'shield',
+      ...(who.player === 'opponent' ? { who: 'opponent' as const } : {}),
+      ...(tapped ? { tapped: true } : {}),
+    };
+    return { effects: [effect], optional };
+  });
+}
+
 /** 節：目的語＋動詞句、または目的語のない動詞句（「持ち主の手札に戻す」「表向きにして〜置く」） */
 function parseClause(c: Cur, ctx: Ctx): (VerbPhrase & { implicit: boolean }) | null {
   return c.try(() => {
+    const deckTop = parseDeckTopClause(c);
+    if (deckTop) {
+      ctx.chosen = true;
+      return { ...deckTop, implicit: false };
+    }
     // 「自分のクリーチャーを1体と、相手のクリーチャーを1体、バトルゾーンから選ぶ」
     const pair = c.try(() => {
       const a = parseNP(c);
@@ -1056,6 +1124,61 @@ function parseReplacementSentence(c: Cur, out: GrammarResult): boolean {
   });
 }
 
+/** 「〜1体につき」：数える名詞句と単位 */
+function parsePer(c: Cur): { per: Quantity; unit: number } | null {
+  return c.try(() => {
+    const np = parseNP(c);
+    const n = c.kind('count', (t) => !t.ordinal && ['体', '枚', 'つ'].includes(t.unit));
+    if (!np || np.ref || !n || !c.kind('aux', (t) => t.aux === 'per')) return null;
+    const zone = (np.zone ?? (np.noun === 'shield' ? 'shield' : 'battle')) as Quantity['zone'];
+    const filter: CardFilter = { ...np.filter, ...(np.noun === 'spell' ? { cardType: 'spell' as const } : np.noun === 'creature' && zone !== 'battle' ? { cardType: 'creature' as const } : {}) };
+    return { per: { who: np.owner ?? 'any', zone, ...(Object.keys(filter).length ? { filter } : {}) }, unit: n.n };
+  });
+}
+
+/**
+ * 「相手のクリーチャー1体につき、このクリーチャーの召喚コストを1少なくする。ただし、コストは0以下にならない。」
+ * 「このクリーチャーの召喚コストを、クリーチャー1体につき1少なくする」
+ */
+function parseSelfCost(sentences: Token[][]): GrammarResult['selfCost'] | null {
+  if (sentences.length > 2) return null;
+  const c = new Cur(sentences[0]);
+  const r = c.try(() => {
+    let per = parsePer(c);
+    if (per) c.lit('、');
+    if (!c.lit('この') || !c.kind('noun', (t) => t.noun === 'creature' || t.noun === 'card') || !c.lit('の')) return null;
+    c.verb(['召喚する', '実行する'], ['stem']);
+    if (!c.lit('コスト', 'を')) return null;
+    c.lit('、');
+    if (!per) per = parsePer(c);
+    if (!per) return null;
+    const n = c.kind('number');
+    if (!n || !c.kind('compare', (t) => t.op === 'less' && t.form === 'adv') || !c.verb('する', ['plain']) || !c.done) return null;
+    return { amount: n.n, per };
+  });
+  if (!r) return null;
+  let min = 1;
+  if (sentences[1]) {
+    const d = new Cur(sentences[1]);
+    const m = d.try(() => {
+      if (!d.kind('conj', (t) => t.conj === 'however')) return null;
+      d.lit('、');
+      if (!d.lit('コスト', 'は')) return null;
+      const n = d.kind('number');
+      const op = d.kind('compare', (t) => t.op === '<=' || t.op === 'less');
+      if (!n || !op) return null;
+      d.lit('に');
+      d.lit('は');
+      if (!d.verb('なる', ['nai']) || !d.done) return null;
+      // 「0以下にならない」なら1まで、「2より少なくならない」なら2まで
+      return op.op === '<=' ? n.n + 1 : n.n;
+    });
+    if (m === null) return null;
+    min = m;
+  }
+  return { amount: r.amount, per: r.per.per, unit: r.per.unit, min };
+}
+
 // ───────────────────────── 1行を読む ─────────────────────────
 
 /** 「この呪文を（自分の手札から）コストを支払わずに唱えてもよい」「このクリーチャーをコストを支払わずに召喚してもよい」 */
@@ -1127,6 +1250,7 @@ export function parseByGrammar(line: string, kind: Kind, keywordLine: (text: str
 }
 
 function merge(out: GrammarResult, r: GrammarResult): void {
+  if (r.selfCost) out.selfCost = r.selfCost;
   Object.assign(out.keywords, r.keywords);
   out.abilities.push(...r.abilities);
   out.statics.push(...r.statics);
@@ -1158,6 +1282,14 @@ function readAbility(ts: Token[], kind: Kind, label: string | null): GrammarResu
   const first = new Cur(sentences[0]);
   // 置換効果（クリーチャー）
   if (kind === 'creature' && sentences.length === 1 && parseReplacementSentence(new Cur(sentences[0]), out)) return out;
+  // このクリーチャーの召喚コストを「〜1体につき」少なくする
+  if (kind === 'creature') {
+    const sc = parseSelfCost(sentences);
+    if (sc) {
+      out.selfCost = sc;
+      return out;
+    }
+  }
   // 常在効果（クリーチャー）：「〜は攻撃できない」「〜が出る時、かわりに〜」「自分のターン中、クリーチャーを1体、自分のマナゾーンから召喚してもよい」
   if (kind === 'creature' && sentences.length === 1) {
     const r = parseRestrictionSentence(new Cur(sentences[0]));

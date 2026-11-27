@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/grammar.ts（1235行）
+# src/core/cards/grammar.ts（1367行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -11,56 +11,59 @@ generated: 2026-11-27
 ## トップレベル
 
 - L11 **export** interface `GrammarResult`
-- L19 type `Kind`
-- L20 type `Zone`
-- L24 class `Cur`
-- L75 fn `splitBy`
-- L89 interface `NP`
-- L102 fn `parseZoneAt`
-- L118 fn `addCost`
-- L126 fn `parseNP`
-- L261 fn `toTarget`
-- L279 interface `Obj`
-- L287 fn `parseFrom`
-- L311 fn `parseCount`
-- L320 fn `parseObject`
-- L335 interface `VerbPhrase`
-- L341 fn `endMay`
-- L346 fn `parseDest`
-- L371 fn `parseVerbPhrase`
-- L452 interface `Ctx`
-- L462 interface `Group`
-- L468 fn `refTarget`
-- L474 fn `parseEffectSentence`
-- L504 fn `parseClause`
-- L542 fn `parseSpecialSentence`
-- L597 fn `parseDeckTopShield`
-- L620 fn `parseLookSentences`
-- L690 fn `parseEffectSentences`
-- L733 fn `flatten`
-- L740 interface `Trig`
-- L752 fn `parseTrigger`
-- L818 interface `Cond`
-- L827 fn `parseOneCondition`
-- L907 fn `parseConditions`
-- L930 fn `parseRestriction`
-- L942 fn `parseDuration`
-- L953 fn `parseRestrictionSentence`
-- L966 fn `parseEnterInstead`
-- L1002 fn `parseInsteadBody`
-- L1031 fn `parseReplacementSentence`
-- L1062 fn `parsePlaySelf`
-- L1078 **export** fn `parseByGrammar`
-- L1129 fn `merge`
-- L1138 fn `parseReminderAsAbility`
-- L1154 fn `readAbility`
+- L21 type `Kind`
+- L22 type `Zone`
+- L26 class `Cur`
+- L77 fn `splitBy`
+- L91 interface `NP`
+- L104 fn `parseZoneAt`
+- L120 fn `addCost`
+- L128 fn `parseNP`
+- L277 fn `toTarget`
+- L295 interface `Obj`
+- L303 fn `parseFrom`
+- L327 fn `parseCount`
+- L336 fn `parseObject`
+- L351 interface `VerbPhrase`
+- L357 fn `endMay`
+- L362 fn `parseDest`
+- L387 fn `parseVerbPhrase`
+- L468 interface `Ctx`
+- L478 interface `Group`
+- L484 fn `refTarget`
+- L490 fn `parseEffectSentence`
+- L539 fn `parseDeckTopClause`
+- L567 fn `parseClause`
+- L610 fn `parseSpecialSentence`
+- L665 fn `parseDeckTopShield`
+- L688 fn `parseLookSentences`
+- L758 fn `parseEffectSentences`
+- L801 fn `flatten`
+- L808 interface `Trig`
+- L820 fn `parseTrigger`
+- L886 interface `Cond`
+- L895 fn `parseOneCondition`
+- L975 fn `parseConditions`
+- L998 fn `parseRestriction`
+- L1010 fn `parseDuration`
+- L1021 fn `parseRestrictionSentence`
+- L1034 fn `parseEnterInstead`
+- L1070 fn `parseInsteadBody`
+- L1099 fn `parseReplacementSentence`
+- L1128 fn `parsePer`
+- L1143 fn `parseSelfCost`
+- L1185 fn `parsePlaySelf`
+- L1201 **export** fn `parseByGrammar`
+- L1252 fn `merge`
+- L1262 fn `parseReminderAsAbility`
+- L1278 fn `readAbility`
 
 ## メソッド
 
-- L32 `peek`
-- L35 `text`
-- L39 `lit`
-- L45 `any`
-- L60 `try`
-- L69 `rest`
+- L34 `peek`
+- L37 `text`
+- L41 `lit`
+- L47 `any`
+- L62 `try`
+- L71 `rest`
 

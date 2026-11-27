@@ -6,11 +6,11 @@ generated: 2026-11-27
 
 > 自動生成（`npm run lexer:report`）。大きいので Claude は grep で引く。
 
-- テストに書かれたカードの文 397 行・17113 文字のうち、辞書にない文字 415（2.4%）
+- テストに書かれたカードの文 399 行・17167 文字のうち、辞書にない文字 424（2.5%）
 
 ## 辞書にない語（多い順）
 
-...(9) · ff(8) · ドラゴン(7) · 魔導具(7) · コマンド(6) · ハンター(5) · アビス(3) · ディスペクター(3) · S(3) · サイキック(3) · じゃんけん(2) · ジョーカーズ(2) · ビートジョッキー(2) · リキッド・ピープル(2) · ジャイアント(2) · 補足(2) · エグザイル(2) · テスト(2) · ▼(2) · ―(2) · 束(2) · シノビ(2) · 紅蓮族(2) · 手動(2) · そ(1) · サムライ(1) · ミステリー・トーテム(1) · スノーフェアリー(1) · アースイーター(1) · マフィ・ギャング(1) · ナイト(1) · 逆(1) · さま(1) · さ(1) · あ(1) · よる(1) · ハイパーモード(1) · ブルー・インパルス(1) · 真実(1) · 極(1) · めよ(1) · ジョニー(1) · !(1) · 正(1) · 文(1) · 無限大(1) · 級(1) · 謎(1) · レクスターズ(1) · ゼニス(1) · エイリアン(1) · エンジェル・コマンド(1) · 酔(1) · **(1) · ?(1) · 表(1) · 裏(1) · 者(1) · 龍(1) · そこ(1) · す(1) · 現在(1) · 支払(1) · え(1)
+...(9) · ff(8) · ドラゴン(7) · 魔導具(7) · コマンド(6) · ハンター(5) · じゃんけん(4) · アビス(3) · ディスペクター(3) · S(3) · サイキック(3) · ジョーカーズ(2) · ビートジョッキー(2) · リキッド・ピープル(2) · ジャイアント(2) · 補足(2) · エグザイル(2) · テスト(2) · ▼(2) · ―(2) · 束(2) · シノビ(2) · 紅蓮族(2) · 手動(2) · そ(1) · サムライ(1) · ミステリー・トーテム(1) · スノーフェアリー(1) · アースイーター(1) · マフィ・ギャング(1) · ナイト(1) · 逆(1) · さま(1) · さ(1) · あ(1) · よる(1) · ハイパーモード(1) · ブルー・インパルス(1) · 真実(1) · 極(1) · めよ(1) · ジョニー(1) · !(1) · 正(1) · 文(1) · 無限大(1) · 級(1) · 謎(1) · レクスターズ(1) · ゼニス(1) · エイリアン(1) · エンジェル・コマンド(1) · **(1) · ?(1) · 表(1) · 裏(1) · 者(1) · 龍(1) · そこ(1) · す(1) · 現在(1) · 支払(1) · え(1)
 
 ## 例文集（src/core/testing/abilitySamples.ts）
 
@@ -104,6 +104,22 @@ generated: 2026-11-27
   - `鬼エンド[kw] : クリーチャー[noun:creature] が[p] 攻撃する[verb:攻撃する/plain] 時[aux:when] 、 シールド[noun:shield] が[p] 1つ[count:1つ] も[p] ない[aux:not] プレイヤー[noun:player] が[p] いて[verb:いる/te] 、 自分[player:self] の[p] マナゾーン[zone:mana] に[p] 闇[civ:darkness] と[p] 火[civ:fire] 文明[stat:civilization] が[p] あれば[verb:ある/ba] 、 この[demo:this] 呪文[noun:spell] を[p] 自分[player:self] の[p] 手札[zone:hand] から[p] コスト[stat:cost] を[p] 支払わず[verb:支払う/nu] に[p] 唱えて[verb:唱える/te] もよい[aux:may] 。`
 - 自分の山札の上から４枚を墓地に置く。こうして墓地に置いたカードの中から、闇または火の、コスト６以下の、進化ではないクリーチャーを１体出す。その後、相手のクリーチャーを１体選んでもよい。その２体をバトルさせる。
   - `自分[player:self] の[p] 山札[zone:deck] の[p] 上[rel:top] から[p] 4枚[count:4枚] を[p] 墓地[zone:graveyard] に[p] 置く[verb:置く/plain] 。 こうして[demo:thisWay] 墓地[zone:graveyard] に[p] 置いた[verb:置く/ta] カード[noun:card] の[p] 中[rel:in] から[p] 、 闇[civ:darkness] または[conj:or] 火[civ:fire] の[p] 、 コスト[stat:cost] 6[num:6] 以下[cmp:<=] の[p] 、 進化[verb:進化する/stem] で[p] は[p] ない[aux:not] クリーチャー[noun:creature] を[p] 1体[count:1体] 出す[verb:出す/plain] 。 その後[conj:then] 、 相手[player:opponent] の[p] クリーチャー[noun:creature] を[p] 1体[count:1体] 選んで[verb:選ぶ/te] もよい[aux:may] 。 その[demo:that] 2体[count:2体] を[p] バトルさせる[verb:バトルする/causative] 。`
+- 相手のクリーチャー１体につき、このクリーチャーの召喚コストを１少なくする。ただし、コストは０以下にならない。
+  - `相手[player:opponent] の[p] クリーチャー[noun:creature] 1体[count:1体] につき[aux:per] 、 この[demo:this] クリーチャー[noun:creature] の[p] 召喚[verb:召喚する/stem] コスト[stat:cost] を[p] 1[num:1] 少なく[cmp:less/adv] する[verb:する/plain] 。 ただし[conj:however] 、 コスト[stat:cost] は[p] 0[num:0] 以下[cmp:<=] に[p] ならない[verb:なる/nai] 。`
+- スピードアタッカー（このクリーチャーは召喚酔いしない）
+  - `スピードアタッカー[kw] (この[demo:this] クリーチャー[noun:creature] は[p] 召喚酔い[noun:sickness] しない[verb:する/nai])`
+- T・ブレイカー（このクリーチャーはシールドを３つブレイクする）
+  - `T・ブレイカー[kw] (この[demo:this] クリーチャー[noun:creature] は[p] シールド[noun:shield] を[p] 3つ[count:3つ] ブレイクする[verb:ブレイクする/plain])`
+- このクリーチャーが出た時、相手のパワー13000以下のクリーチャーをすべて破壊する。
+  - `この[demo:this] クリーチャー[noun:creature] が[p] 出た[verb:出る/ta] 時[aux:when] 、 相手[player:opponent] の[p] パワー[stat:power] 13000[num:13000] 以下[cmp:<=] の[p] クリーチャー[noun:creature] を[p] すべて[quant:all] 破壊する[verb:破壊する/plain] 。`
+- S・トリガー
+  - `S・トリガー[kw]`
+- ブロッカー（このクリーチャーをタップして、相手クリーチャーの攻撃先をこのクリーチャーに変更してもよい）
+  - `ブロッカー[kw] (この[demo:this] クリーチャー[noun:creature] を[p] タップして[verb:タップする/te] 、 相手[player:opponent] クリーチャー[noun:creature] の[p] 攻撃[verb:攻撃する/stem] 先[noun:dest] を[p] この[demo:this] クリーチャー[noun:creature] に[p] 変更して[verb:変更する/te] もよい[aux:may])`
+- このクリーチャーが出た時、自分の山札の上から１枚目をタップして自分のマナゾーンに置き、その後、ドラゴン・クリーチャーを１体、自分のマナゾーンから手札に戻す。そのドラゴン以下のコストを持つ相手のクリーチャーを１体選び、持ち主の手札に戻す。
+  - `この[demo:this] クリーチャー[noun:creature] が[p] 出た[verb:出る/ta] 時[aux:when] 、 自分[player:self] の[p] 山札[zone:deck] の[p] 上[rel:top] から[p] 1枚目[count:1枚目] を[p] タップして[verb:タップする/te] 自分[player:self] の[p] マナゾーン[zone:mana] に[p] 置き[verb:置く/renyo] 、 その後[conj:then] 、 ドラゴン[?katakana] ・ クリーチャー[noun:creature] を[p] 1体[count:1体] 、 自分[player:self] の[p] マナゾーン[zone:mana] から[p] 手札[zone:hand] に[p] 戻す[verb:戻す/plain] 。 その[demo:that] ドラゴン[?katakana] 以下[cmp:<=] の[p] コスト[stat:cost] を[p] 持つ[verb:持つ/plain] 相手[player:opponent] の[p] クリーチャー[noun:creature] を[p] 1体[count:1体] 選び[verb:選ぶ/renyo] 、 持ち主[player:holder] の[p] 手札[zone:hand] に[p] 戻す[verb:戻す/plain] 。`
+- このクリーチャーが出た時、自分の山札の上から１枚目をタップしてマナゾーンに置く。それがドラゴンなら、自分の山札の上からさらにもう１枚、タップしてマナゾーンに置く。
+  - `この[demo:this] クリーチャー[noun:creature] が[p] 出た[verb:出る/ta] 時[aux:when] 、 自分[player:self] の[p] 山札[zone:deck] の[p] 上[rel:top] から[p] 1枚目[count:1枚目] を[p] タップして[verb:タップする/te] マナゾーン[zone:mana] に[p] 置く[verb:置く/plain] 。 それ[demo:it] が[p] ドラゴン[?katakana] なら[aux:if] 、 自分[player:self] の[p] 山札[zone:deck] の[p] 上[rel:top] から[p] さらに[conj:also] もう[adv:more] 1枚[count:1枚] 、 タップして[verb:タップする/te] マナゾーン[zone:mana] に[p] 置く[verb:置く/plain] 。`
 
 ## 未対応の能力語の文の分かれ方（design/ability-coverage.md の「未対応」）
 

@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/cards.engine.test.ts（2271行）
+# src/core/cards/cards.engine.test.ts（2301行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -43,7 +43,7 @@ generated: 2026-11-27
 - L1944 読み取り
 - L1953 エンジンで動く
 - L2076 madogu
-- L2128 読み取り
-- L2134 無月の門
-- L2193 魔導具の仲間
-- L2243 卍 新世壊 卍
+- L2130 読み取り
+- L2136 無月の門
+- L2223 魔導具の仲間
+- L2273 卍 新世壊 卍

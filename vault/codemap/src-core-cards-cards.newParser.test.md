@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/cards/cards.newParser.test.ts（685行）
+# src/core/cards/cards.newParser.test.ts（758行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -18,4 +18,4 @@ generated: 2026-11-27
 - L202 実際のカードの文
 - L266 grammar
 - L272 読み取り（textParser で手動だった文）
-- L499 エンジンで動く
+- L531 エンジンで動く

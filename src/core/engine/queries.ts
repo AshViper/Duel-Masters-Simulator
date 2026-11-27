@@ -748,6 +748,10 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       return !!source && state.cards[source]?.zone === 'battle' && !!state.cards[source].enteredByRevolution;
     case 'usedThisTurn':
       return !!state.usedThisTurn?.includes(`${controller}:${c.key}`);
+    case 'chosenMatches': {
+      const chosen = (state.lastChosen ?? []).filter((x) => state.cards[x]);
+      return chosen.length > 0 && chosen.every((x) => matchFilter(state, reg, x, c.filter, source, noPower));
+    }
   }
 }
 

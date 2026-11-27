@@ -8,7 +8,7 @@ updated: 2026-11-27
 
 ## 段階
 1. **字句解析** `src/core/cards/lexer.ts` … できた（2026-11-27）
-2. **構文解析＋効果定義への変換** `src/core/cards/grammar.ts` … 最初の版ができた（2026-11-27）。いまは **textParser で読めなかった行だけ** を読む（`parseAbilityText` の最後の受け皿。`readByGrammar`）
+2. **構文解析＋効果定義への変換** `src/core/cards/grammar.ts` … 最初の版ができた（2026-11-27）。いまは **textParser で読めなかった行と、一部だけ読めて手動の効果が残った行** を読む（`parseAbilityText` の最後の受け皿。`readByGrammar`）。grammar で全部読めたら textParser の結果を取り消して置き換える
 3. grammar で読める形を広げ、読める範囲の textParser の正規表現を消していく
 4. 既存のテスト（`src/core/cards/*.test.ts`）がすべて grammar で通るようになったら、textParser を置き換える
 

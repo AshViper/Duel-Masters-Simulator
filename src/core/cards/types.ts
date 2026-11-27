@@ -199,7 +199,9 @@ export type Condition =
   /** このクリーチャーが「革命チェンジ」で出ていた */
   | { type: 'enteredByRevolution' }
   /** このターンに、その名前の能力をすでに使っていた（「そのターン中に他の「ファイナル革命」をまだ使っていなければ」は not で包む） */
-  | { type: 'usedThisTurn'; key: string };
+  | { type: 'usedThisTurn'; key: string }
+  /** 直前に選んだ（動かした）カードが条件に合う（「自分の山札の上から1枚目をマナゾーンに置く。それがドラゴンなら、〜」） */
+  | { type: 'chosenMatches'; filter: CardFilter };
 
 /** 効果でカードを動かす先（deckTop / deckBottom は山札の上 / 下） */
 /** under: 効果の発生源（このクリーチャー）の下に置く */

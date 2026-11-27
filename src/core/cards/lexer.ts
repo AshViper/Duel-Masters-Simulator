@@ -39,7 +39,7 @@ export type NounWord =
   | 'creature' | 'spell' | 'card' | 'shield' | 'element' | 'dragheart' | 'weapon' | 'fortress' | 'crossgear' | 'field' | 'd2field'
   | 'tamaseed' | 'aura' | 'castle' | 'evolution' | 'psychic' | 'gr' | 'player' | 'turn' | 'game' | 'battle' | 'ability' | 'effect'
   | 'number' | 'amount' | 'total' | 'kind' | 'faceUp' | 'faceDown' | 'seal' | 'breaker' | 'evolutionSource' | 'twin' | 'side' | 'way'
-  | 'mana' | 'order' | 'condition' | 'dest' | 'need';
+  | 'mana' | 'order' | 'condition' | 'dest' | 'need' | 'sickness';
 export type StatWord = 'cost' | 'power' | 'name' | 'civilization' | 'race';
 export type CompareWord = '>=' | '<=' | '<' | '>' | 'more' | 'less' | 'big' | 'small' | 'most' | 'same' | 'different' | 'except';
 export type QuantWord = 'all' | 'any' | 'either' | 'each' | 'every' | 'whichever';
@@ -101,7 +101,7 @@ const NOUNS: [string, NounWord][] = [
   ['ゲーム', 'game'], ['バトル', 'battle'], ['能力', 'ability'], ['効果', 'effect'], ['数字', 'number'], ['枚数', 'amount'], ['数', 'amount'],
   ['合計', 'total'], ['種類', 'kind'], ['表向き', 'faceUp'], ['裏向き', 'faceDown'], ['封印', 'seal'], ['ブレイカー', 'breaker'],
   ['進化元', 'evolutionSource'], ['ツインパクト', 'twin'], ['側', 'side'], ['ほう', 'side'], ['方法', 'way'], ['マナ', 'mana'],
-  ['順序', 'order'], ['順番', 'order'], ['条件', 'condition'], ['先', 'dest'], ['場所', 'dest'], ['必要', 'need'],
+  ['順序', 'order'], ['順番', 'order'], ['条件', 'condition'], ['先', 'dest'], ['場所', 'dest'], ['必要', 'need'], ['召喚酔い', 'sickness'],
 ];
 const STATS: [string, StatWord][] = [['コスト', 'cost'], ['パワー', 'power'], ['名前', 'name'], ['文明', 'civilization'], ['種族', 'race']];
 const CIVS: [string, Civilization | 'multi' | 'mono' | 'colorless'][] = [

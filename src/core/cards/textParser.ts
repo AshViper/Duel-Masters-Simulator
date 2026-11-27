@@ -2273,8 +2273,10 @@ export function parseAbilityText(text: string, kind: 'creature' | 'spell' | 'oth
         ok = true;
       }
     }
-    // 今の読み取りで読めなかった行は、語の組み立て（grammar.ts）で読む。読めたら、手動処理として入れたものを取り消す
-    if (!ok) {
+    // 今の読み取りで読めなかった行・一部が手動のまま残った行は、語の組み立て（grammar.ts）で読む。
+    // 全部読めたら、手動処理として入れたものを取り消して置き換える
+    const partial = ok && JSON.stringify(result.abilities.slice(before.abilities)).includes('"type":"manual"');
+    if (!ok || partial) {
       const g = readByGrammar(line, options, kind);
       if (g) {
         restore(result, before);
@@ -2296,6 +2298,7 @@ function readByGrammar(line: string, options: string[], kind: 'creature' | 'spel
 }
 
 function mergeGrammar(out: ParsedAbilities, g: NonNullable<ReturnType<typeof parseByGrammar>>): void {
+  if (g.selfCost) out.selfCost = g.selfCost;
   Object.assign(out.keywords, g.keywords);
   out.abilities.push(...g.abilities);
   out.statics.push(...g.statics);

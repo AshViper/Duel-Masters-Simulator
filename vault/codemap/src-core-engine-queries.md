@@ -2,7 +2,7 @@
 tags: [codemap, generated]
 generated: 2026-11-27
 ---
-# src/core/engine/queries.ts（994行）
+# src/core/engine/queries.ts（998行）
 
 > 自動生成（`npm run codemap`）。手で編集しない。行番号は生成時点のもの。ずれていたら再生成するか grep で確かめる。
 
@@ -62,32 +62,32 @@ generated: 2026-11-27
 - L649 **export** fn `targetCandidates`
 - L674 **export** fn `countQuantity`
 - L684 **export** fn `evalCondition`
-- L758 fn `simpleSpec`
-- L763 **export** fn `multiEvolveSpec`
-- L768 **export** fn `evolveSourceCandidates`
-- L781 **export** fn `validEvolveSources`
-- L791 **export** fn `defaultEvolveSources`
-- L804 **export** fn `evolutionBases`
-- L820 fn `matchesEvolvesFrom`
-- L828 **export** fn `canBeEvolutionSource`
-- L841 **export** fn `choosePayment`
-- L848 **export** fn `payMana`
-- L871 fn `assignCivs`
-- L889 **export** fn `altCost`
-- L898 **export** fn `altPayment`
-- L903 **export** fn `altUsable`
-- L917 **export** fn `canPlayAlt`
-- L925 **export** fn `fushigiCandidates`
-- L929 **export** fn `canPlay`
-- L933 fn `canPlayImpl`
-- L953 **export** fn `untappedManaCount`
-- L957 **export** fn `isIdle`
-- L961 **export** fn `instancesIn`
-- L966 **export** fn `attackSwapCandidates`
-- L990 **export** fn `sClassCards`
+- L762 fn `simpleSpec`
+- L767 **export** fn `multiEvolveSpec`
+- L772 **export** fn `evolveSourceCandidates`
+- L785 **export** fn `validEvolveSources`
+- L795 **export** fn `defaultEvolveSources`
+- L808 **export** fn `evolutionBases`
+- L824 fn `matchesEvolvesFrom`
+- L832 **export** fn `canBeEvolutionSource`
+- L845 **export** fn `choosePayment`
+- L852 **export** fn `payMana`
+- L875 fn `assignCivs`
+- L893 **export** fn `altCost`
+- L902 **export** fn `altPayment`
+- L907 **export** fn `altUsable`
+- L921 **export** fn `canPlayAlt`
+- L929 **export** fn `fushigiCandidates`
+- L933 **export** fn `canPlay`
+- L937 fn `canPlayImpl`
+- L957 **export** fn `untappedManaCount`
+- L961 **export** fn `isIdle`
+- L965 **export** fn `instancesIn`
+- L970 **export** fn `attackSwapCandidates`
+- L994 **export** fn `sClassCards`
 
 ## switch の case（`ラベル:行`）
 
 ### evalCondition
-not:686 · and:688 · or:690 · compare:692 · attackedThisTurn:697 · selfIsEvolution:699 · summonedThisTurn:705 · castThisTurn:707 · chosenDistinctNames:709 · didNot:713 · enteredFreeThisTurn:715 · firstAttackThisTurn:717 · crossed:719 · selfTapped:723 · wonBattleThisTurn:725 · selfEnteredThisTurn:727 · subjectEnteredFree:729 · enteredThisTurn:731 · underCount:735 · opponentTurn:737 · inExtraTurn:739 · shieldsBrokenThisTurn:741 · playedFreeThisTurn:743 · enteredByRevolution:747 · usedThisTurn:749
+not:686 · and:688 · or:690 · compare:692 · attackedThisTurn:697 · selfIsEvolution:699 · summonedThisTurn:705 · castThisTurn:707 · chosenDistinctNames:709 · didNot:713 · enteredFreeThisTurn:715 · firstAttackThisTurn:717 · crossed:719 · selfTapped:723 · wonBattleThisTurn:725 · selfEnteredThisTurn:727 · subjectEnteredFree:729 · enteredThisTurn:731 · underCount:735 · opponentTurn:737 · inExtraTurn:739 · shieldsBrokenThisTurn:741 · playedFreeThisTurn:743 · enteredByRevolution:747 · usedThisTurn:749 · chosenMatches:751
 

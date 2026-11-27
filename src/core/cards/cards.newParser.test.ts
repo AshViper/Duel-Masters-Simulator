@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { applyAction, Ctx } from '../engine/engine';
-import { evalCondition, keywords } from '../engine/queries';
+import { effectiveCost, evalCondition, keywords } from '../engine/queries';
 import { createGame } from '../engine/setup';
 import type { Action, GameState, PlayerId } from '../engine/types';
 import { ABILITY_SAMPLES, SAMPLE_RACES } from '../testing/abilitySamples';
@@ -430,6 +430,32 @@ describe('読み取り（textParser で手動だった文）', () => {
     ]);
   });
 
+  it('自分の召喚コストを「〜1体につき」少なくする（「につき」が文の頭）', () => {
+    expect(cr('相手のクリーチャー１体につき、このクリーチャーの召喚コストを１少なくする。ただし、コストは０以下にならない。').selfCost).toEqual({
+      amount: 1,
+      per: { who: 'opponent', zone: 'battle' },
+      unit: 1,
+      min: 1,
+    });
+  });
+
+  it('山札の上からマナに置き、その後マナからドラゴンを戻し、そのドラゴン以下のコストの相手のクリーチャーを戻す', () => {
+    const p = cr('このクリーチャーが出た時、自分の山札の上から１枚目をタップして自分のマナゾーンに置き、その後、ドラゴン・クリーチャーを１体、自分のマナゾーンから手札に戻す。そのドラゴン以下のコストを持つ相手のクリーチャーを１体選び、持ち主の手札に戻す。');
+    expect(p.manualLines).toEqual([]);
+    expect(p.abilities[0].effects).toEqual([
+      { type: 'deckTopTo', count: 1, to: 'mana', tapped: true },
+      { type: 'move', target: { owner: 'self', zone: 'mana', count: 1, filter: { race: 'ドラゴン', cardType: 'creature' } }, to: 'hand' },
+      { type: 'move', target: { owner: 'opponent', zone: 'battle', count: 1, filter: { refCost: 'le' } }, to: 'hand' },
+    ]);
+  });
+
+  it('「それがドラゴンなら、さらにもう1枚」：直前に置いたカードの条件', () => {
+    expect(cr('このクリーチャーが出た時、自分の山札の上から１枚目をタップしてマナゾーンに置く。それがドラゴンなら、自分の山札の上からさらにもう１枚、タップしてマナゾーンに置く。').abilities[0].effects).toEqual([
+      { type: 'deckTopTo', count: 1, to: 'mana', tapped: true },
+      { type: 'conditional', condition: { type: 'chosenMatches', filter: { race: 'ドラゴン' } }, then: [{ type: 'deckTopTo', count: 1, to: 'mana', tapped: true }] },
+    ]);
+  });
+
   it('意味の分からないアイコンの付いた行は読まない', () => {
     expect(cr('{l} 自分のターンの終わりに、このクリーチャーをアンタップする。').manualLines).toHaveLength(1);
   });
@@ -467,6 +493,12 @@ const C = {
   cry: mk('g-c9', ['CRY-S-MAX進化：自分がゲームに負ける時またはこのクリーチャーが離れる時、かわりに自分の表向きのカードを３枚破壊するか、自分のシールドを１つ墓地に置いてもよい。（このクリーチャーは進化元を必要としない。自分のS-MAX進化クリーチャーが２体以上あれば、そのうちの１体を残し、残りをすべて手札に戻す）']),
   finalRev: mk('g-c10', ['ファイナル革命：このクリーチャーが「革命チェンジ」によってバトルゾーンに出た時、そのターン中に他の「ファイナル革命」をまだ使っていなければ、自分の山札の上から４枚を表向きにする。その中から進化ではない多色クリーチャーを、コストの合計が６以下になるように好きな数選び、バトルゾーンに出す。残りを好きな順序で山札の下に置く。']),
   multi: mk('g-m', [], { civ: '火/自然', cost: '3' }),
+  costDown: mk('g-c12', ['相手のクリーチャー１体につき、このクリーチャーの召喚コストを１少なくする。ただし、コストは０以下にならない。'], { cost: '7' }),
+  bounceByDragon: mk('g-c13', ['このクリーチャーが出た時、自分の山札の上から１枚目をタップして自分のマナゾーンに置き、その後、ドラゴン・クリーチャーを１体、自分のマナゾーンから手札に戻す。そのドラゴン以下のコストを持つ相手のクリーチャーを１体選び、持ち主の手札に戻す。']),
+  rampDragon: mk('g-c14', ['このクリーチャーが出た時、自分の山札の上から１枚目をタップしてマナゾーンに置く。それがドラゴンなら、自分の山札の上からさらにもう１枚、タップしてマナゾーンに置く。']),
+  dragon5: mk('g-d5', [], { race: 'アーマード・ドラゴン', cost: '5' }),
+  cost3: mk('g-v3', [], { cost: '3' }),
+  cost7: mk('g-v7', [], { cost: '7' }),
   kaiser: mk('g-c11', ['相手のターンの終わりに、相手がそのターン中、マナゾーンのカードをタップせずに、クリーチャーを出すか呪文を唱えていて、バトルゾーンに自分の 《流星のガイアッシュ・カイザー》がなければ、このクリーチャーをコストを支払わずに召喚してもよい。']),
 };
 const reg = buildRegistry([...SAMPLE_CARDS, ...Object.values(C)]);
@@ -679,6 +711,47 @@ describe('エンジンで動く', () => {
     // 同じターンの2回目は使えない
     s = runTask(s, { kind: 'enterBattle', player: 0, iid: put(s, 0, C.finalRev.id, 'hand'), byRevolution: true });
     expect(s.pending).toBeNull();
+  });
+
+  it('相手のクリーチャー1体につき召喚コストが1少なくなる（1より少なくならない）', () => {
+    const s = newGame();
+    const c = put(s, 0, C.costDown.id, 'hand');
+    expect(effectiveCost(s, reg, 0, c)).toBe(7);
+    put(s, 0, C.vanilla.id, 'battle');
+    put(s, 1, C.vanilla.id, 'battle');
+    put(s, 1, C.vanilla.id, 'battle');
+    expect(effectiveCost(s, reg, 0, c)).toBe(5);
+    for (let i = 0; i < 8; i++) put(s, 1, C.vanilla.id, 'battle');
+    expect(effectiveCost(s, reg, 0, c)).toBe(1);
+  });
+
+  it('マナからドラゴンを手札に戻し、そのドラゴン以下のコストの相手のクリーチャーを戻す', () => {
+    let s = newGame();
+    const drg = put(s, 0, C.dragon5.id, 'mana');
+    const small = put(s, 1, C.cost3.id, 'battle');
+    const large = put(s, 1, C.cost7.id, 'battle');
+    const mana = zone(s, 0, 'mana');
+    s = act(s, { type: 'PLAY_CARD', player: 0, iid: put(s, 0, C.bounceByDragon.id, 'hand') });
+    // マナに1枚置いてドラゴンを1枚戻すので、マナの枚数は変わらない
+    expect(zone(s, 0, 'mana')).toBe(mana);
+    expect(s.cards[drg].zone).toBe('hand');
+    expect(s.cards[small].zone).toBe('hand');
+    expect(s.cards[large].zone).toBe('battle');
+  });
+
+  it('山札の上をマナに置き、それがドラゴンならもう1枚置く', () => {
+    const run = (topId: string) => {
+      let s = newGame();
+      const top = put(s, 0, topId, 'deck');
+      const deck = s.players[0].zones.deck;
+      deck.splice(deck.indexOf(top), 1);
+      deck.push(top);
+      const mana = zone(s, 0, 'mana');
+      s = act(s, { type: 'PLAY_CARD', player: 0, iid: put(s, 0, C.rampDragon.id, 'hand') });
+      return zone(s, 0, 'mana') - mana;
+    };
+    expect(run(C.dragon5.id)).toBe(2);
+    expect(run(C.vanilla.id)).toBe(1);
   });
 });
 });
