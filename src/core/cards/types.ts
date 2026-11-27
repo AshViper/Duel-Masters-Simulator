@@ -238,6 +238,8 @@ export type Condition =
   | { type: 'civsInBattle'; min: number }
   /** シールド・フォースで選んだシールドが、まだシールドゾーンにある */
   | { type: 'shieldForce' }
+  /** このクリーチャーがG・リンクしている */
+  | { type: 'godLinked' }
   /** このクリーチャーのパワーを比べる（「そのパワーが0より大きければ」） */
   | { type: 'selfPower'; op: '>' | '>=' | '<='; value: number }
   /** このクリーチャーがタップしている */
@@ -477,6 +479,10 @@ export type EffectDef =
   | { type: 'shieldForce' }
   /** 自分の墓地にあるカードすべてと、マナゾーンにあるカードすべてを入れ替える */
   | { type: 'swapGraveMana' }
+  /** G・リンク：このクリーチャーを、つながる自分のゴッドにリンクしてもよい */
+  | { type: 'godLink' }
+  /** ゴッドのリンクをすべて外す（who: そのゴッドの持ち主） */
+  | { type: 'godUnlink'; who: 'self' | 'opponent' | 'any' }
   /** このターンの終わりに effects を行う（「このターンの終わりに、自分のクリーチャーを1体破壊する」） */
   | { type: 'atTurnEnd'; effects: EffectDef[] }
   /**
@@ -867,6 +873,10 @@ export interface Keywords {
   dynamo?: boolean;
   /** この呪文を唱えられなくする効果を無視する */
   ignoreCastLocksSelf?: boolean;
+  /** G・リンク：出す時、つながるゴッドにリンクしてもよい（左・右・中央） */
+  gLink?: 'left' | 'right' | 'center';
+  /** シールドをさらに N 枚ブレイクする（「このクリーチャーがリンクしていれば、シールドをさらに1枚ブレイクする」） */
+  extraBreak?: number;
   /** 相手のターンに手札から捨てられる時、墓地に置くかわりにバトルゾーンに出す（may: 出してもよい） */
   discardToBattle?: 'always' | 'may';
 }

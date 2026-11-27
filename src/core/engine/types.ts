@@ -58,6 +58,8 @@ export interface CardInstance {
   formerUnder?: string[];
   /** 破壊されたターン */
   destroyedTurn?: number;
+  /** G・リンクしているゴッド（このカードが1体のクリーチャーの代表。ここに入ったカードはバトルゾーンの一覧に入らない） */
+  godLinks?: string[];
   /** バトルゾーンに出る前にあったゾーン（「手札以外から出た時」「墓地から出した時」） */
   enteredFrom?: ZoneName;
   /** 「革命チェンジ」で出た */
@@ -200,7 +202,8 @@ export type Task =
   /** paid: マナゾーンのカードをタップして唱えた */
   | { kind: 'castSpell'; player: PlayerId; iid: string; side: 'main' | 'twin'; after?: 'deckBottom' | 'hand'; paid?: boolean }
   /** summoned: 召喚で出る（効果で「出す」のではない） */
-  | { kind: 'enterBattle'; player: PlayerId; iid: string; evolveFrom?: string[]; evolveDeck?: { count: number; creatureOnly?: boolean }; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; paid?: boolean; byRevolution?: boolean; equipTo?: string; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
+  /** godLinkTo: G・リンクするゴッド（'' はリンクしない。未定なら出る前に選ぶ） */
+  | { kind: 'enterBattle'; godLinkTo?: string; player: PlayerId; iid: string; evolveFrom?: string[]; evolveDeck?: { count: number; creatureOnly?: boolean }; evolveOn?: string; tapped?: boolean; replaceAttacker?: boolean; summoned?: boolean; paid?: boolean; byRevolution?: boolean; equipTo?: string; endOfTurn?: 'destroy' | 'deckBottom' | 'deckBottomDraw'; grant?: { keywords: Keywords; untilNextTurn?: boolean; by: PlayerId } }
   /** 呪文を解決し終えたら墓地へ */
   | { kind: 'spellToGrave'; iid: string; side?: 'main' | 'twin'; after?: 'deckBottom' | 'hand' }
   | { kind: 'hyperize'; player: PlayerId; iid: string }

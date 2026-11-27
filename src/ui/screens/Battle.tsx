@@ -305,6 +305,10 @@ export function BattleScreen() {
         badge={
           inst.seals?.length ? (
             <span className="under-badge seal-badge" title="封印されている間、両プレイヤーはこのカードを無視する">封印 ×{inst.seals.length}</span>
+          ) : inst.godLinks?.length ? (
+            <span className="under-badge" title={`G・リンク：${[iid, ...inst.godLinks].map((x) => registry[g.cards[x].cardId]?.name).join('・')}`}>
+              リンク +{inst.godLinks.length}
+            </span>
           ) : inst.under.length > 0 ? (
             <span className="under-badge">{inst.zone === 'shield' ? `束 +${inst.under.length}` : `進化 +${inst.under.length}`}</span>
           ) : inst.equippedTo && g.cards[inst.equippedTo] ? (

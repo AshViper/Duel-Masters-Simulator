@@ -54,7 +54,36 @@ export function def(state: GameState, reg: CardRegistry, iid: string): CardDefin
     const souls = inst.under.map((u) => state.cards[u] && reg[state.cards[u].cardId]).filter((u): u is CardDefinition => !!u?.soul);
     if (souls.length) return withSurvivors(state, reg, iid, withSouls(base, souls));
   }
+  if (inst.zone === 'battle' && inst.godLinks?.length) return withSurvivors(state, reg, iid, withGodLinks(base, inst.godLinks.map((x) => state.cards[x] && reg[state.cards[x].cardId]).filter((x): x is CardDefinition => !!x)));
   return inst.zone === 'battle' ? withSurvivors(state, reg, iid, base) : base;
+}
+
+const godCache = new WeakMap<CardDefinition, Map<string, CardDefinition>>();
+/** G・リンクしたゴッド：パワーを足し、能力・種族・文明をすべて持つ1体のクリーチャー */
+function withGodLinks(d: CardDefinition, gods: CardDefinition[]): CardDefinition {
+  const key = gods.map((x) => x.id).join('|');
+  let m = godCache.get(d);
+  if (!m) godCache.set(d, (m = new Map()));
+  let out = m.get(key);
+  if (!out) {
+    out = { ...d, name: [d, ...gods].map((x) => x.name).join('＋'), power: [d, ...gods].reduce((a, x) => a + (x.power ?? 0), 0) };
+    for (const x of gods) {
+      out.keywords = mergeKeywords(out.keywords ?? {}, x.keywords);
+      out.abilities = [...(out.abilities ?? []), ...(x.abilities ?? [])];
+      out.statics = [...(out.statics ?? []), ...(x.statics ?? [])];
+      out.replacements = [...(out.replacements ?? []), ...(x.replacements ?? [])];
+      out.races = [...new Set([...out.races, ...x.races])];
+      out.civilizations = [...new Set([...out.civilizations, ...x.civilizations])];
+    }
+    m.set(key, out);
+  }
+  return out;
+}
+
+/** G・リンクの種類（このカードと、リンクしているゴッドのもの） */
+export function godLinkKinds(state: GameState, reg: CardRegistry, iid: string): Array<'left' | 'right' | 'center'> {
+  const inst = state.cards[iid];
+  return [iid, ...(inst?.godLinks ?? [])].map((x) => reg[state.cards[x]?.cardId]?.keywords?.gLink).filter((k): k is 'left' | 'right' | 'center' => !!k);
 }
 
 const psychicCache = new WeakMap<CardDefinition, CardDefinition>();
@@ -437,6 +466,8 @@ export function breakerCount(state: GameState, reg: CardRegistry, iid: string): 
   for (const a of activeStatics(state, reg)) {
     if (a.static.type === 'breakerBonus' && a.source === iid) base += a.static.amount * Math.floor(countQuantity(state, reg, a.controller, a.static.perCount, true, iid) / a.static.unit);
   }
+  // 「シールドをさらに1枚ブレイクする」
+  base += kw.extraBreak ?? 0;
   // 「パワーが6000以上の時、「W・ブレイカー」を得る」
   if (kw.breakerAtPower && power(state, reg, iid) >= kw.breakerAtPower.min) base = Math.max(base, kw.breakerAtPower.breaker);
   // パワード・ブレイカー：パワー6000ごとに1つ多くブレイクする
@@ -850,6 +881,8 @@ export function evalCondition(state: GameState, reg: CardRegistry, controller: P
       if (c.notFrom && inst.enteredFrom && c.notFrom.includes(inst.enteredFrom)) return false;
       return true;
     }
+    case 'godLinked':
+      return !!source && !!state.cards[source]?.godLinks?.length;
     case 'shieldForce': {
       const sf = source ? state.cards[source]?.shieldForce : undefined;
       return !!sf && state.cards[sf]?.zone === 'shield';

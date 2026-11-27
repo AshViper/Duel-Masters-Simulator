@@ -30,6 +30,7 @@ import {
   blockersFor,
   cannotLeaveNow,
   canTapAbility,
+  godLinkKinds,
   handProtected,
   gearsOn,
   cannotLose,
@@ -1054,6 +1055,19 @@ export class Ctx {
         const inst = s.cards[task.iid];
         if (!inst || inst.zone === 'battle') return false;
         const fromZone = inst.zone;
+        // G・リンク：出す時、つながる自分のゴッドを選ぶ（リンクしなくてもよい）
+        if (task.godLinkTo === undefined && this.reg[inst.cardId]?.keywords?.gLink && !task.evolveOn && !task.evolveFrom) {
+          const heads = this.godLinkHeads(task.player, task.iid);
+          if (!heads.length) task.godLinkTo = '';
+          else {
+            const r = this.takeResponse();
+            if (!r) {
+              s.pending = { kind: 'selectCards', player: task.player, source: task.iid, prompt: `${this.name(task.iid)}：G・リンクするゴッドを選んでください（リンクしないなら何も選ばない）`, candidates: heads, min: 0, max: 1, harmful: false };
+              return true;
+            }
+            task.godLinkTo = r.selected?.[0] && heads.includes(r.selected[0]) ? r.selected[0] : '';
+          }
+        }
         // オーラ：付ける自分のクリーチャーを選ぶ（いなければ墓地へ）
         if (isAura(this.reg[inst.cardId]) && !task.equipTo) {
           const hosts = battleCards(s, this.reg, task.player);
@@ -1251,7 +1265,7 @@ export class Ctx {
               }
             }
           }
-          if (task.equipTo && s.cards[task.equipTo]?.zone === 'battle') {
+        if (task.equipTo && s.cards[task.equipTo]?.zone === 'battle') {
             inst.equippedTo = task.equipTo;
             this.log(`${enteredDef.name} を ${this.name(task.equipTo)} に${isAura(enteredDef) ? '付けた' : '装備した'}`, task.player);
             // 「これをクリーチャーに付けた時」
@@ -1266,6 +1280,8 @@ export class Ctx {
           this.triggerFrom(task.iid, 'onSummon');
           return false;
         }
+        // G・リンク：選んだゴッドとリンクして1体になる（出た時の能力はこの後）
+        if (task.godLinkTo && s.cards[task.godLinkTo]?.zone === 'battle') this.linkGod(task.godLinkTo, task.iid, task.player);
         this.emit({ type: 'CREATURE_SUMMONED', player: task.player, iid: task.iid, ...(task.summoned ? { summoned: true } : {}) });
         return false;
       }
@@ -1799,6 +1815,29 @@ export class Ctx {
     this.triggerFrom(host, 'onCrossed');
   }
 
+  /** G・リンク：このカードがつながる自分のゴッド（左は中央か右に、右は中央か左に、中央は左か右に。同じ種類はひとつまで） */
+  private godLinkHeads(player: PlayerId, iid: string): string[] {
+    const s = this.s;
+    const kind = this.reg[s.cards[iid].cardId]?.keywords?.gLink;
+    if (!kind) return [];
+    return battleCards(s, this.reg, player).filter((h) => {
+      if (h === iid) return false;
+      const kinds = godLinkKinds(s, this.reg, h);
+      if (!kinds.length || kinds.includes(kind)) return false;
+      return kind === 'center' ? kinds.some((k) => k !== 'center') : kinds.some((k) => k === 'center' || k !== kind);
+    });
+  }
+
+  /** G・リンク：god を head のゴッドにリンクして1体のクリーチャーにする */
+  private linkGod(head: string, god: string, player: PlayerId): void {
+    const s = this.s;
+    const bz = s.players[s.cards[god].owner].zones.battle;
+    const at = bz.indexOf(god);
+    if (at >= 0) bz.splice(at, 1);
+    s.cards[head].godLinks = [...(s.cards[head].godLinks ?? []), god];
+    this.log(`G・リンク：${this.reg[s.cards[god].cardId].name} が ${this.reg[s.cards[head].cardId].name} にリンクした`, player);
+  }
+
   /** 「可能なら毎ターン攻撃する」クリーチャーが攻撃できるうちは、攻撃を終われない */
   private checkForcedAttack(player: PlayerId): void {
     const forced = forcedAttackers(this.s, this.reg, player);
@@ -1809,6 +1848,35 @@ export class Ctx {
     const s = this.s;
     const inst = s.cards[task.iid];
     if (!inst || inst.zone !== 'battle') return false;
+    // G・リンクしたゴッド：離れるのはその中の1枚だけ（持ち主が選ぶ）。残りはバトルゾーンに残る
+    if (inst.godLinks?.length) {
+      const group = [task.iid, ...inst.godLinks];
+      const r = this.takeResponse();
+      if (!r) {
+        s.pending = { kind: 'selectCards', player: inst.owner, source: task.iid, prompt: 'リンクしているゴッドが離れる時、離れる1枚を選んでください', candidates: group, min: 1, max: 1, harmful: false, reveal: true };
+        return true;
+      }
+      const pick = r.selected?.[0] && group.includes(r.selected[0]) ? r.selected[0] : task.iid;
+      const bz = s.players[inst.owner].zones.battle;
+      const rest = group.filter((x) => x !== pick);
+      const newHead = rest[0];
+      const at = bz.indexOf(task.iid);
+      // 残ったゴッドを1体にまとめ直す（代表が離れる時は、残りの先頭が代表になる）
+      if (pick === task.iid) {
+        bz.splice(at + 1, 0, newHead);
+        s.cards[newHead].tapped = inst.tapped;
+        s.cards[newHead].enteredTurn = inst.enteredTurn;
+        if (rest.length > 1) s.cards[newHead].godLinks = rest.slice(1);
+        delete inst.godLinks;
+      } else {
+        inst.godLinks = inst.godLinks.filter((x) => x !== pick);
+        if (!inst.godLinks.length) delete inst.godLinks;
+        bz.splice(at + 1, 0, pick);
+        s.cards[pick].tapped = inst.tapped;
+      }
+      this.insertFront({ ...task, iid: pick });
+      return false;
+    }
     // 「このクリーチャーは離れない」「破壊以外の方法で離れない」
     if (cannotLeaveNow(s, this.reg, task.iid, task.cause === 'destroy')) {
       this.log(`${this.name(task.iid)} はバトルゾーンを離れない`, inst.owner);
@@ -2687,6 +2755,39 @@ export class Ctx {
         }
         this.log(`${this.name(iid)} の能力を使う`, controller);
         this.insertFront(...this.abilityTasks({ ...ab, condition: undefined }, controller, iid));
+        return false;
+      }
+      case 'godLink': {
+        const me = s.cards[source];
+        if (!me || me.zone !== 'battle' || me.godLinks?.length) return false;
+        const heads = this.godLinkHeads(controller, source);
+        if (!heads.length) return false;
+        const r = this.takeResponse();
+        if (!r) {
+          s.pending = { kind: 'selectCards', player: controller, source, prompt: `${this.name(source)}：G・リンクするゴッドを選んでください（リンクしないなら何も選ばない）`, candidates: heads, min: 0, max: 1, harmful: false };
+          return true;
+        }
+        const head = r.selected?.[0];
+        if (!head || !heads.includes(head)) return false;
+        this.linkGod(head, source, controller);
+        return false;
+      }
+      case 'godUnlink': {
+        for (const p of [0, 1] as PlayerId[]) {
+          if (e.who !== 'any' && (e.who === 'self') !== (p === controller)) continue;
+          for (const h of [...s.players[p].zones.battle]) {
+            const cells = s.cards[h].godLinks;
+            if (!cells?.length) continue;
+            delete s.cards[h].godLinks;
+            const bz = s.players[p].zones.battle;
+            let at = bz.indexOf(h) + 1;
+            for (const c of cells) {
+              s.cards[c].tapped = s.cards[h].tapped;
+              bz.splice(at++, 0, c);
+            }
+            this.log(`${this.name(h)} のG・リンクを外した`, controller);
+          }
+        }
         return false;
       }
       case 'swapGraveMana': {

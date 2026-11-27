@@ -1535,6 +1535,9 @@ const C = {
   waterSpell3: mk('b-182', ['カードを１枚引く。'], { type: '呪文', power: '', civ: '水', cost: '3' }),
   buffDebuff: mk('b-183', ['このクリーチャーがバトルゾーンに出た時、他のクリーチャーを１体選ぶ。そのターン、そのクリーチャーはパワーを+2000され、相手プレイヤーを攻撃できない。']),
   darkC: mk('b-184', [], { civ: '闇' }),
+  godLeft: mk('b-190', ['W・ブレイカー', '左G・リンク（このクリーチャーをバトルゾーンに出す時、「中央G・リンク」または「右G・リンク」を持つゴッドの左側にリンクしてもよい。リンクしたゴッドは、各ゴッドの特性〔パワーや能力〕をすべて持つ１体のクリーチャーとなる。バトルゾーンを離れる時は、その中の１枚を選ぶ）', 'このクリーチャーがリンクしていれば、シールドをさらに１枚ブレイクする。'], { power: '7000', race: 'ゴッド・ノヴァ' }),
+  godRight: mk('b-191', ['ブロッカー', '右G・リンク（このクリーチャーをバトルゾーンに出す時、「中央G・リンク」または「左G・リンク」を持つゴッドの右側にリンクしてもよい。リンクしたゴッドは、各ゴッドの特性〔パワーや能力〕をすべて持つ１体のクリーチャーとなる。バトルゾーンを離れる時は、その中の１枚を選ぶ）'], { power: '6000', race: 'ゴッド・ノヴァ' }),
+  godBreaker: spell('b-192', ['相手のゴッドのリンクを無限の数、外す。']),
   discardJump: mk('b-117', ['相手のターンにこのクリーチャーが自分の手札から捨てられる時、墓地に置くかわりに出す。']),
   reanimSelf: mk('b-110', ['このクリーチャーが破壊された時、相手の手札が１枚もなければ、このクリーチャーを自分の墓地から出してもよい。']),
   kinDraw: mk('b-95', ['クロスギア', 'これをクロスしたクリーチャーと同じ種族のクリーチャーが攻撃する時、カードを１枚引いてもよい。'], { type: 'クロスギア', power: '' }),
@@ -2326,6 +2329,64 @@ describe('墓地からターンのはじめに出る・呪文を唱えた時・�
     s = resolve(play(s, C.buffDebuff.id).s, (c) => (c.includes(v) ? [v] : c.slice(0, 1)));
     expect(power(s, reg, v)).toBe(7000);
     expect(keywords(s, reg, v).cannotAttackPlayers).toBe(true);
+  });
+});
+
+describe('G・リンク', () => {
+  const resolve = (s: GameState, pick?: (cands: string[]) => string[]): GameState => {
+    let guard = 0;
+    while (s.pending && guard++ < 20) {
+      const p = s.pending;
+      if (p.kind === 'confirm') s = act(s, { type: 'RESPOND', player: p.player, accept: true });
+      else if (p.kind === 'selectCards') s = act(s, { type: 'RESPOND', player: p.player, selected: pick ? pick(p.candidates) : p.candidates.slice(0, Math.max(p.min, 1)) });
+      else s = act(s, { type: 'RESPOND', player: p.player, selected: ['0'] });
+    }
+    return s;
+  };
+  it('左と右のゴッドがリンクして1体になり、パワーと能力を合わせ持つ', () => {
+    let s = newGame();
+    const right = put(s, 0, C.godRight.id, 'battle');
+    const r = play(s, C.godLeft.id);
+    s = resolve(r.s);
+    expect(battleCards(s, reg, 0)).toEqual([right]);
+    expect(s.cards[right].godLinks).toEqual([r.iid]);
+    expect(power(s, reg, right)).toBe(13000);
+    expect(keywords(s, reg, right).blocker).toBe(true);
+    // W・ブレイカー＋リンクしていれば1枚多く
+    expect(breakerCount(s, reg, right)).toBe(3);
+  });
+  it('リンクしないことも選べる', () => {
+    let s = newGame();
+    const right = put(s, 0, C.godRight.id, 'battle');
+    const r = play(s, C.godLeft.id);
+    s = resolve(r.s, () => []);
+    expect(battleCards(s, reg, 0).sort()).toEqual([right, r.iid].sort());
+  });
+  it('離れる時はその中の1枚だけが離れ、残りはバトルゾーンに残る', () => {
+    let s = newGame();
+    const right = put(s, 1, C.godRight.id, 'battle');
+    const left = put(s, 1, C.godLeft.id, 'hand');
+    // 相手（1）のゴッドを効果で出してリンクさせる
+    s.queue.push({ kind: 'enterBattle', player: 1, iid: left });
+    new Ctx(s, reg).run();
+    s = resolve(s);
+    expect(s.cards[right].godLinks).toEqual([left]);
+    // 破壊する：右のゴッドだけが離れる
+    s = resolve(play(s, C.killOneOpp.id).s, (c) => (c.includes(right) ? [right] : c.slice(0, 1)));
+    expect(s.cards[right].zone).toBe('graveyard');
+    expect(s.cards[left].zone).toBe('battle');
+    expect(battleCards(s, reg, 1)).toEqual([left]);
+  });
+  it('相手のゴッドのリンクを外す', () => {
+    let s = newGame();
+    const right = put(s, 1, C.godRight.id, 'battle');
+    const left = put(s, 1, C.godLeft.id, 'hand');
+    s.queue.push({ kind: 'enterBattle', player: 1, iid: left });
+    new Ctx(s, reg).run();
+    s = resolve(s);
+    s = resolve(play(s, C.godBreaker.id).s);
+    expect(s.cards[right].godLinks).toBeUndefined();
+    expect(battleCards(s, reg, 1).sort()).toEqual([right, left].sort());
   });
 });
 

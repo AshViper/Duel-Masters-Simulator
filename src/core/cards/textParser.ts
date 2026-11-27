@@ -383,6 +383,8 @@ const KEYWORD_LINES: [string | string[] | RegExp, Keywords | ((m: RegExpMatchArr
   [/^このクリーチャーがシールドをブレイクする時、そのシールドを、?かわりに持ち主の山札の一番上に置く$/, { shieldBreakTo: 'deckTop' }],
   [/^このクリーチャーは、?パワー(\d+)以下のクリーチャーとのバトル中、?破壊されない$/, (m) => ({ battleImmuneVsPowerAtMost: Number(m[1]) })],
   [/^この呪文を唱えられなくする(?:効果|能力)を無視する$/, { ignoreCastLocksSelf: true }],
+  // G・リンク：出す時、つながるゴッドにリンクしてもよい（補足説明の決まった文はエンジンが処理する）
+  [/^(左|右|中央)G・リンク$/, (m) => ({ gLink: m[1] === '左' ? 'left' : m[1] === '右' ? 'right' : 'center' })],
   [/^相手のターンにこのクリーチャーが(?:自分の)?手札から捨てられる時、墓地に置くかわりに(?:バトルゾーンに)?出してもよい$/, { discardToBattle: 'may' }],
   // ササゲールと同じ：「このクリーチャーを召喚する時、自分のクリーチャーを1体破壊してもよい。そうしたら、このクリーチャーの召喚コストを4少なくする」
   [/^このクリーチャーを召喚する時、自分のクリーチャーを1体破壊してもよい。そうしたら、このクリーチャーの召喚コストを(\d+)少なくする$/, (m) => ({ sasageru: Number(m[1]) })],
@@ -1118,6 +1120,9 @@ function parseSentence(s: string): EffectDef[] | null {
     const mv: EffectDef = { type: 'move', target, to: 'under' };
     return toUnder[1] === 'く' ? [mv] : [{ type: 'optional', effects: [mv] }];
   }
+  // 「相手のゴッドのリンクを無限の数、外す」「すべてのゴッドのリンクを外す」
+  const unlinkM = s.match(/^(相手の|自分の|すべての)ゴッドのリンクを(?:すべて|無限の数)?、?外す$/);
+  if (unlinkM) return [{ type: 'godUnlink', who: unlinkM[1] === '相手の' ? 'opponent' : unlinkM[1] === '自分の' ? 'self' : 'any' }];
   // 「ターンの残りをとばす」
   if (/^(?:その)?ターンの残りをとばす$/.test(s)) return [{ type: 'skipRestOfTurn' }];
   if (/^(?:その)?ターンの残りをとばしてもよい$/.test(s)) return [{ type: 'optional', effects: [{ type: 'skipRestOfTurn' }] }];
@@ -3307,6 +3312,12 @@ function parseLine(line: string, options: string[], kind: 'creature' | 'spell' |
     const per: Quantity = { who: 'self', zone: 'battle', filter };
     out.statics.push({ type: 'powerMod', amount: n(perPA[2]), appliesTo: { owner: 'self', onlySelf: true }, attackingOnly: true, perCount: per });
     out.statics.push({ type: 'breakerBonus', amount: n(perPA[3]), perCount: per, unit: 1 });
+    return true;
+  }
+  // 「このクリーチャーがリンクしていれば、シールドをさらに1枚ブレイクする」
+  const linkedBreak = t.match(/^このクリーチャーが(?:G・)?リンクしていれば、シールドをさらに(\d+)(?:枚|つ)ブレイクする。?$/);
+  if (linkedBreak && kind === 'creature') {
+    out.statics.push({ type: 'grantKeyword', keywords: { extraBreak: n(linkedBreak[1]) }, appliesTo: { owner: 'self', onlySelf: true }, condition: { type: 'godLinked' } });
     return true;
   }
   // 「クリーチャーが攻撃する時、そのクリーチャーは可能であればクリーチャーを攻撃する」：すべてのクリーチャー
